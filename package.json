@@ -25,6 +25,7 @@
     "@anthropic-ai/sdk": "^0.78.0",
     "@mozilla/readability": "^0.6.0",
     "dompurify": "^3.3.2",
-    "linkedom": "^0.18.12"
+    "linkedom": "^0.18.12",
+    "openai": "^6.27.0"
   }
 }

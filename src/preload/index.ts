@@ -52,6 +52,10 @@ const api = {
     set: (key: string, value: any) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
   },
+  provider: {
+    list: () => ipcRenderer.invoke(Channels.PROVIDER_LIST),
+    update: (config: any) => ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
+  },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.invoke(Channels.WINDOW_MAXIMIZE),

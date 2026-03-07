@@ -29,8 +29,38 @@ export interface UIState {
   focusMode: boolean;
 }
 
-export interface VesselSettings {
+// --- Provider types ---
+
+export type ProviderId =
+  | 'anthropic'
+  | 'openai'
+  | 'openrouter'
+  | 'ollama'
+  | 'mistral'
+  | 'xai'
+  | 'google'
+  | 'custom';
+
+export interface ProviderConfig {
+  id: ProviderId;
   apiKey: string;
+  model: string;
+  baseUrl?: string;
+}
+
+export interface ProviderMeta {
+  id: ProviderId;
+  name: string;
+  defaultModel: string;
+  models: string[];
+  requiresApiKey: boolean;
+  defaultBaseUrl?: string;
+  apiKeyPlaceholder: string;
+  apiKeyHint: string;
+}
+
+export interface VesselSettings {
+  provider: ProviderConfig;
   defaultUrl: string;
   theme: 'dark';
   sidebarWidth: number;

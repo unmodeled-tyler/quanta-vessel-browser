@@ -28,6 +28,10 @@ export const Channels = {
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
 
+  // Provider
+  PROVIDER_LIST: 'provider:list',
+  PROVIDER_UPDATE: 'provider:update',
+
   // Window controls
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_MAXIMIZE: 'window:maximize',

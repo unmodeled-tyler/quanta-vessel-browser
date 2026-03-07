@@ -1,4 +1,4 @@
-import { ClaudeClient } from './claude-client';
+import type { AIProvider } from './provider';
 import {
   buildSummarizePrompt,
   buildQuestionPrompt,
@@ -9,14 +9,13 @@ import type { WebContents } from 'electron';
 
 export async function handleAIQuery(
   query: string,
-  claudeClient: ClaudeClient,
+  provider: AIProvider,
   activeWebContents: WebContents | undefined,
   onChunk: (text: string) => void,
   onEnd: () => void,
 ): Promise<void> {
   const lowerQuery = query.toLowerCase().trim();
 
-  // Detect intent
   const isSummarize =
     lowerQuery.startsWith('summarize') ||
     lowerQuery.startsWith('tldr') ||
@@ -45,12 +44,11 @@ export async function handleAIQuery(
         prompt = buildQuestionPrompt(pageContent, query);
       }
     } catch {
-      // Fall back to general if extraction fails
       prompt = buildGeneralPrompt(query);
     }
   } else {
     prompt = buildGeneralPrompt(query);
   }
 
-  await claudeClient.streamQuery(prompt.system, prompt.user, onChunk, onEnd);
+  await provider.streamQuery(prompt.system, prompt.user, onChunk, onEnd);
 }

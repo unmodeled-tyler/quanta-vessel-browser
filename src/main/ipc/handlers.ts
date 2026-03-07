@@ -1,23 +1,27 @@
-import { ipcMain, BaseWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { Channels } from '../../shared/channels';
-import { TabManager } from '../tabs/tab-manager';
-import { ClaudeClient } from '../ai/claude-client';
+import type { AIProvider } from '../ai/provider';
+import { createProvider } from '../ai/provider';
+import { PROVIDERS } from '../ai/providers';
 import { handleAIQuery } from '../ai/commands';
 import { extractContent } from '../content/extractor';
 import { generateReaderHTML } from '../content/reader-mode';
 import { loadSettings, setSetting } from '../config/settings';
 import { layoutViews, type WindowState } from '../window';
-import type { WebContentsView } from 'electron';
+import type { ProviderConfig } from '../../shared/types';
 
-export function registerIpcHandlers(
-  windowState: WindowState,
-): void {
+export function registerIpcHandlers(windowState: WindowState): void {
   const { tabManager, chromeView, mainWindow } = windowState;
-  let claudeClient: ClaudeClient | null = null;
 
+  // Initialize AI provider from saved settings
+  let provider: AIProvider | null = null;
   const settings = loadSettings();
-  if (settings.apiKey) {
-    claudeClient = new ClaudeClient(settings.apiKey);
+  if (settings.provider.apiKey || !PROVIDERS[settings.provider.id]?.requiresApiKey) {
+    try {
+      provider = createProvider(settings.provider);
+    } catch {
+      // Invalid config — leave null
+    }
   }
 
   // --- Tab handlers ---
@@ -57,10 +61,10 @@ export function registerIpcHandlers(
   // --- AI handlers ---
 
   ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
-    if (!claudeClient) {
+    if (!provider) {
       chromeView.webContents.send(
         Channels.AI_STREAM_CHUNK,
-        'Please set your Claude API key in settings (Ctrl+,)',
+        'No AI provider configured. Open settings (Ctrl+,) to set one up.',
       );
       chromeView.webContents.send(Channels.AI_STREAM_END);
       return;
@@ -71,7 +75,7 @@ export function registerIpcHandlers(
 
     await handleAIQuery(
       query,
-      claudeClient,
+      provider,
       activeWebContents,
       (chunk) => chromeView.webContents.send(Channels.AI_STREAM_CHUNK, chunk),
       () => chromeView.webContents.send(Channels.AI_STREAM_END),
@@ -79,7 +83,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.AI_CANCEL, () => {
-    claudeClient?.cancel();
+    provider?.cancel();
   });
 
   // --- Content handlers ---
@@ -134,15 +138,39 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_SET, (_, key: string, value: any) => {
     setSetting(key as any, value);
-    if (key === 'apiKey') {
-      if (value) {
-        if (claudeClient) {
-          claudeClient.updateApiKey(value);
-        } else {
-          claudeClient = new ClaudeClient(value);
+    // Recreate provider when provider config changes
+    if (key === 'provider') {
+      const config = value as ProviderConfig;
+      if (config.apiKey || !PROVIDERS[config.id]?.requiresApiKey) {
+        try {
+          provider = createProvider(config);
+        } catch {
+          provider = null;
         }
+      } else {
+        provider = null;
       }
     }
+  });
+
+  // --- Provider handlers ---
+
+  ipcMain.handle(Channels.PROVIDER_LIST, () => {
+    return PROVIDERS;
+  });
+
+  ipcMain.handle(Channels.PROVIDER_UPDATE, (_, config: ProviderConfig) => {
+    setSetting('provider', config);
+    if (config.apiKey || !PROVIDERS[config.id]?.requiresApiKey) {
+      try {
+        provider = createProvider(config);
+      } catch {
+        provider = null;
+      }
+    } else {
+      provider = null;
+    }
+    return { ok: true };
   });
 
   // --- Window controls ---

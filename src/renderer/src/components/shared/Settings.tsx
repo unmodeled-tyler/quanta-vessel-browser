@@ -1,18 +1,61 @@
-import { createSignal, Show, onMount, type Component } from 'solid-js';
+import { createMemo, createSignal, Show, onMount, type Component } from 'solid-js';
+import type { ProviderConfig, ProviderId, ProviderMeta } from '../../../../shared/types';
 import { useUI } from '../../stores/ui';
+
+const DEFAULT_PROVIDER: ProviderConfig = {
+  id: 'anthropic',
+  apiKey: '',
+  model: 'claude-sonnet-4-20250514',
+  baseUrl: '',
+};
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
-  const [apiKey, setApiKey] = createSignal('');
+  const [providerMap, setProviderMap] = createSignal<Record<ProviderId, ProviderMeta>>(
+    {} as Record<ProviderId, ProviderMeta>,
+  );
+  const [config, setConfig] = createSignal<ProviderConfig>(DEFAULT_PROVIDER);
   const [saved, setSaved] = createSignal(false);
 
   onMount(async () => {
-    const settings = await window.vessel.settings.get();
-    setApiKey(settings.apiKey || '');
+    const [settings, providers] = await Promise.all([
+      window.vessel.settings.get(),
+      window.vessel.provider.list(),
+    ]);
+
+    setProviderMap(providers as Record<ProviderId, ProviderMeta>);
+    setConfig({
+      ...DEFAULT_PROVIDER,
+      ...settings.provider,
+      baseUrl: settings.provider?.baseUrl || '',
+    });
   });
 
+  const providerEntries = createMemo(() => Object.values(providerMap()));
+  const activeProvider = createMemo(() => providerMap()[config().id]);
+  const showBaseUrl = createMemo(
+    () => config().id === 'custom' || Boolean(activeProvider()?.defaultBaseUrl),
+  );
+
+  const updateConfig = (patch: Partial<ProviderConfig>) => {
+    setConfig((current) => ({
+      ...current,
+      ...patch,
+    }));
+  };
+
+  const handleProviderChange = (id: ProviderId) => {
+    const meta = providerMap()[id];
+    setConfig({
+      id,
+      apiKey: '',
+      model: meta?.defaultModel || '',
+      baseUrl: meta?.defaultBaseUrl || '',
+    });
+  };
+
   const handleSave = async () => {
-    await window.vessel.settings.set('apiKey', apiKey());
+    await window.vessel.provider.update(config());
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -29,22 +72,75 @@ const Settings: Component = () => {
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
         >
-          <h2 class="settings-title">Settings</h2>
+          <h2 class="settings-title">AI Settings</h2>
 
           <div class="settings-field">
-            <label class="settings-label">Claude API Key</label>
+            <label class="settings-label" for="provider-select">
+              Provider
+            </label>
+            <select
+              id="provider-select"
+              class="settings-input settings-select"
+              value={config().id}
+              onChange={(e) => handleProviderChange(e.currentTarget.value as ProviderId)}
+            >
+              <For each={providerEntries()}>
+                {(provider) => <option value={provider.id}>{provider.name}</option>}
+              </For>
+            </select>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="model-input">
+              Model
+            </label>
             <input
+              id="model-input"
               class="settings-input"
-              type="password"
-              value={apiKey()}
-              onInput={(e) => setApiKey(e.currentTarget.value)}
-              placeholder="sk-ant-..."
+              list="provider-models"
+              value={config().model}
+              onInput={(e) => updateConfig({ model: e.currentTarget.value })}
+              placeholder={activeProvider()?.defaultModel || 'Enter model name'}
               spellcheck={false}
             />
-            <p class="settings-hint">
-              Get your key from console.anthropic.com
-            </p>
+            <datalist id="provider-models">
+              <For each={activeProvider()?.models || []}>
+                {(model) => <option value={model} />}
+              </For>
+            </datalist>
           </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="api-key-input">
+              {activeProvider()?.requiresApiKey ? 'API Key' : 'API Key (Optional)'}
+            </label>
+            <input
+              id="api-key-input"
+              class="settings-input"
+              type="password"
+              value={config().apiKey}
+              onInput={(e) => updateConfig({ apiKey: e.currentTarget.value })}
+              placeholder={activeProvider()?.apiKeyPlaceholder || 'Enter API key'}
+              spellcheck={false}
+            />
+            <p class="settings-hint">{activeProvider()?.apiKeyHint}</p>
+          </div>
+
+          <Show when={showBaseUrl()}>
+            <div class="settings-field">
+              <label class="settings-label" for="base-url-input">
+                Base URL
+              </label>
+              <input
+                id="base-url-input"
+                class="settings-input"
+                value={config().baseUrl || ''}
+                onInput={(e) => updateConfig({ baseUrl: e.currentTarget.value })}
+                placeholder={activeProvider()?.defaultBaseUrl || 'https://...'}
+                spellcheck={false}
+              />
+            </div>
+          </Show>
 
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
@@ -92,6 +188,9 @@ const Settings: Component = () => {
           color: var(--text-primary);
           font-size: 13px;
           font-family: var(--font-mono);
+        }
+        .settings-select {
+          appearance: none;
         }
         .settings-input:focus {
           border-color: var(--accent-primary);
