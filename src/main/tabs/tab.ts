@@ -1,6 +1,6 @@
-import { WebContentsView } from 'electron';
-import path from 'path';
-import type { TabState } from '../../shared/types';
+import { WebContentsView } from "electron";
+import path from "path";
+import type { TabState } from "../../shared/types";
 
 export class Tab {
   readonly id: string;
@@ -14,7 +14,7 @@ export class Tab {
 
     this.view = new WebContentsView({
       webPreferences: {
-        preload: path.join(__dirname, '../preload/content-script.js'),
+        preload: path.join(__dirname, "../preload/content-script.js"),
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -23,9 +23,9 @@ export class Tab {
 
     this._state = {
       id,
-      title: 'New Tab',
-      url: url || 'about:blank',
-      favicon: '',
+      title: "New Tab",
+      url: url || "about:blank",
+      favicon: "",
       isLoading: false,
       canGoBack: false,
       canGoForward: false,
@@ -40,34 +40,35 @@ export class Tab {
 
   private setupListeners(): void {
     const wc = this.view.webContents;
+    const history = wc.navigationHistory;
 
-    wc.on('page-title-updated', (_, title) => {
+    wc.on("page-title-updated", (_, title) => {
       this._state.title = title;
       this.onChange();
     });
 
-    wc.on('did-start-loading', () => {
+    wc.on("did-start-loading", () => {
       this._state.isLoading = true;
       this.onChange();
     });
 
-    wc.on('did-stop-loading', () => {
+    wc.on("did-stop-loading", () => {
       this._state.isLoading = false;
       this._state.url = wc.getURL();
-      this._state.canGoBack = wc.canGoBack();
-      this._state.canGoForward = wc.canGoForward();
+      this._state.canGoBack = history.canGoBack();
+      this._state.canGoForward = history.canGoForward();
       this.onChange();
     });
 
-    wc.on('did-navigate', () => {
+    wc.on("did-navigate", () => {
       this._state.url = wc.getURL();
-      this._state.canGoBack = wc.canGoBack();
-      this._state.canGoForward = wc.canGoForward();
+      this._state.canGoBack = history.canGoBack();
+      this._state.canGoForward = history.canGoForward();
       this.onChange();
     });
 
-    wc.on('page-favicon-updated', (_, favicons) => {
-      this._state.favicon = favicons[0] || '';
+    wc.on("page-favicon-updated", (_, favicons) => {
+      this._state.favicon = favicons[0] || "";
       this.onChange();
     });
   }
@@ -78,9 +79,9 @@ export class Tab {
 
   navigate(url: string): void {
     // Auto-add protocol if missing
-    if (!/^https?:\/\//i.test(url) && !url.startsWith('about:')) {
-      if (url.includes('.') && !url.includes(' ')) {
-        url = 'https://' + url;
+    if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
+      if (url.includes(".") && !url.includes(" ")) {
+        url = "https://" + url;
       } else {
         url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
       }
@@ -89,14 +90,14 @@ export class Tab {
   }
 
   goBack(): void {
-    if (this.view.webContents.canGoBack()) {
-      this.view.webContents.goBack();
+    if (this.view.webContents.navigationHistory.canGoBack()) {
+      this.view.webContents.navigationHistory.goBack();
     }
   }
 
   goForward(): void {
-    if (this.view.webContents.canGoForward()) {
-      this.view.webContents.goForward();
+    if (this.view.webContents.navigationHistory.canGoForward()) {
+      this.view.webContents.navigationHistory.goForward();
     }
   }
 

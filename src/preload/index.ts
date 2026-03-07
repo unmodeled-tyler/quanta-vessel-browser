@@ -1,5 +1,11 @@
-import { contextBridge, ipcRenderer } from 'electron';
-import { Channels } from '../shared/channels';
+import { contextBridge, ipcRenderer } from "electron";
+import { Channels } from "../shared/channels";
+import type {
+  ProviderConfig,
+  ProviderMeta,
+  ProviderId,
+  ProviderUpdateResult,
+} from "../shared/types";
 
 const api = {
   tabs: {
@@ -32,8 +38,7 @@ const api = {
     onStreamEnd: (cb: () => void): (() => void) => {
       const handler = () => cb();
       ipcRenderer.on(Channels.AI_STREAM_END, handler);
-      return () =>
-        ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
+      return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
   },
@@ -53,8 +58,10 @@ const api = {
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
   },
   provider: {
-    list: () => ipcRenderer.invoke(Channels.PROVIDER_LIST),
-    update: (config: any) => ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
+    list: (): Promise<Record<ProviderId, ProviderMeta>> =>
+      ipcRenderer.invoke(Channels.PROVIDER_LIST),
+    update: (config: ProviderConfig): Promise<ProviderUpdateResult> =>
+      ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),
@@ -63,6 +70,6 @@ const api = {
   },
 };
 
-contextBridge.exposeInMainWorld('vessel', api);
+contextBridge.exposeInMainWorld("vessel", api);
 
 export type VesselAPI = typeof api;

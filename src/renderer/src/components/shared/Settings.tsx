@@ -1,21 +1,36 @@
-import { createMemo, createSignal, Show, onMount, type Component } from 'solid-js';
-import type { ProviderConfig, ProviderId, ProviderMeta } from '../../../../shared/types';
-import { useUI } from '../../stores/ui';
+import {
+  createMemo,
+  createSignal,
+  For,
+  Show,
+  onMount,
+  type Component,
+} from "solid-js";
+import type {
+  ProviderConfig,
+  ProviderId,
+  ProviderMeta,
+  ProviderUpdateResult,
+} from "../../../../shared/types";
+import { useUI } from "../../stores/ui";
 
 const DEFAULT_PROVIDER: ProviderConfig = {
-  id: 'anthropic',
-  apiKey: '',
-  model: 'claude-sonnet-4-20250514',
-  baseUrl: '',
+  id: "anthropic",
+  apiKey: "",
+  model: "claude-sonnet-4-20250514",
+  baseUrl: "",
 };
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
-  const [providerMap, setProviderMap] = createSignal<Record<ProviderId, ProviderMeta>>(
-    {} as Record<ProviderId, ProviderMeta>,
-  );
+  const [providerMap, setProviderMap] = createSignal<
+    Record<ProviderId, ProviderMeta>
+  >({} as Record<ProviderId, ProviderMeta>);
   const [config, setConfig] = createSignal<ProviderConfig>(DEFAULT_PROVIDER);
-  const [saved, setSaved] = createSignal(false);
+  const [status, setStatus] = createSignal<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
 
   onMount(async () => {
     const [settings, providers] = await Promise.all([
@@ -27,17 +42,18 @@ const Settings: Component = () => {
     setConfig({
       ...DEFAULT_PROVIDER,
       ...settings.provider,
-      baseUrl: settings.provider?.baseUrl || '',
+      baseUrl: settings.provider?.baseUrl || "",
     });
   });
 
   const providerEntries = createMemo(() => Object.values(providerMap()));
   const activeProvider = createMemo(() => providerMap()[config().id]);
   const showBaseUrl = createMemo(
-    () => config().id === 'custom' || Boolean(activeProvider()?.defaultBaseUrl),
+    () => config().id === "custom" || Boolean(activeProvider()?.defaultBaseUrl),
   );
 
   const updateConfig = (patch: Partial<ProviderConfig>) => {
+    setStatus(null);
     setConfig((current) => ({
       ...current,
       ...patch,
@@ -46,22 +62,33 @@ const Settings: Component = () => {
 
   const handleProviderChange = (id: ProviderId) => {
     const meta = providerMap()[id];
+    setStatus(null);
     setConfig({
       id,
-      apiKey: '',
-      model: meta?.defaultModel || '',
-      baseUrl: meta?.defaultBaseUrl || '',
+      apiKey: "",
+      model: meta?.defaultModel || "",
+      baseUrl: meta?.defaultBaseUrl || "",
     });
   };
 
   const handleSave = async () => {
-    await window.vessel.provider.update(config());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    const result = (await window.vessel.provider.update(
+      config(),
+    )) as ProviderUpdateResult;
+
+    if (!result.ok) {
+      setStatus({
+        kind: "error",
+        text: result.error || "Failed to save AI settings.",
+      });
+      return;
+    }
+
+    setStatus({ kind: "success", text: "Saved." });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') closeSettings();
+    if (e.key === "Escape") closeSettings();
   };
 
   return (
@@ -82,10 +109,14 @@ const Settings: Component = () => {
               id="provider-select"
               class="settings-input settings-select"
               value={config().id}
-              onChange={(e) => handleProviderChange(e.currentTarget.value as ProviderId)}
+              onChange={(e) =>
+                handleProviderChange(e.currentTarget.value as ProviderId)
+              }
             >
               <For each={providerEntries()}>
-                {(provider) => <option value={provider.id}>{provider.name}</option>}
+                {(provider) => (
+                  <option value={provider.id}>{provider.name}</option>
+                )}
               </For>
             </select>
           </div>
@@ -100,7 +131,7 @@ const Settings: Component = () => {
               list="provider-models"
               value={config().model}
               onInput={(e) => updateConfig({ model: e.currentTarget.value })}
-              placeholder={activeProvider()?.defaultModel || 'Enter model name'}
+              placeholder={activeProvider()?.defaultModel || "Enter model name"}
               spellcheck={false}
             />
             <datalist id="provider-models">
@@ -112,7 +143,9 @@ const Settings: Component = () => {
 
           <div class="settings-field">
             <label class="settings-label" for="api-key-input">
-              {activeProvider()?.requiresApiKey ? 'API Key' : 'API Key (Optional)'}
+              {activeProvider()?.requiresApiKey
+                ? "API Key"
+                : "API Key (Optional)"}
             </label>
             <input
               id="api-key-input"
@@ -120,7 +153,9 @@ const Settings: Component = () => {
               type="password"
               value={config().apiKey}
               onInput={(e) => updateConfig({ apiKey: e.currentTarget.value })}
-              placeholder={activeProvider()?.apiKeyPlaceholder || 'Enter API key'}
+              placeholder={
+                activeProvider()?.apiKeyPlaceholder || "Enter API key"
+              }
               spellcheck={false}
             />
             <p class="settings-hint">{activeProvider()?.apiKeyHint}</p>
@@ -134,9 +169,11 @@ const Settings: Component = () => {
               <input
                 id="base-url-input"
                 class="settings-input"
-                value={config().baseUrl || ''}
-                onInput={(e) => updateConfig({ baseUrl: e.currentTarget.value })}
-                placeholder={activeProvider()?.defaultBaseUrl || 'https://...'}
+                value={config().baseUrl || ""}
+                onInput={(e) =>
+                  updateConfig({ baseUrl: e.currentTarget.value })
+                }
+                placeholder={activeProvider()?.defaultBaseUrl || "https://..."}
                 spellcheck={false}
               />
             </div>
@@ -144,12 +181,26 @@ const Settings: Component = () => {
 
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
-              {saved() ? 'Saved!' : 'Save'}
+              Save
             </button>
             <button class="settings-close" onClick={closeSettings}>
               Close
             </button>
           </div>
+
+          <Show when={status()}>
+            {(currentStatus) => (
+              <p
+                class="settings-status"
+                classList={{
+                  success: currentStatus().kind === "success",
+                  error: currentStatus().kind === "error",
+                }}
+              >
+                {currentStatus().text}
+              </p>
+            )}
+          </Show>
         </div>
       </div>
 
@@ -206,6 +257,16 @@ const Settings: Component = () => {
           gap: 8px;
           justify-content: flex-end;
           margin-top: 20px;
+        }
+        .settings-status {
+          margin-top: 12px;
+          font-size: 12px;
+        }
+        .settings-status.success {
+          color: #84d19a;
+        }
+        .settings-status.error {
+          color: #ff8e8e;
         }
         .settings-save, .settings-close {
           height: 32px;

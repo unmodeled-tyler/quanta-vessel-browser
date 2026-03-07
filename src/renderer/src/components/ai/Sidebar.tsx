@@ -1,13 +1,25 @@
-import { createSignal, For, Show, createEffect, type Component } from 'solid-js';
-import { useAI } from '../../stores/ai';
-import { useUI } from '../../stores/ui';
-import './ai.css';
+import {
+  createSignal,
+  For,
+  Show,
+  createEffect,
+  type Component,
+} from "solid-js";
+import { useAI } from "../../stores/ai";
+import { useUI } from "../../stores/ui";
+import "./ai.css";
 
 const Sidebar: Component = () => {
   const { messages, streamingText, isStreaming, query, cancel, clearHistory } =
     useAI();
-  const { sidebarOpen, sidebarWidth, resizeSidebar, commitResize } = useUI();
-  const [input, setInput] = createSignal('');
+  const {
+    sidebarOpen,
+    sidebarWidth,
+    resizeSidebar,
+    commitResize,
+    toggleSidebar,
+  } = useUI();
+  const [input, setInput] = createSignal("");
   const [isDragging, setIsDragging] = createSignal(false);
   let messagesEndRef: HTMLDivElement | undefined;
 
@@ -15,19 +27,25 @@ const Sidebar: Component = () => {
   createEffect(() => {
     messages();
     streamingText();
-    messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef?.scrollIntoView({ behavior: "smooth" });
   });
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     const val = input().trim();
     if (!val || isStreaming()) return;
-    setInput('');
+    setInput("");
     await query(val);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void toggleSidebar();
+      return;
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -45,16 +63,16 @@ const Sidebar: Component = () => {
     const onMouseUp = () => {
       setIsDragging(false);
       commitResize();
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
 
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
   };
 
   return (
@@ -67,9 +85,36 @@ const Sidebar: Component = () => {
         />
         <div class="sidebar-header">
           <span class="sidebar-title">Vessel AI</span>
-          <button class="sidebar-clear" onClick={clearHistory} title="Clear">
-            Clear
-          </button>
+          <div class="sidebar-header-actions">
+            <button
+              class="sidebar-clear"
+              onClick={clearHistory}
+              title="Clear chat"
+            >
+              Clear
+            </button>
+            <button
+              class="sidebar-close"
+              onClick={() => void toggleSidebar()}
+              title="Close AI chat (Esc)"
+              aria-label="Close AI chat"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3.5 3.5l7 7M10.5 3.5l-7 7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="sidebar-messages">

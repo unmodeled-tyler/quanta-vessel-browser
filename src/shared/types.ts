@@ -19,7 +19,7 @@ export interface PageContent {
 }
 
 export interface AIMessage {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -32,14 +32,14 @@ export interface UIState {
 // --- Provider types ---
 
 export type ProviderId =
-  | 'anthropic'
-  | 'openai'
-  | 'openrouter'
-  | 'ollama'
-  | 'mistral'
-  | 'xai'
-  | 'google'
-  | 'custom';
+  | "anthropic"
+  | "openai"
+  | "openrouter"
+  | "ollama"
+  | "mistral"
+  | "xai"
+  | "google"
+  | "custom";
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -59,9 +59,14 @@ export interface ProviderMeta {
   apiKeyHint: string;
 }
 
+export interface ProviderUpdateResult {
+  ok: boolean;
+  error?: string;
+}
+
 export interface VesselSettings {
   provider: ProviderConfig;
   defaultUrl: string;
-  theme: 'dark';
+  theme: "dark";
   sidebarWidth: number;
 }

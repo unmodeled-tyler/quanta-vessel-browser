@@ -1,28 +1,50 @@
-import { ipcMain } from 'electron';
-import { Channels } from '../../shared/channels';
-import type { AIProvider } from '../ai/provider';
-import { createProvider } from '../ai/provider';
-import { PROVIDERS } from '../ai/providers';
-import { handleAIQuery } from '../ai/commands';
-import { extractContent } from '../content/extractor';
-import { generateReaderHTML } from '../content/reader-mode';
-import { loadSettings, setSetting } from '../config/settings';
-import { layoutViews, type WindowState } from '../window';
-import type { ProviderConfig } from '../../shared/types';
+import { ipcMain } from "electron";
+import { Channels } from "../../shared/channels";
+import type { AIProvider } from "../ai/provider";
+import {
+  createProvider,
+  sanitizeProviderConfig,
+  validateProviderConfig,
+} from "../ai/provider";
+import { PROVIDERS } from "../ai/providers";
+import { handleAIQuery } from "../ai/commands";
+import { extractContent } from "../content/extractor";
+import { generateReaderHTML } from "../content/reader-mode";
+import { loadSettings, setSetting } from "../config/settings";
+import { layoutViews, type WindowState } from "../window";
+import type { ProviderConfig, ProviderUpdateResult } from "../../shared/types";
 
 export function registerIpcHandlers(windowState: WindowState): void {
   const { tabManager, chromeView, mainWindow } = windowState;
 
-  // Initialize AI provider from saved settings
   let provider: AIProvider | null = null;
-  const settings = loadSettings();
-  if (settings.provider.apiKey || !PROVIDERS[settings.provider.id]?.requiresApiKey) {
-    try {
-      provider = createProvider(settings.provider);
-    } catch {
-      // Invalid config — leave null
+  let providerError =
+    "No AI provider configured. Open settings (Ctrl+,) to set one up.";
+
+  const refreshProvider = (config: ProviderConfig): string | null => {
+    const normalized = sanitizeProviderConfig(config);
+    const validationError = validateProviderConfig(normalized);
+    if (validationError) {
+      provider = null;
+      providerError = validationError;
+      return validationError;
     }
-  }
+
+    try {
+      provider = createProvider(normalized);
+      providerError = "";
+      return null;
+    } catch (error) {
+      provider = null;
+      providerError =
+        error instanceof Error
+          ? error.message
+          : "Failed to initialize the selected AI provider.";
+      return providerError;
+    }
+  };
+
+  refreshProvider(loadSettings().provider);
 
   // --- Tab handlers ---
 
@@ -62,10 +84,7 @@ export function registerIpcHandlers(windowState: WindowState): void {
 
   ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
     if (!provider) {
-      chromeView.webContents.send(
-        Channels.AI_STREAM_CHUNK,
-        'No AI provider configured. Open settings (Ctrl+,) to set one up.',
-      );
+      chromeView.webContents.send(Channels.AI_STREAM_CHUNK, providerError);
       chromeView.webContents.send(Channels.AI_STREAM_END);
       return;
     }
@@ -119,7 +138,7 @@ export function registerIpcHandlers(windowState: WindowState): void {
   ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
-    setSetting('sidebarWidth', clamped);
+    setSetting("sidebarWidth", clamped);
     layoutViews(windowState);
     return clamped;
   });
@@ -138,18 +157,8 @@ export function registerIpcHandlers(windowState: WindowState): void {
 
   ipcMain.handle(Channels.SETTINGS_SET, (_, key: string, value: any) => {
     setSetting(key as any, value);
-    // Recreate provider when provider config changes
-    if (key === 'provider') {
-      const config = value as ProviderConfig;
-      if (config.apiKey || !PROVIDERS[config.id]?.requiresApiKey) {
-        try {
-          provider = createProvider(config);
-        } catch {
-          provider = null;
-        }
-      } else {
-        provider = null;
-      }
+    if (key === "provider") {
+      refreshProvider(value as ProviderConfig);
     }
   });
 
@@ -159,19 +168,20 @@ export function registerIpcHandlers(windowState: WindowState): void {
     return PROVIDERS;
   });
 
-  ipcMain.handle(Channels.PROVIDER_UPDATE, (_, config: ProviderConfig) => {
-    setSetting('provider', config);
-    if (config.apiKey || !PROVIDERS[config.id]?.requiresApiKey) {
-      try {
-        provider = createProvider(config);
-      } catch {
-        provider = null;
+  ipcMain.handle(
+    Channels.PROVIDER_UPDATE,
+    (_, config: ProviderConfig): ProviderUpdateResult => {
+      const normalized = sanitizeProviderConfig(config);
+      setSetting("provider", normalized);
+      const error = refreshProvider(normalized);
+
+      if (error) {
+        return { ok: false, error };
       }
-    } else {
-      provider = null;
-    }
-    return { ok: true };
-  });
+
+      return { ok: true };
+    },
+  );
 
   // --- Window controls ---
 
