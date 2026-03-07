@@ -9,13 +9,19 @@ export async function extractContent(
       if (window.__vessel_extractContent) {
         return window.__vessel_extractContent();
       }
+      // Fallback to basic extraction
       return {
         title: document.title,
-        content: document.body.innerText,
+        content: document.body?.innerText || '',
         htmlContent: '',
         byline: '',
         excerpt: '',
         url: window.location.href,
+        headings: [],
+        navigation: [],
+        interactiveElements: [],
+        forms: [],
+        landmarks: [],
       };
     })()
   `);

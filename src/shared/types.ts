@@ -9,6 +9,30 @@ export interface TabState {
   isReaderMode: boolean;
 }
 
+export interface InteractiveElement {
+  type: 'button' | 'link' | 'input' | 'select' | 'textarea';
+  text?: string;
+  label?: string;
+  href?: string;
+  inputType?: string;
+  placeholder?: string;
+  required?: boolean;
+  context?: string;
+  selector?: string;
+}
+
+export interface HeadingStructure {
+  level: number;
+  text: string;
+}
+
+export interface SemanticSection {
+  type: string;
+  role?: string;
+  label?: string;
+  elements: InteractiveElement[];
+}
+
 export interface PageContent {
   title: string;
   content: string;
@@ -16,6 +40,21 @@ export interface PageContent {
   byline: string;
   excerpt: string;
   url: string;
+  // New structured context fields
+  headings: HeadingStructure[];
+  navigation: InteractiveElement[];
+  interactiveElements: InteractiveElement[];
+  forms: Array<{
+    id?: string;
+    action?: string;
+    method?: string;
+    fields: InteractiveElement[];
+  }>;
+  landmarks: Array<{
+    role: string;
+    label?: string;
+    text?: string;
+  }>;
 }
 
 export interface AIMessage {
