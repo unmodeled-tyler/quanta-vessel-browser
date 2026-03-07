@@ -24,9 +24,10 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
   
   const items = limitItems(elements, 50);
   
-  return items.map((el, index) => {
-    const parts: string[] = [`${index + 1}.`];
-    
+  return items.map((el) => {
+    const prefix = el.index ? `[#${el.index}]` : '-';
+    const parts: string[] = [prefix];
+
     if (el.type === 'button') {
       parts.push(`[${el.text || 'Button'}]`);
       parts.push('button');
@@ -46,11 +47,11 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
       parts.push(`[${el.label || 'Text Area'}]`);
       parts.push('textarea');
     }
-    
+
     if (el.context && el.context !== 'content') {
       parts.push(`(${el.context})`);
     }
-    
+
     return parts.join(' ');
   }).join('\n');
 }
@@ -77,8 +78,9 @@ function formatNavigation(nav: InteractiveElement[]): string {
   
   const items = limitItems(nav, 20);
   
-  return items.map((item, index) => {
-    return `${index + 1}. [${item.text}] → ${item.href}`;
+  return items.map((item) => {
+    const prefix = item.index ? `[#${item.index}]` : '-';
+    return `${prefix} [${item.text}] → ${item.href}`;
   }).join('\n');
 }
 
@@ -97,7 +99,7 @@ function formatForms(forms: PageContent['forms']): string {
     if (form.fields.length > 0) {
       parts.push('  Fields:');
       form.fields.forEach((field) => {
-        const fieldParts: string[] = ['    -'];
+        const fieldParts: string[] = [field.index ? `    [#${field.index}]` : '    -'];
         
         if (field.type === 'button') {
           fieldParts.push(`[${field.text || 'Submit'}]`);
@@ -141,7 +143,7 @@ function formatLandmarks(landmarks: PageContent['landmarks']): string {
 /**
  * Build the structured context section
  */
-function buildStructuredContext(page: PageContent): string {
+export function buildStructuredContext(page: PageContent): string {
   const sections: string[] = [];
   
   // Page Overview
@@ -244,7 +246,7 @@ export function buildGeneralPrompt(query: string): {
 } {
   return {
     system:
-      'You are Vessel, an AI browsing assistant. Help the user with their browsing needs. Be concise and helpful.',
+      'You are Vessel, an AI assistant embedded in a web browser. You can normally see the content of the page the user is viewing, but no page is currently active. Help the user with their browsing needs. Be concise and helpful.',
     user: query,
   };
 }

@@ -110,6 +110,7 @@ export function registerIpcHandlers(windowState: WindowState): void {
       activeWebContents,
       (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
       () => sendToRendererViews(Channels.AI_STREAM_END),
+      tabManager,
     );
   });
 

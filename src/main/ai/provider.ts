@@ -13,6 +13,15 @@ export interface AIProvider {
     onEnd: () => void,
   ): Promise<void>;
 
+  streamAgentQuery?(
+    systemPrompt: string,
+    userMessage: string,
+    tools: any[],
+    onChunk: (text: string) => void,
+    onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
+    onEnd: () => void,
+  ): Promise<void>;
+
   cancel(): void;
 }
 

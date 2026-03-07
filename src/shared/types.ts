@@ -19,6 +19,7 @@ export interface InteractiveElement {
   required?: boolean;
   context?: string;
   selector?: string;
+  index?: number;
 }
 
 export interface HeadingStructure {

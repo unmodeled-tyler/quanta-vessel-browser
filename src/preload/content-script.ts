@@ -14,6 +14,49 @@ interface InteractiveElement {
   required?: boolean;
   context?: string;
   selector?: string;
+  index?: number;
+}
+
+/**
+ * Generate a unique CSS selector for an element
+ */
+function generateSelector(el: Element): string {
+  if (el.id) return `#${CSS.escape(el.id)}`;
+
+  const testId = el.getAttribute('data-testid');
+  if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+
+  // Build a path-based selector
+  const parts: string[] = [];
+  let current: Element | null = el;
+  for (let depth = 0; current && current !== document.body && depth < 4; depth++) {
+    const tag = current.tagName.toLowerCase();
+    const parent = current.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(c => c.tagName === current!.tagName);
+      if (siblings.length > 1) {
+        const idx = siblings.indexOf(current) + 1;
+        parts.unshift(`${tag}:nth-of-type(${idx})`);
+      } else {
+        parts.unshift(tag);
+      }
+    } else {
+      parts.unshift(tag);
+    }
+    current = parent;
+  }
+  return parts.join(' > ');
+}
+
+// Global element index counter, reset on each extraction
+let elementIndex = 0;
+// Selector map stored on window for agent lookups
+const elementSelectors: Record<number, string> = {};
+
+function assignIndex(el: Element): number {
+  elementIndex++;
+  elementSelectors[elementIndex] = generateSelector(el);
+  return elementIndex;
 }
 
 interface HeadingStructure {
@@ -147,15 +190,17 @@ function extractNavigation(): InteractiveElement[] {
     links.forEach((link) => {
       const text = link.textContent?.trim();
       const href = link.getAttribute('href') || '';
-      
+
       // Skip empty links and anchors
       if (!text || href.startsWith('#')) return;
-      
+
       navigation.push({
         type: 'link',
-        text: text.slice(0, 100), // Limit length
+        text: text.slice(0, 100),
         href: href.slice(0, 500),
         context: 'nav',
+        selector: generateSelector(link),
+        index: assignIndex(link),
       });
     });
   });
@@ -182,51 +227,55 @@ function extractInteractiveElements(): InteractiveElement[] {
   
   // Process buttons
   buttons.forEach((btn) => {
-    const text = btn.textContent?.trim() || 
-                 btn.getAttribute('value') || 
+    const text = btn.textContent?.trim() ||
+                 btn.getAttribute('value') ||
                  btn.getAttribute('aria-label') ||
                  'Button';
     elements.push({
       type: 'button',
       text: text.slice(0, 100),
       context: getElementContext(btn),
+      selector: generateSelector(btn),
+      index: assignIndex(btn),
     });
   });
-  
+
   // Process links (non-nav)
   links.forEach((link) => {
     const text = link.textContent?.trim();
     const href = link.getAttribute('href') || '';
-    
+
     // Skip if already in navigation or is an anchor
     if (!text || href.startsWith('#')) return;
-    
+
     const context = getElementContext(link);
     if (context === 'nav') return; // Skip nav links
-    
+
     elements.push({
       type: 'link',
       text: text.slice(0, 100),
       href: href.slice(0, 500),
       context,
+      selector: generateSelector(link),
+      index: assignIndex(link),
     });
   });
-  
+
   // Process inputs
   inputs.forEach((input) => {
     const tag = input.tagName.toLowerCase();
     const inputEl = input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-    
-    const element: InteractiveElement = {
+
+    elements.push({
       type: tag === 'select' ? 'select' : tag === 'textarea' ? 'textarea' : 'input',
       label: getInputLabel(inputEl)?.slice(0, 100),
       inputType: inputEl.getAttribute('type') || undefined,
       placeholder: inputEl.getAttribute('placeholder') || undefined,
       required: inputEl.hasAttribute('required') || undefined,
       context: getElementContext(input),
-    };
-    
-    elements.push(element);
+      selector: generateSelector(input),
+      index: assignIndex(input),
+    });
   });
   
   return elements;
@@ -248,16 +297,18 @@ function extractForms(): Array<{ id?: string; action?: string; method?: string; 
     inputs.forEach((input) => {
       const inputEl = input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
       const tag = input.tagName.toLowerCase();
-      
+
       fields.push({
         type: tag === 'select' ? 'select' : tag === 'textarea' ? 'textarea' : 'input',
         label: getInputLabel(inputEl)?.slice(0, 100),
         inputType: inputEl.getAttribute('type') || undefined,
         placeholder: inputEl.getAttribute('placeholder') || undefined,
         required: inputEl.hasAttribute('required') || undefined,
+        selector: generateSelector(input),
+        index: assignIndex(input),
       });
     });
-    
+
     // Get submit buttons
     const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
     submitButtons.forEach((btn) => {
@@ -265,6 +316,8 @@ function extractForms(): Array<{ id?: string; action?: string; method?: string; 
       fields.push({
         type: 'button',
         text: text.slice(0, 100),
+        selector: generateSelector(btn),
+        index: assignIndex(btn),
       });
     });
     
@@ -329,6 +382,10 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
  */
 (window as any).__vessel_extractContent = (): PageContent => {
   try {
+    // Reset element index counter for fresh extraction
+    elementIndex = 0;
+    for (const key in elementSelectors) delete elementSelectors[key];
+
     // Get readability content
     const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
@@ -341,6 +398,9 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
     const forms = extractForms();
     const landmarks = extractLandmarks();
     
+    // Store selector map for agent element lookups
+    (window as any).__vessel_elementSelectors = { ...elementSelectors };
+
     return {
       title: article?.title || document.title,
       content: article?.textContent || document.body?.innerText || '',
