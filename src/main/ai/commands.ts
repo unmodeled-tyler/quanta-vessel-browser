@@ -61,9 +61,10 @@ ${recentCheckpoints || "- none"}
 
 Instructions:
 - You can see the page the user is viewing. The content above is from the page.
-- Use tools to interact with the page when asked to do something (click, navigate, type, scroll).
+- Use tools to interact with the page when asked to do something (navigate, click, type, select options, submit forms, press keys, scroll).
 - Use list_tabs before switching context across multiple tabs.
 - Create a checkpoint before risky multi-step flows or before leaving an important state.
+- Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.
 - After clicking or navigating, use read_page to see the updated content.
 - Reference interactive elements by their index number (shown as [#N] in the listings above).
 - Be concise. Explain what you're doing as you go.

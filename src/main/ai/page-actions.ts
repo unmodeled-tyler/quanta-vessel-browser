@@ -58,6 +58,9 @@ function isDangerousAction(name: string): boolean {
     "navigate",
     "click",
     "type_text",
+    "select_option",
+    "submit_form",
+    "press_key",
     "create_tab",
     "switch_tab",
     "restore_checkpoint",
@@ -126,6 +129,122 @@ function findCheckpoint(
   return null;
 }
 
+async function selectOption(
+  wc: WebContents,
+  args: Record<string, any>,
+): Promise<string> {
+  const selector = await resolveSelector(wc, args.index, args.selector);
+  if (!selector) return "Error: No select element index or selector provided";
+
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!(el instanceof HTMLSelectElement)) {
+        return 'Element is not a select dropdown';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Select is disabled';
+      }
+      const requestedLabel = ${JSON.stringify(args.label || "")}.trim().toLowerCase();
+      const requestedValue = ${JSON.stringify(args.value || "")}.trim();
+      const option = Array.from(el.options).find((item) => {
+        const label = (item.textContent || '').trim().toLowerCase();
+        return (requestedLabel && label === requestedLabel) ||
+          (requestedValue && item.value === requestedValue);
+      });
+      if (!option) {
+        return 'Option not found';
+      }
+      el.value = option.value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Selected: ' + ((option.textContent || option.value).trim().slice(0, 100));
+    })()
+  `);
+}
+
+async function submitForm(
+  wc: WebContents,
+  args: Record<string, any>,
+): Promise<string> {
+  const selector = await resolveSelector(wc, args.index, args.selector);
+  if (!selector) return "Error: No form-related index or selector provided";
+
+  return wc.executeJavaScript(`
+    (function() {
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) return 'Target not found';
+      const form =
+        target instanceof HTMLFormElement
+          ? target
+          : target.closest('form');
+      if (!form) return 'No parent form found';
+
+      const submitter =
+        target instanceof HTMLButtonElement ||
+        (target instanceof HTMLInputElement &&
+          (target.type === 'submit' || target.type === 'image'))
+          ? target
+          : form.querySelector('button[type="submit"], input[type="submit"]');
+
+      if (
+        submitter instanceof HTMLElement &&
+        (submitter.hasAttribute('disabled') ||
+          submitter.getAttribute('aria-disabled') === 'true')
+      ) {
+        return 'Submit control is disabled';
+      }
+
+      if (submitter instanceof HTMLElement) {
+        submitter.click();
+        return 'Submitted form via submit control';
+      }
+
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+      return 'Submitted form directly';
+    })()
+  `);
+}
+
+async function pressKey(
+  wc: WebContents,
+  args: Record<string, any>,
+): Promise<string> {
+  const key = typeof args.key === "string" ? args.key.trim() : "";
+  if (!key) return "Error: No key provided";
+
+  const selector = await resolveSelector(wc, args.index, args.selector);
+
+  return wc.executeJavaScript(`
+    (function() {
+      const key = ${JSON.stringify(key)};
+      const selector = ${JSON.stringify(selector)};
+      const target =
+        selector ? document.querySelector(selector) : document.activeElement;
+      if (!target || !(target instanceof HTMLElement)) {
+        return selector ? 'Target not found' : 'No focused element';
+      }
+      target.focus();
+      const eventInit = { key, bubbles: true, cancelable: true };
+      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+      target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+      const tag = target.tagName;
+      const type = target instanceof HTMLInputElement ? target.type : '';
+      if (key === 'Enter' &&
+          typeof target.click === 'function' &&
+          (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button')))) {
+        target.click();
+      }
+      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+      return 'Pressed key: ' + key;
+    })()
+  `);
+}
+
 export async function executeAction(
   name: string,
   args: Record<string, any>,
@@ -134,7 +253,10 @@ export async function executeAction(
   const tab = ctx.tabManager.getActiveTab();
   const tabId = ctx.tabManager.getActiveTabId();
 
-  if (!tab && !["list_tabs", "create_tab", "restore_checkpoint"].includes(name)) {
+  if (
+    !tab &&
+    !["list_tabs", "create_tab", "restore_checkpoint"].includes(name)
+  ) {
     return "Error: No active tab";
   }
 
@@ -243,6 +365,25 @@ export async function executeAction(
               return 'Typed into: ' + (el.getAttribute('aria-label') || el.placeholder || el.name || 'input');
             })()
           `);
+        }
+
+        case "select_option": {
+          if (!wc) return "Error: No active tab";
+          return selectOption(wc, args);
+        }
+
+        case "submit_form": {
+          if (!wc) return "Error: No active tab";
+          const result = await submitForm(wc, args);
+          await waitForLoad(wc);
+          return result;
+        }
+
+        case "press_key": {
+          if (!wc) return "Error: No active tab";
+          const result = await pressKey(wc, args);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return result;
         }
 
         case "scroll": {

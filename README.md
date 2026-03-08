@@ -1,5 +1,7 @@
 # Vessel Agent Browser
 
+*Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
+
 An agent-first web browser for Linux.
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.

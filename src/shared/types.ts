@@ -20,6 +20,12 @@ export interface InteractiveElement {
   context?: string;
   selector?: string;
   index?: number;
+  role?: string;
+  description?: string;
+  value?: string;
+  options?: string[];
+  visible?: boolean;
+  disabled?: boolean;
 }
 
 export interface HeadingStructure {

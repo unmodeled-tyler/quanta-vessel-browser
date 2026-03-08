@@ -103,6 +103,68 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "select_option",
+    description:
+      "Select an option in a dropdown by visible label or option value.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        index: {
+          type: "number",
+          description: "The select element index number",
+        },
+        selector: { type: "string", description: "CSS selector as fallback" },
+        label: {
+          type: "string",
+          description: "Visible option label to match",
+        },
+        value: {
+          type: "string",
+          description: "Option value attribute to match",
+        },
+      },
+    },
+  },
+  {
+    name: "submit_form",
+    description:
+      "Submit a form using a field index, submit button index, form selector, or button selector.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        index: {
+          type: "number",
+          description:
+            "Index of a field or submit button inside the target form",
+        },
+        selector: {
+          type: "string",
+          description: "Form or submit button selector",
+        },
+      },
+    },
+  },
+  {
+    name: "press_key",
+    description:
+      "Press a keyboard key, optionally targeting a specific element first.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        key: {
+          type: "string",
+          description: "Keyboard key, for example Enter or Escape",
+        },
+        index: { type: "number", description: "Element index to focus first" },
+        selector: {
+          type: "string",
+          description: "CSS selector to focus first",
+        },
+      },
+      required: ["key"],
+    },
+  },
+  {
     name: "scroll",
     description: "Scroll the page up or down.",
     input_schema: {

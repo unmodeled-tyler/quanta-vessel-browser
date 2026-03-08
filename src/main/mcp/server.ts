@@ -18,6 +18,9 @@ function isDangerousAction(name: string): boolean {
     "navigate",
     "click",
     "type",
+    "select_option",
+    "submit_form",
+    "press_key",
     "create_tab",
     "switch_tab",
     "close_tab",
@@ -62,6 +65,117 @@ async function withAction(
   }
 }
 
+async function selectOption(
+  wc: Electron.WebContents,
+  index?: number,
+  selector?: string,
+  label?: string,
+  value?: string,
+): Promise<string> {
+  const resolvedSelector = await resolveSelector(wc, index, selector);
+  if (!resolvedSelector)
+    return "Error: No select element index or selector provided";
+
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+      if (!(el instanceof HTMLSelectElement)) {
+        return 'Element is not a select dropdown';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Select is disabled';
+      }
+      const requestedLabel = ${JSON.stringify(label || "")}.trim().toLowerCase();
+      const requestedValue = ${JSON.stringify(value || "")}.trim();
+      const option = Array.from(el.options).find((item) => {
+        const optionLabel = (item.textContent || '').trim().toLowerCase();
+        return (requestedLabel && optionLabel === requestedLabel) ||
+          (requestedValue && item.value === requestedValue);
+      });
+      if (!option) return 'Option not found';
+      el.value = option.value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Selected: ' + ((option.textContent || option.value).trim().slice(0, 100));
+    })()
+  `);
+}
+
+async function submitForm(
+  wc: Electron.WebContents,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  const resolvedSelector = await resolveSelector(wc, index, selector);
+  if (!resolvedSelector)
+    return "Error: No form-related index or selector provided";
+
+  return wc.executeJavaScript(`
+    (function() {
+      const target = document.querySelector(${JSON.stringify(resolvedSelector)});
+      if (!target) return 'Target not found';
+      const form = target instanceof HTMLFormElement ? target : target.closest('form');
+      if (!form) return 'No parent form found';
+      const submitter =
+        target instanceof HTMLButtonElement ||
+        (target instanceof HTMLInputElement &&
+          (target.type === 'submit' || target.type === 'image'))
+          ? target
+          : form.querySelector('button[type="submit"], input[type="submit"]');
+      if (
+        submitter instanceof HTMLElement &&
+        (submitter.hasAttribute('disabled') ||
+          submitter.getAttribute('aria-disabled') === 'true')
+      ) {
+        return 'Submit control is disabled';
+      }
+      if (submitter instanceof HTMLElement) {
+        submitter.click();
+        return 'Submitted form via submit control';
+      }
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+      return 'Submitted form directly';
+    })()
+  `);
+}
+
+async function pressKey(
+  wc: Electron.WebContents,
+  key: string,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  const resolvedSelector = await resolveSelector(wc, index, selector);
+
+  return wc.executeJavaScript(`
+    (function() {
+      const key = ${JSON.stringify(key)};
+      const selector = ${JSON.stringify(resolvedSelector)};
+      const target = selector ? document.querySelector(selector) : document.activeElement;
+      if (!target || !(target instanceof HTMLElement)) {
+        return selector ? 'Target not found' : 'No focused element';
+      }
+      target.focus();
+      const eventInit = { key, bubbles: true, cancelable: true };
+      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+      target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+      const tag = target.tagName;
+      const type = target instanceof HTMLInputElement ? target.type : '';
+      if (key === 'Enter' &&
+          typeof target.click === 'function' &&
+          (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button')))) {
+        target.click();
+      }
+      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+      return 'Pressed key: ' + key;
+    })()
+  `);
+}
+
 function registerTools(
   server: McpServer,
   tabManager: TabManager,
@@ -85,7 +199,9 @@ function registerTools(
           pageContent.content.length > 30000
             ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
             : pageContent.content;
-        return asTextResponse(`${structured}\n\n## PAGE CONTENT\n\n${truncated}`);
+        return asTextResponse(
+          `${structured}\n\n## PAGE CONTENT\n\n${truncated}`,
+        );
       } catch (error) {
         return asTextResponse(
           `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -98,13 +214,17 @@ function registerTools(
     "vessel_list_tabs",
     {
       title: "List Tabs",
-      description: "List all open browser tabs with their IDs, titles, and URLs.",
+      description:
+        "List all open browser tabs with their IDs, titles, and URLs.",
     },
     async () => {
       const activeId = tabManager.getActiveTabId();
-      const lines = tabManager.getAllStates().map(
-        (tab) => `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url}`,
-      );
+      const lines = tabManager
+        .getAllStates()
+        .map(
+          (tab) =>
+            `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url}`,
+        );
       return asTextResponse(lines.join("\n") || "No tabs open");
     },
   );
@@ -186,7 +306,10 @@ function registerTools(
       description:
         "Click an element on the page by its index number or CSS selector.",
       inputSchema: {
-        index: z.number().optional().describe("Element index from the page content listing"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
         selector: z.string().optional().describe("CSS selector as fallback"),
       },
     },
@@ -226,9 +349,13 @@ function registerTools(
     "vessel_type",
     {
       title: "Type Text",
-      description: "Type text into an input field or textarea. Clears existing content first.",
+      description:
+        "Type text into an input field or textarea. Clears existing content first.",
       inputSchema: {
-        index: z.number().optional().describe("Element index from the page content listing"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
         selector: z.string().optional().describe("CSS selector as fallback"),
         text: z.string().describe("The text to type"),
       },
@@ -267,13 +394,108 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_select_option",
+    {
+      title: "Select Option",
+      description: "Select an option in a dropdown by label or value.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Select element index from extracted content"),
+        selector: z.string().optional().describe("CSS selector as fallback"),
+        label: z.string().optional().describe("Visible option label"),
+        value: z.string().optional().describe("Option value"),
+      },
+    },
+    async ({ index, selector, label, value }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "select_option",
+        { index, selector, label, value },
+        async () =>
+          selectOption(tab.view.webContents, index, selector, label, value),
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_submit_form",
+    {
+      title: "Submit Form",
+      description:
+        "Submit a form using a field index, submit button index, form selector, or button selector.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Index of a form field or submit button"),
+        selector: z
+          .string()
+          .optional()
+          .describe("Form or submit button selector"),
+      },
+    },
+    async ({ index, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "submit_form",
+        { index, selector },
+        async () => {
+          const result = await submitForm(
+            tab.view.webContents,
+            index,
+            selector,
+          );
+          await waitForLoad(tab.view.webContents);
+          return result;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_press_key",
+    {
+      title: "Press Key",
+      description:
+        "Press a keyboard key, optionally after focusing an element.",
+      inputSchema: {
+        key: z.string().describe("Keyboard key such as Enter or Escape"),
+        index: z.number().optional().describe("Element index to focus first"),
+        selector: z.string().optional().describe("CSS selector to focus first"),
+      },
+    },
+    async ({ key, index, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "press_key",
+        { key, index, selector },
+        async () => pressKey(tab.view.webContents, key, index, selector),
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_scroll",
     {
       title: "Scroll Page",
       description: "Scroll the page up or down.",
       inputSchema: {
         direction: z.enum(["up", "down"]).describe("Scroll direction"),
-        amount: z.number().optional().describe("Pixels to scroll (default 500)"),
+        amount: z
+          .number()
+          .optional()
+          .describe("Pixels to scroll (default 500)"),
       },
     },
     async ({ direction, amount }) => {
@@ -287,7 +509,9 @@ function registerTools(
         async () => {
           const pixels = amount || 500;
           const dir = direction === "up" ? -pixels : pixels;
-          await tab.view.webContents.executeJavaScript(`window.scrollBy(0, ${dir})`);
+          await tab.view.webContents.executeJavaScript(
+            `window.scrollBy(0, ${dir})`,
+          );
           return `Scrolled ${direction} by ${pixels}px`;
         },
       );
@@ -300,7 +524,10 @@ function registerTools(
       title: "Create Tab",
       description: "Open a new browser tab, optionally navigating to a URL.",
       inputSchema: {
-        url: z.string().optional().describe("URL to open (defaults to about:blank)"),
+        url: z
+          .string()
+          .optional()
+          .describe("URL to open (defaults to about:blank)"),
       },
     },
     async ({ url }) =>
@@ -318,21 +545,32 @@ function registerTools(
     "vessel_switch_tab",
     {
       title: "Switch Tab",
-      description: "Switch to a different browser tab by ID or title/URL match.",
+      description:
+        "Switch to a different browser tab by ID or title/URL match.",
       inputSchema: {
         tabId: z.string().optional().describe("The tab ID to switch to"),
-        match: z.string().optional().describe("Case-insensitive match against title or URL"),
+        match: z
+          .string()
+          .optional()
+          .describe("Case-insensitive match against title or URL"),
       },
     },
     async ({ tabId, match }) =>
-      withAction(runtime, tabManager, "switch_tab", { tabId, match }, async () => {
-        const targetId = tabId || (match ? getTabByMatch(tabManager, match)?.id : "");
-        if (!targetId) {
-          return "Error: No matching tab found";
-        }
-        tabManager.switchTab(targetId);
-        return `Switched to tab ${targetId}`;
-      }),
+      withAction(
+        runtime,
+        tabManager,
+        "switch_tab",
+        { tabId, match },
+        async () => {
+          const targetId =
+            tabId || (match ? getTabByMatch(tabManager, match)?.id : "");
+          if (!targetId) {
+            return "Error: No matching tab found";
+          }
+          tabManager.switchTab(targetId);
+          return `Switched to tab ${targetId}`;
+        },
+      ),
   );
 
   server.registerTool(
@@ -362,10 +600,16 @@ function registerTools(
       },
     },
     async ({ name, note }) =>
-      withAction(runtime, tabManager, "create_checkpoint", { name, note }, async () => {
-        const checkpoint = runtime.createCheckpoint(name, note);
-        return `Created checkpoint ${checkpoint.name} (${checkpoint.id})`;
-      }),
+      withAction(
+        runtime,
+        tabManager,
+        "create_checkpoint",
+        { name, note },
+        async () => {
+          const checkpoint = runtime.createCheckpoint(name, note);
+          return `Created checkpoint ${checkpoint.name} (${checkpoint.id})`;
+        },
+      ),
   );
 
   server.registerTool(
@@ -402,7 +646,8 @@ function registerTools(
     "vessel_screenshot",
     {
       title: "Screenshot",
-      description: "Capture a screenshot of the current page. Returns a base64-encoded PNG image.",
+      description:
+        "Capture a screenshot of the current page. Returns a base64-encoded PNG image.",
     },
     async () => {
       const tab = tabManager.getActiveTab();
@@ -430,10 +675,7 @@ function registerTools(
   );
 }
 
-function waitForLoad(
-  wc: Electron.WebContents,
-  timeout = 10000,
-): Promise<void> {
+function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
   return new Promise((resolve) => {
     if (!wc.isLoading()) {
       resolve();
@@ -459,7 +701,10 @@ async function resolveSelector(
   );
 }
 
-function createMcpServer(tabManager: TabManager, runtime: AgentRuntime): McpServer {
+function createMcpServer(
+  tabManager: TabManager,
+  runtime: AgentRuntime,
+): McpServer {
   const server = new McpServer({
     name: "vessel-browser",
     version: "0.1.0",
@@ -484,7 +729,10 @@ export function startMcpServer(
 
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, mcp-session-id",
+    );
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -513,12 +761,16 @@ export function startMcpServer(
   });
 
   httpServer.listen(port, "127.0.0.1", () => {
-    console.log(`[Vessel MCP] Server listening on http://127.0.0.1:${port}/mcp`);
+    console.log(
+      `[Vessel MCP] Server listening on http://127.0.0.1:${port}/mcp`,
+    );
   });
 
   httpServer.on("error", (error: any) => {
     if (error.code === "EADDRINUSE") {
-      console.error(`[Vessel MCP] Port ${port} is already in use. MCP server not started.`);
+      console.error(
+        `[Vessel MCP] Port ${port} is already in use. MCP server not started.`,
+      );
     } else {
       console.error("[Vessel MCP] Server error:", error);
     }
