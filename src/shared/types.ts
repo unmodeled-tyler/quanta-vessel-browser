@@ -116,4 +116,5 @@ export interface VesselSettings {
   defaultUrl: string;
   theme: "dark";
   sidebarWidth: number;
+  mcpPort: number;
 }

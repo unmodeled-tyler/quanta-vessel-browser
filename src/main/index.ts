@@ -4,6 +4,7 @@ import { createMainWindow, layoutViews } from "./window";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { Channels } from "../shared/channels";
 import { loadSettings } from "./config/settings";
+import { startMcpServer, stopMcpServer } from "./mcp/server";
 
 function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
@@ -44,6 +45,9 @@ function bootstrap(): void {
 
   registerIpcHandlers(windowState);
 
+  // Start MCP server for external agent integration
+  startMcpServer(tabManager, settings.mcpPort, () => layoutViews(windowState));
+
   // Open first tab once chrome is ready
   chromeView.webContents.once("did-finish-load", () => {
     tabManager.createTab(settings.defaultUrl);
@@ -54,5 +58,6 @@ function bootstrap(): void {
 app.whenReady().then(bootstrap);
 
 app.on("window-all-closed", () => {
+  stopMcpServer();
   app.quit();
 });

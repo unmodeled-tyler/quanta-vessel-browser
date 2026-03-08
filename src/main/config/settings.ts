@@ -12,6 +12,7 @@ const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
   theme: "dark",
   sidebarWidth: 340,
+  mcpPort: 3100,
 };
 
 let settings: VesselSettings | null = null;

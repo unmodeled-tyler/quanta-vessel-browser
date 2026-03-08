@@ -7,14 +7,14 @@ export interface ActionContext {
   tabManager: TabManager;
 }
 
-function waitForLoad(wc: WebContents, timeout = 10000): Promise<void> {
+function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   return new Promise((resolve) => {
     if (!wc.isLoading()) {
       resolve();
       return;
     }
     const timer = setTimeout(resolve, timeout);
-    wc.once("did-stop-loading", () => {
+    wc.once("did-finish-load", () => {
       clearTimeout(timer);
       resolve();
     });
@@ -80,7 +80,7 @@ export async function executeAction(
             return 'Clicked: ' + (el.textContent || el.tagName).trim().slice(0, 100);
           })()
         `);
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 150));
         return result;
       } catch (err: any) {
         return `Error clicking element: ${err.message}`;
