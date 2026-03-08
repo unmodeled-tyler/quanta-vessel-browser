@@ -6,8 +6,8 @@ export async function extractContent(
 ): Promise<PageContent> {
   const result = await webContents.executeJavaScript(`
     (function() {
-      if (window.__vessel_extractContent) {
-        return window.__vessel_extractContent();
+      if (window.__vessel && window.__vessel.extractContent) {
+        return window.__vessel.extractContent();
       }
       // Fallback to basic extraction
       return {

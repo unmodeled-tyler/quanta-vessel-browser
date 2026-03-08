@@ -266,7 +266,7 @@ async function resolveSelector(
   if (selector) return selector;
   if (index == null) return null;
   return wc.executeJavaScript(
-    `window.__vessel_elementSelectors?.[${index}] || null`,
+    `window.__vessel?.getElementSelector?.(${index}) || null`,
   );
 }
 

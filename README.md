@@ -1,17 +1,32 @@
 # Vessel
 
-An AI-native, attention-minded web browser for Linux.
+An agent-first web browser for Linux.
 
-Vessel integrates Claude directly into your browsing experience — summarize pages, ask questions about content, and navigate smarter. Built with a minimal, low-strain dark interface designed for extended use.
+Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
+
+Today, Vessel provides the browser shell, page visibility, and AI surfaces needed to support that model. The long-term goal is not "a browser with AI features," but a browser runtime for autonomous agents with a clear supervisory experience for humans.
 
 ## Features
 
-- **AI Command Bar** (`Ctrl+L`) — summarize pages, ask questions, search
-- **AI Sidebar** (`Ctrl+Shift+L`) — streaming conversation with Claude about your current page
+- **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
+- **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
+- **AI Command Bar** (`Ctrl+L`) — issue page-aware commands, summarize pages, ask questions, search
+- **AI Sidebar** (`Ctrl+Shift+L`) — streaming conversation with Claude about the current page and browsing context
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
 - **Minimal Dark Theme** — warm palette (`#1a1a1e` bg, muted purple accents), no pure black/white
+
+## Positioning
+
+Most browsers treat automation as secondary and assume a human is the primary actor. Vessel is the opposite: it is the browser for the agent, with a visible interface that keeps the human in the loop.
+
+That means the product should optimize for:
+
+- persistent browser state across tasks and sessions
+- clear visibility into what the agent is doing right now
+- lightweight human intervention instead of constant manual driving
+- a browser runtime that can serve long-lived agent systems such as Hermes Agent or OpenClaw-style harnesses
 
 ## Stack
 
@@ -100,9 +115,11 @@ src/
 
 ## Design Principles
 
+- **Agent first** — the browser is the agent's operating surface, not just a human tool with automation bolted on
+- **Human visible** — the UI should make agent behavior easy to follow, audit, and steer
+- **Persistent by default** — browser state should survive long-running workflows and repeated sessions
 - **Content first** — chrome is 110px, everything else is your page
 - **Easy on the eyes** — warm dark grays, muted text, no visual noise
-- **AI is a tool, not a distraction** — command bar for quick queries, sidebar for deep dives
 - **Linux-native** — frameless window, system font fallbacks, XDG conventions
 
 ## License

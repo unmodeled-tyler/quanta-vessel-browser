@@ -1,6 +1,7 @@
 // Content script preload — injected into web page views
 // Provides readability-based content extraction + structured context for AI agents
 
+import { contextBridge } from 'electron';
 import { Readability } from '@mozilla/readability';
 
 // Types matching the main process
@@ -378,9 +379,9 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
 }
 
 /**
- * Main extraction function — called by the main process
+ * Main extraction function
  */
-(window as any).__vessel_extractContent = (): PageContent => {
+function vesselExtractContent(): PageContent {
   try {
     // Reset element index counter for fresh extraction
     elementIndex = 0;
@@ -390,16 +391,13 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
     const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
     const article = reader.parse();
-    
+
     // Extract structured context
     const headings = extractHeadings();
     const navigation = extractNavigation();
     const interactiveElements = extractInteractiveElements();
     const forms = extractForms();
     const landmarks = extractLandmarks();
-    
-    // Store selector map for agent element lookups
-    (window as any).__vessel_elementSelectors = { ...elementSelectors };
 
     return {
       title: article?.title || document.title,
@@ -416,8 +414,8 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
     };
   } catch (error) {
     console.error('Vessel content extraction error:', error);
-    
-    // Fallback with basic extraction
+
+    // Fallback: still extract structured elements even if Readability failed
     return {
       title: document.title,
       content: document.body?.innerText || '',
@@ -426,10 +424,36 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
       excerpt: '',
       url: window.location.href,
       headings: extractHeadings(),
-      navigation: [],
-      interactiveElements: [],
-      forms: [],
-      landmarks: [],
+      navigation: extractNavigation(),
+      interactiveElements: extractInteractiveElements(),
+      forms: extractForms(),
+      landmarks: extractLandmarks(),
     };
   }
-};
+}
+
+/**
+ * Resolve an element index to a CSS selector.
+ * First tries the cached map from the last extraction.
+ * Falls back to querying all interactive elements live from the DOM.
+ */
+function resolveElementSelector(index: number): string | null {
+  // Try cached map first
+  if (elementSelectors[index]) return elementSelectors[index];
+
+  // Fallback: query all interactive elements in DOM order and pick the Nth
+  const all = document.querySelectorAll(
+    'a[href], button, [role="button"], input:not([type="hidden"]), select, textarea'
+  );
+  const el = all[index - 1]; // indices are 1-based
+  if (!el) return null;
+  return generateSelector(el);
+}
+
+/**
+ * Expose to main world via contextBridge so executeJavaScript() can access it
+ */
+contextBridge.exposeInMainWorld('__vessel', {
+  extractContent: vesselExtractContent,
+  getElementSelector: resolveElementSelector,
+});
