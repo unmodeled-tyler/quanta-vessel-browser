@@ -176,6 +176,46 @@ async function pressKey(
   `);
 }
 
+async function waitForCondition(
+  wc: Electron.WebContents,
+  text?: string,
+  selector?: string,
+  timeoutMs?: number,
+): Promise<string> {
+  const effectiveTimeout = Math.max(250, timeoutMs || 5000);
+  const expectedText = (text || "").trim();
+  const expectedSelector = (selector || "").trim();
+
+  if (!expectedText && !expectedSelector) {
+    return "Error: wait_for requires text or selector";
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < effectiveTimeout) {
+    const matched = await wc.executeJavaScript(`
+      (function() {
+        const selector = ${JSON.stringify(expectedSelector)};
+        const text = ${JSON.stringify(expectedText)};
+        if (selector && document.querySelector(selector)) return true;
+        if (text && document.body?.innerText?.includes(text)) return true;
+        return false;
+      })()
+    `);
+
+    if (matched) {
+      return expectedSelector
+        ? `Matched selector ${expectedSelector}`
+        : `Matched text "${expectedText.slice(0, 80)}"`;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return expectedSelector
+    ? `Timed out waiting for selector ${expectedSelector}`
+    : `Timed out waiting for text "${expectedText.slice(0, 80)}"`;
+}
+
 function registerTools(
   server: McpServer,
   tabManager: TabManager,
@@ -187,6 +227,35 @@ function registerTools(
       title: "Extract Page Content",
       description:
         "Extract the full structured content of the current page including text, headings, interactive elements with indices, forms, and navigation.",
+    },
+    async () => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+
+      try {
+        const pageContent = await extractContent(tab.view.webContents);
+        const structured = buildStructuredContext(pageContent);
+        const truncated =
+          pageContent.content.length > 30000
+            ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
+            : pageContent.content;
+        return asTextResponse(
+          `${structured}\n\n## PAGE CONTENT\n\n${truncated}`,
+        );
+      } catch (error) {
+        return asTextResponse(
+          `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "vessel_read_page",
+    {
+      title: "Read Page",
+      description:
+        "Alias for vessel_extract_content. Reads the current page with structured context.",
     },
     async () => {
       const tab = tabManager.getActiveTab();
@@ -394,6 +463,54 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_type_text",
+    {
+      title: "Type Text",
+      description:
+        "Alias for vessel_type. Type text into an input field or textarea.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
+        selector: z.string().optional().describe("CSS selector as fallback"),
+        text: z.string().describe("The text to type"),
+      },
+    },
+    async ({ index, selector, text }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "type_text",
+        { index, selector, text },
+        async () => {
+          const resolvedSelector = await resolveSelector(
+            tab.view.webContents,
+            index,
+            selector,
+          );
+          if (!resolvedSelector) {
+            return "Error: No index or selector provided";
+          }
+          return tab.view.webContents.executeJavaScript(`
+            (function() {
+              const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+              if (!el) return 'Element not found';
+              el.focus();
+              el.value = ${JSON.stringify(text)};
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return 'Typed into: ' + (el.getAttribute('aria-label') || el.placeholder || el.name || 'input');
+            })()
+          `);
+        },
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_select_option",
     {
       title: "Select Option",
@@ -519,6 +636,37 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_wait_for",
+    {
+      title: "Wait For",
+      description: "Wait for text or a selector to appear on the current page.",
+      inputSchema: {
+        text: z.string().optional().describe("Text expected in the page body"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector expected on the page"),
+        timeoutMs: z
+          .number()
+          .optional()
+          .describe("Maximum wait in milliseconds"),
+      },
+    },
+    async ({ text, selector, timeoutMs }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "wait_for",
+        { text, selector, timeoutMs },
+        async () =>
+          waitForCondition(tab.view.webContents, text, selector, timeoutMs),
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_create_tab",
     {
       title: "Create Tab",
@@ -613,10 +761,65 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_create_checkpoint",
+    {
+      title: "Create Checkpoint",
+      description:
+        "Alias for vessel_checkpoint_create. Capture the current session as a checkpoint.",
+      inputSchema: {
+        name: z.string().optional().describe("Optional checkpoint name"),
+        note: z.string().optional().describe("Optional note"),
+      },
+    },
+    async ({ name, note }) =>
+      withAction(
+        runtime,
+        tabManager,
+        "create_checkpoint",
+        { name, note },
+        async () => {
+          const checkpoint = runtime.createCheckpoint(name, note);
+          return `Created checkpoint ${checkpoint.name} (${checkpoint.id})`;
+        },
+      ),
+  );
+
+  server.registerTool(
     "vessel_checkpoint_restore",
     {
       title: "Restore Checkpoint",
       description: "Restore a saved checkpoint by ID or exact name.",
+      inputSchema: {
+        checkpointId: z.string().optional().describe("Checkpoint ID"),
+        name: z.string().optional().describe("Exact checkpoint name"),
+      },
+    },
+    async ({ checkpointId, name }) =>
+      withAction(
+        runtime,
+        tabManager,
+        "restore_checkpoint",
+        { checkpointId, name },
+        async () => {
+          const state = runtime.getState();
+          const checkpoint =
+            state.checkpoints.find((item) => item.id === checkpointId) ||
+            state.checkpoints.find((item) => item.name === name);
+          if (!checkpoint) {
+            return "Error: No matching checkpoint found";
+          }
+          runtime.restoreCheckpoint(checkpoint.id);
+          return `Restored checkpoint ${checkpoint.name}`;
+        },
+      ),
+  );
+
+  server.registerTool(
+    "vessel_restore_checkpoint",
+    {
+      title: "Restore Checkpoint",
+      description:
+        "Alias for vessel_checkpoint_restore. Restore a saved checkpoint by ID or exact name.",
       inputSchema: {
         checkpointId: z.string().optional().describe("Checkpoint ID"),
         name: z.string().optional().describe("Exact checkpoint name"),

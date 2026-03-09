@@ -69,6 +69,8 @@ export function createMainWindow(
   };
 
   mainWindow.on("resize", () => layoutViews(state));
+  mainWindow.on("show", () => layoutViews(state));
+  mainWindow.on("focus", () => layoutViews(state));
   layoutViews(state);
 
   return state;

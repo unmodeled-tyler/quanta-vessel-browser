@@ -24,6 +24,7 @@ function bootstrap(): void {
       tabs,
       activeId,
     );
+    layoutViews(windowState);
     runtime?.onTabStateChanged();
   });
 
@@ -62,6 +63,7 @@ function bootstrap(): void {
       runtime.captureSession("Initial session");
     }
     layoutViews(windowState);
+    setImmediate(() => layoutViews(windowState));
   });
 }
 
