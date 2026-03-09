@@ -24,6 +24,40 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   });
 }
 
+function waitForPotentialNavigation(
+  wc: WebContents,
+  beforeUrl: string,
+  timeout = 4000,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      wc.removeListener("did-start-loading", onStart);
+      wc.removeListener("did-navigate", onNavigate);
+      wc.removeListener("did-navigate-in-page", onNavigateInPage);
+      resolve();
+    };
+    const onStart = () => {
+      void waitForLoad(wc, timeout).then(finish);
+    };
+    const onNavigate = () => finish();
+    const onNavigateInPage = () => finish();
+    const timer = setTimeout(finish, timeout);
+
+    if (wc.getURL() !== beforeUrl || wc.isLoading()) {
+      void waitForLoad(wc, timeout).then(finish);
+      return;
+    }
+
+    wc.once("did-start-loading", onStart);
+    wc.once("did-navigate", onNavigate);
+    wc.once("did-navigate-in-page", onNavigateInPage);
+  });
+}
+
 async function resolveSelector(
   wc: WebContents,
   index?: number,
@@ -425,6 +459,7 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
+          const beforeUrl = wc.getURL();
           const result = await wc.executeJavaScript(`
             (function() {
               const el = document.querySelector(${JSON.stringify(selector)});
@@ -433,8 +468,9 @@ export async function executeAction(
               return 'Clicked: ' + (el.textContent || el.tagName).trim().slice(0, 100);
             })()
           `);
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          return result;
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
         }
 
         case "type_text": {

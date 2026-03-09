@@ -27,6 +27,40 @@ function asPromptResponse(text: string) {
   };
 }
 
+function waitForPotentialNavigation(
+  wc: Electron.WebContents,
+  beforeUrl: string,
+  timeout = 4000,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      wc.removeListener("did-start-loading", onStart);
+      wc.removeListener("did-navigate", onNavigate);
+      wc.removeListener("did-navigate-in-page", onNavigateInPage);
+      resolve();
+    };
+    const onStart = () => {
+      void waitForLoad(wc, timeout).then(finish);
+    };
+    const onNavigate = () => finish();
+    const onNavigateInPage = () => finish();
+    const timer = setTimeout(finish, timeout);
+
+    if (wc.getURL() !== beforeUrl || wc.isLoading()) {
+      void waitForLoad(wc, timeout).then(finish);
+      return;
+    }
+
+    wc.once("did-start-loading", onStart);
+    wc.once("did-navigate", onNavigate);
+    wc.once("did-navigate-in-page", onNavigateInPage);
+  });
+}
+
 function isDangerousAction(name: string): boolean {
   return [
     "navigate",
@@ -269,6 +303,32 @@ async function waitForCondition(
     : `Timed out waiting for text "${expectedText.slice(0, 80)}"`;
 }
 
+async function captureScreenshotPayload(
+  wc: Electron.WebContents,
+): Promise<
+  | { ok: true; base64: string; width: number; height: number }
+  | { ok: false; error: string }
+> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+    const image = await wc.capturePage();
+    if (!image.isEmpty()) {
+      const size = image.getSize();
+      const base64 = image.toPNG().toString("base64");
+      if (base64) {
+        return {
+          ok: true,
+          base64,
+          width: size.width,
+          height: size.height,
+        };
+      }
+    }
+  }
+
+  return { ok: false, error: "page image was empty after 3 attempts" };
+}
+
 function registerTools(
   server: McpServer,
   tabManager: TabManager,
@@ -504,6 +564,7 @@ function registerTools(
         "click",
         { index, selector },
         async () => {
+          const beforeUrl = tab.view.webContents.getURL();
           const resolvedSelector = await resolveSelector(
             tab.view.webContents,
             index,
@@ -520,8 +581,9 @@ function registerTools(
               return 'Clicked: ' + (el.textContent || el.tagName).trim().slice(0, 100);
             })()
           `);
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          return result;
+          await waitForPotentialNavigation(tab.view.webContents, beforeUrl);
+          const afterUrl = tab.view.webContents.getURL();
+          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
         },
       );
     },
@@ -956,21 +1018,22 @@ function registerTools(
             "Error capturing screenshot: active tab has zero-sized bounds",
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        const image = await tab.view.webContents.capturePage();
-        if (image.isEmpty()) {
+        const screenshot = await captureScreenshotPayload(tab.view.webContents);
+        if (!screenshot.ok) {
           return asTextResponse(
-            "Error capturing screenshot: page image was empty",
+            `Error capturing screenshot: ${screenshot.error}`,
           );
         }
-        const png = image.toPNG();
-        const base64 = png.toString("base64");
         return {
           content: [
             {
               type: "image" as const,
-              data: base64,
+              data: screenshot.base64,
               mimeType: "image/png",
+            },
+            {
+              type: "text" as const,
+              text: `Screenshot captured: ${screenshot.width}x${screenshot.height}`,
             },
           ],
         };

@@ -1,4 +1,4 @@
-# Vessel Agent Browser
+# Vessel: Your Agent's Browser
 
 *Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
 

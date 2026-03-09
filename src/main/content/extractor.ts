@@ -1,6 +1,20 @@
 import type { WebContents } from "electron";
 import type { PageContent } from "../../shared/types";
 
+const EMPTY_PAGE_CONTENT: PageContent = {
+  title: "",
+  content: "",
+  htmlContent: "",
+  byline: "",
+  excerpt: "",
+  url: "",
+  headings: [],
+  navigation: [],
+  interactiveElements: [],
+  forms: [],
+  landmarks: [],
+};
+
 const DIRECT_EXTRACTION_SCRIPT = String.raw`
   (function() {
     function text(value) {
@@ -271,17 +285,68 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
-  const result = await webContents.executeJavaScript(`
-    (function() {
-      try {
-        if (window.__vessel && typeof window.__vessel.extractContent === "function") {
-          return window.__vessel.extractContent();
+  try {
+    const result = await webContents.executeJavaScript(`
+      (function() {
+        try {
+          if (window.__vessel && typeof window.__vessel.extractContent === "function") {
+            const structured = window.__vessel.extractContent();
+            if (structured && typeof structured === "object") {
+              return structured;
+            }
+          }
+        } catch (_error) {
         }
-      } catch (_error) {
-      }
-      return ${DIRECT_EXTRACTION_SCRIPT};
-    })()
-  `);
 
-  return result as PageContent;
+        try {
+          return ${DIRECT_EXTRACTION_SCRIPT};
+        } catch (_error) {
+          return {
+            title: document.title || "",
+            content: document.body?.innerText || "",
+            htmlContent: "",
+            byline: "",
+            excerpt: "",
+            url: window.location.href || "",
+            headings: [],
+            navigation: [],
+            interactiveElements: [],
+            forms: [],
+            landmarks: [],
+          };
+        }
+      })()
+    `);
+
+    return normalizePageContent(result);
+  } catch {
+    return {
+      ...EMPTY_PAGE_CONTENT,
+      title: webContents.getTitle() || "",
+      url: webContents.getURL() || "",
+    };
+  }
+}
+
+function normalizePageContent(value: unknown): PageContent {
+  if (!value || typeof value !== "object") {
+    return { ...EMPTY_PAGE_CONTENT };
+  }
+
+  const page = value as Partial<PageContent>;
+  return {
+    title: typeof page.title === "string" ? page.title : "",
+    content: typeof page.content === "string" ? page.content : "",
+    htmlContent: typeof page.htmlContent === "string" ? page.htmlContent : "",
+    byline: typeof page.byline === "string" ? page.byline : "",
+    excerpt: typeof page.excerpt === "string" ? page.excerpt : "",
+    url: typeof page.url === "string" ? page.url : "",
+    headings: Array.isArray(page.headings) ? page.headings : [],
+    navigation: Array.isArray(page.navigation) ? page.navigation : [],
+    interactiveElements: Array.isArray(page.interactiveElements)
+      ? page.interactiveElements
+      : [],
+    forms: Array.isArray(page.forms) ? page.forms : [],
+    landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
+  };
 }
