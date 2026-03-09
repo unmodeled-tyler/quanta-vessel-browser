@@ -44,14 +44,36 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return String(value).replace(/["\\]/g, "\\$&");
     }
 
+    function uniqueSelector(candidate) {
+      if (!candidate) return null;
+      try {
+        return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function uniqueAttributeSelector(el, attribute) {
+      const value = text(el.getAttribute && el.getAttribute(attribute));
+      if (!value) return null;
+      const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\"" + escapeSelectorValue(value) + "\"]";
+      return uniqueSelector(candidate);
+    }
+
     function selectorFor(el) {
       if (!el) return "";
       if (el.id) return "#" + escapeSelectorValue(el.id);
-      const name = el.getAttribute && el.getAttribute("name");
-      if (name) return el.tagName.toLowerCase() + "[name=\"" + escapeSelectorValue(name) + "\"]";
+      for (const attribute of ["data-testid", "name", "form", "aria-label"]) {
+        const candidate = uniqueAttributeSelector(el, attribute);
+        if (candidate) return candidate;
+      }
       const parts = [];
       let current = el;
-      for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
+      while (current) {
+        if (current.id) {
+          parts.unshift("#" + escapeSelectorValue(current.id));
+          break;
+        }
         const tag = current.tagName.toLowerCase();
         const parent = current.parentElement;
         if (!parent) {
@@ -59,14 +81,12 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
           break;
         }
         const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
-        if (siblings.length > 1) {
-          parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
-        } else {
-          parts.unshift(tag);
-        }
+        const index = siblings.indexOf(current) + 1;
+        parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
         current = parent;
       }
-      return parts.join(" > ");
+      const selector = parts.join(" > ");
+      return uniqueSelector(selector) || selector;
     }
 
     function visible(el) {

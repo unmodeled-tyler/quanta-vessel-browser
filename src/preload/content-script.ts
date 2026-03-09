@@ -3,6 +3,10 @@
 
 import { contextBridge } from "electron";
 import { Readability } from "@mozilla/readability";
+import {
+  generateStableSelector,
+  escapeSelectorValue,
+} from "../shared/dom/selectors";
 
 interface InteractiveElement {
   type: "button" | "link" | "input" | "select" | "textarea";
@@ -55,55 +59,8 @@ let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
 const indexedElements = new WeakMap<Element, number>();
 
-function escapeSelectorValue(value: string): string {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-    return CSS.escape(value);
-  }
-
-  return value.replace(/["\\]/g, "\\$&");
-}
-
 function generateSelector(el: Element): string {
-  if (el.id) return `#${escapeSelectorValue(el.id)}`;
-
-  const testId = el.getAttribute("data-testid");
-  if (testId) {
-    return `[data-testid="${escapeSelectorValue(testId)}"]`;
-  }
-
-  const name = el.getAttribute("name");
-  if (name) {
-    return `${el.tagName.toLowerCase()}[name="${escapeSelectorValue(name)}"]`;
-  }
-
-  const parts: string[] = [];
-  let current: Element | null = el;
-  for (
-    let depth = 0;
-    current && current !== document.body && depth < 5;
-    depth += 1
-  ) {
-    const tag = current.tagName.toLowerCase();
-    const parent = current.parentElement;
-    if (!parent) {
-      parts.unshift(tag);
-      break;
-    }
-
-    const siblings = Array.from(parent.children).filter(
-      (child) => child.tagName === current!.tagName,
-    );
-    if (siblings.length > 1) {
-      const index = siblings.indexOf(current) + 1;
-      parts.unshift(`${tag}:nth-of-type(${index})`);
-    } else {
-      parts.unshift(tag);
-    }
-
-    current = parent;
-  }
-
-  return parts.join(" > ");
+  return generateStableSelector(el);
 }
 
 function assignIndex(el: Element): number {

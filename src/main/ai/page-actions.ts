@@ -97,26 +97,56 @@ async function resolveSelector(
     `
       (function() {
         // Final fallback: replicate the legacy extraction order.
+        function escapeSelectorValue(value) {
+          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(value);
+          }
+          return String(value).replace(/["\\]/g, "\\$&");
+        }
+
+        function uniqueSelector(candidate) {
+          if (!candidate) return null;
+          try {
+            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+          } catch {
+            return null;
+          }
+        }
+
+        function uniqueAttributeSelector(el, attribute) {
+          var value = el.getAttribute(attribute);
+          if (!value) return null;
+          value = value.trim();
+          if (!value) return null;
+          var candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+          return uniqueSelector(candidate);
+        }
+
         function selectorFor(el) {
           if (!el) return null;
-          if (el.id) return "#" + CSS.escape(el.id);
-          var name = el.getAttribute("name");
-          if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+          if (el.id) return "#" + escapeSelectorValue(el.id);
+          var attributes = ["data-testid", "name", "form", "aria-label"];
+          for (var i = 0; i < attributes.length; i += 1) {
+            var attributeCandidate = uniqueAttributeSelector(el, attributes[i]);
+            if (attributeCandidate) return attributeCandidate;
+          }
           var parts = [];
           var current = el;
-          for (var depth = 0; current && current !== document.body && depth < 5; depth++) {
+          while (current) {
+            if (current.id) {
+              parts.unshift("#" + escapeSelectorValue(current.id));
+              break;
+            }
             var tag = current.tagName.toLowerCase();
             var parent = current.parentElement;
             if (!parent) { parts.unshift(tag); break; }
             var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
-            if (siblings.length > 1) {
-              parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
-            } else {
-              parts.unshift(tag);
-            }
+            var index = siblings.indexOf(current) + 1;
+            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
             current = parent;
           }
-          return parts.join(" > ");
+          var selector = parts.join(" > ");
+          return uniqueSelector(selector) || selector;
         }
 
         var seen = new Set();
