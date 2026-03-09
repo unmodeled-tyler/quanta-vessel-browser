@@ -250,20 +250,16 @@ async function submitForm(
     (function() {
       const target = document.querySelector(${JSON.stringify(resolvedSelector)});
       if (!target) return { error: 'Target not found' };
-      const form = target instanceof HTMLFormElement ? target : target.closest('form');
+      // Find the form: nested, or linked via form="id" attribute
+      var form = target instanceof HTMLFormElement ? target : target.closest('form');
       if (!form) {
-        // Also check the form attribute on the element
         const formId = target.getAttribute('form');
         if (formId) {
-          const linkedForm = document.getElementById(formId);
-          if (linkedForm instanceof HTMLFormElement) {
-            const action = linkedForm.action || window.location.href;
-            const method = (linkedForm.method || 'GET').toUpperCase();
-            return { action, method, found: true };
-          }
+          const linked = document.getElementById(formId);
+          if (linked instanceof HTMLFormElement) form = linked;
         }
-        return { error: 'No parent form found' };
       }
+      if (!form) return { error: 'No parent form found' };
       const submitter =
         target instanceof HTMLButtonElement ||
         (target instanceof HTMLInputElement &&
@@ -277,18 +273,18 @@ async function submitForm(
       ) {
         return { error: 'Submit control is disabled' };
       }
-      // Collect form data for GET submissions
+      // Collect form data and determine method
       const action = form.action || window.location.href;
       const method = (form.method || 'GET').toUpperCase();
+      const fd = new FormData(form);
+      const params = new URLSearchParams();
+      for (const [k, v] of fd.entries()) {
+        if (typeof v === 'string') params.append(k, v);
+      }
       if (method === 'GET') {
-        const fd = new FormData(form);
-        const params = new URLSearchParams();
-        for (const [k, v] of fd.entries()) {
-          if (typeof v === 'string') params.append(k, v);
-        }
         return { action, method, params: params.toString(), found: true };
       }
-      // For POST forms, we'll submit via JS and let navigation happen
+      // For POST forms, submit via JS and let navigation happen
       if (submitter instanceof HTMLElement) {
         submitter.click();
         return { submitted: true, method: 'POST' };
@@ -856,13 +852,16 @@ function registerTools(
         "submit_form",
         { index, selector },
         async () => {
-          const result = await submitForm(
-            tab.view.webContents,
-            index,
-            selector,
-          );
-          await waitForLoad(tab.view.webContents);
-          return result;
+          const wc = tab.view.webContents;
+          const beforeUrl = wc.getURL();
+          const result = await submitForm(wc, index, selector);
+          if (result.startsWith("Error") || result.startsWith("Target") || result.startsWith("No parent") || result.startsWith("Submit control")) {
+            return result;
+          }
+          // Wait for navigation from form submission
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
         },
       );
     },

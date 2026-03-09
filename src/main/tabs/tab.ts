@@ -10,10 +10,13 @@ export class Tab {
   private _state: TabState;
   private onChange: () => void;
 
-  // Custom URL history stack for scripted navigations that bypass Chromium history
+  // Fully custom URL history — we never rely on Chromium's native back/forward
+  // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
+  // the native stack and cause direction reversals on repeated back/forward.
   private urlHistory: string[] = [];
   private urlForwardStack: string[] = [];
   private lastCommittedUrl = "";
+  private navigatingViaHistory = false;
 
   constructor(id: string, url: string, onChange: () => void) {
     this.id = id;
@@ -48,21 +51,25 @@ export class Tab {
 
   private setupListeners(): void {
     const wc = this.view.webContents;
-    const history = wc.navigationHistory;
 
     const syncNavigationState = () => {
       this._state.title = wc.getTitle() || this._state.title || "New Tab";
       this._state.url = wc.getURL() || this._state.url;
-      // Can go back if native history allows OR we have custom history entries
-      this._state.canGoBack =
-        history.canGoBack() || this.urlHistory.length > 0;
-      this._state.canGoForward =
-        history.canGoForward() || this.urlForwardStack.length > 0;
+      this._state.canGoBack = this.urlHistory.length > 0;
+      this._state.canGoForward = this.urlForwardStack.length > 0;
       this.onChange();
     };
 
     // Track URL changes for custom history
     wc.on("did-navigate", (_event, url) => {
+      if (this.navigatingViaHistory) {
+        // Back/forward already managed the stacks — just update committed URL
+        this.navigatingViaHistory = false;
+        this.lastCommittedUrl = url;
+        syncNavigationState();
+        return;
+      }
+      // Normal forward navigation — push previous URL onto back stack
       if (
         this.lastCommittedUrl &&
         this.lastCommittedUrl !== url &&
@@ -128,49 +135,31 @@ export class Tab {
   }
 
   goBack(): boolean {
-    if (this.view.webContents.navigationHistory.canGoBack()) {
-      this.view.webContents.navigationHistory.goBack();
-      return true;
-    }
-    // Fallback: use custom history stack
     const previousUrl = this.urlHistory.pop();
-    if (previousUrl) {
-      this.urlForwardStack.push(this.lastCommittedUrl);
-      this.lastCommittedUrl = previousUrl;
-      this.view.webContents.loadURL(previousUrl);
-      return true;
-    }
-    return false;
+    if (!previousUrl) return false;
+    this.navigatingViaHistory = true;
+    this.urlForwardStack.push(this.lastCommittedUrl);
+    this.lastCommittedUrl = previousUrl;
+    this.view.webContents.loadURL(previousUrl);
+    return true;
   }
 
   goForward(): boolean {
-    if (this.view.webContents.navigationHistory.canGoForward()) {
-      this.view.webContents.navigationHistory.goForward();
-      return true;
-    }
-    // Fallback: use custom forward stack
     const nextUrl = this.urlForwardStack.pop();
-    if (nextUrl) {
-      this.urlHistory.push(this.lastCommittedUrl);
-      this.lastCommittedUrl = nextUrl;
-      this.view.webContents.loadURL(nextUrl);
-      return true;
-    }
-    return false;
+    if (!nextUrl) return false;
+    this.navigatingViaHistory = true;
+    this.urlHistory.push(this.lastCommittedUrl);
+    this.lastCommittedUrl = nextUrl;
+    this.view.webContents.loadURL(nextUrl);
+    return true;
   }
 
   canGoBack(): boolean {
-    return (
-      this.view.webContents.navigationHistory.canGoBack() ||
-      this.urlHistory.length > 0
-    );
+    return this.urlHistory.length > 0;
   }
 
   canGoForward(): boolean {
-    return (
-      this.view.webContents.navigationHistory.canGoForward() ||
-      this.urlForwardStack.length > 0
-    );
+    return this.urlForwardStack.length > 0;
   }
 
   reload(): void {

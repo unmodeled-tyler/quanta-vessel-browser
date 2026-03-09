@@ -313,9 +313,15 @@ async function submitForm(
     (function() {
       const target = document.querySelector(${JSON.stringify(selector)});
       if (!target) return { error: 'Target not found' };
-      const form = target instanceof HTMLFormElement ? target : target.closest('form')
-        || (target.getAttribute('form') ? document.getElementById(target.getAttribute('form')) : null);
-      if (!form || !(form instanceof HTMLFormElement)) return { error: 'No parent form found' };
+      var form = target instanceof HTMLFormElement ? target : target.closest('form');
+      if (!form) {
+        const formId = target.getAttribute('form');
+        if (formId) {
+          const linked = document.getElementById(formId);
+          if (linked instanceof HTMLFormElement) form = linked;
+        }
+      }
+      if (!form) return { error: 'No parent form found' };
       const submitter =
         target instanceof HTMLButtonElement ||
         (target instanceof HTMLInputElement &&
@@ -331,12 +337,12 @@ async function submitForm(
       }
       const action = form.action || window.location.href;
       const method = (form.method || 'GET').toUpperCase();
+      const fd = new FormData(form);
+      const params = new URLSearchParams();
+      for (const [k, v] of fd.entries()) {
+        if (typeof v === 'string') params.append(k, v);
+      }
       if (method === 'GET') {
-        const fd = new FormData(form);
-        const params = new URLSearchParams();
-        for (const [k, v] of fd.entries()) {
-          if (typeof v === 'string') params.append(k, v);
-        }
         return { action, method, params: params.toString(), found: true };
       }
       // POST: submit via JS
@@ -594,9 +600,14 @@ export async function executeAction(
 
         case "submit_form": {
           if (!wc) return "Error: No active tab";
+          const beforeUrl = wc.getURL();
           const result = await submitForm(wc, args);
-          await waitForLoad(wc);
-          return result;
+          if (result.startsWith("Error") || result.startsWith("Target") || result.startsWith("No parent") || result.startsWith("Submit control")) {
+            return result;
+          }
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
         }
 
         case "press_key": {
