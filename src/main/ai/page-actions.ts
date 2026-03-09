@@ -32,7 +32,39 @@ async function resolveSelector(
   if (selector) return selector;
   if (index == null) return null;
   return wc.executeJavaScript(
-    `window.__vessel?.getElementSelector?.(${index}) || null`,
+    `
+      (function() {
+        if (window.__vessel?.getElementSelector) {
+          return window.__vessel.getElementSelector(${index});
+        }
+        const all = document.querySelectorAll(
+          "a[href], button, [role='button'], input:not([type='hidden']), select, textarea"
+        );
+        const el = all[${index} - 1];
+        if (!el) return null;
+        if (el.id) return "#" + CSS.escape(el.id);
+        const name = el.getAttribute("name");
+        if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+        const parts = [];
+        let current = el;
+        for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
+          const tag = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) {
+            parts.unshift(tag);
+            break;
+          }
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          if (siblings.length > 1) {
+            parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
+          } else {
+            parts.unshift(tag);
+          }
+          current = parent;
+        }
+        return parts.join(" > ");
+      })()
+    `,
   );
 }
 
@@ -65,6 +97,47 @@ function isDangerousAction(name: string): boolean {
     "switch_tab",
     "restore_checkpoint",
   ].includes(name);
+}
+
+async function setElementValue(
+  wc: WebContents,
+  selector: string,
+  value: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Element not found';
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        return 'Element is not a text input';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Input is disabled';
+      }
+
+      const prototype = el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(el, ${JSON.stringify(value)});
+      } else {
+        el.value = ${JSON.stringify(value)};
+      }
+
+      el.focus();
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        data: ${JSON.stringify(value)},
+        inputType: 'insertText',
+      }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Typed into: ' +
+        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
+        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
 }
 
 async function waitForCondition(
@@ -315,16 +388,30 @@ export async function executeAction(
 
         case "go_back": {
           if (!wc || !tabId) return "Error: No active tab";
+          if (!wc.navigationHistory.canGoBack()) {
+            return "No previous page in history";
+          }
+          const beforeUrl = wc.getURL();
           ctx.tabManager.goBack(tabId);
           await waitForLoad(wc);
-          return `Went back to ${wc.getURL()}`;
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Went back to ${afterUrl}`
+            : `Back action completed but page stayed on ${afterUrl}`;
         }
 
         case "go_forward": {
           if (!wc || !tabId) return "Error: No active tab";
+          if (!wc.navigationHistory.canGoForward()) {
+            return "No forward page in history";
+          }
+          const beforeUrl = wc.getURL();
           ctx.tabManager.goForward(tabId);
           await waitForLoad(wc);
-          return `Went forward to ${wc.getURL()}`;
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Went forward to ${afterUrl}`
+            : `Forward action completed but page stayed on ${afterUrl}`;
         }
 
         case "reload": {
@@ -354,17 +441,7 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
-          return wc.executeJavaScript(`
-            (function() {
-              const el = document.querySelector(${JSON.stringify(selector)});
-              if (!el) return 'Element not found';
-              el.focus();
-              el.value = ${JSON.stringify(args.text || "")};
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return 'Typed into: ' + (el.getAttribute('aria-label') || el.placeholder || el.name || 'input');
-            })()
-          `);
+          return setElementValue(wc, selector, String(args.text || ""));
         }
 
         case "select_option": {

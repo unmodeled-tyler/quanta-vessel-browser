@@ -41,6 +41,13 @@ export class Tab {
   private setupListeners(): void {
     const wc = this.view.webContents;
     const history = wc.navigationHistory;
+    const syncNavigationState = () => {
+      this._state.title = wc.getTitle() || this._state.title || "New Tab";
+      this._state.url = wc.getURL() || this._state.url;
+      this._state.canGoBack = history.canGoBack();
+      this._state.canGoForward = history.canGoForward();
+      this.onChange();
+    };
 
     wc.on("page-title-updated", (_, title) => {
       this._state.title = title;
@@ -54,17 +61,23 @@ export class Tab {
 
     wc.on("did-stop-loading", () => {
       this._state.isLoading = false;
-      this._state.url = wc.getURL();
-      this._state.canGoBack = history.canGoBack();
-      this._state.canGoForward = history.canGoForward();
-      this.onChange();
+      syncNavigationState();
     });
 
     wc.on("did-navigate", () => {
-      this._state.url = wc.getURL();
-      this._state.canGoBack = history.canGoBack();
-      this._state.canGoForward = history.canGoForward();
-      this.onChange();
+      syncNavigationState();
+    });
+
+    wc.on("did-navigate-in-page", () => {
+      syncNavigationState();
+    });
+
+    wc.on("did-finish-load", () => {
+      syncNavigationState();
+    });
+
+    wc.on("dom-ready", () => {
+      syncNavigationState();
     });
 
     wc.on("page-favicon-updated", (_, favicons) => {

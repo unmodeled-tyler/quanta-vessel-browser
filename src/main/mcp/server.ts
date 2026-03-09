@@ -13,6 +13,20 @@ function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function asPromptResponse(text: string) {
+  return {
+    messages: [
+      {
+        role: "user" as const,
+        content: {
+          type: "text" as const,
+          text,
+        },
+      },
+    ],
+  };
+}
+
 function isDangerousAction(name: string): boolean {
   return [
     "navigate",
@@ -63,6 +77,45 @@ async function withAction(
       `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
+}
+
+async function setElementValue(
+  wc: Electron.WebContents,
+  selector: string,
+  value: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Element not found';
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        return 'Element is not a text input';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Input is disabled';
+      }
+      const prototype = el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(el, ${JSON.stringify(value)});
+      } else {
+        el.value = ${JSON.stringify(value)};
+      }
+      el.focus();
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: true,
+        data: ${JSON.stringify(value)},
+        inputType: 'insertText',
+      }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Typed into: ' +
+        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
+        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
 }
 
 async function selectOption(
@@ -221,6 +274,52 @@ function registerTools(
   tabManager: TabManager,
   runtime: AgentRuntime,
 ): void {
+  server.registerPrompt(
+    "vessel-supervisor-brief",
+    {
+      title: "Vessel Supervisor Brief",
+      description:
+        "A reusable prompt for reviewing the current Vessel runtime state.",
+    },
+    async () => {
+      const state = runtime.getState();
+      return asPromptResponse(
+        [
+          "Review the current Vessel runtime state.",
+          `Paused: ${state.supervisor.paused ? "yes" : "no"}`,
+          `Approval mode: ${state.supervisor.approvalMode}`,
+          `Pending approvals: ${state.supervisor.pendingApprovals.length}`,
+          `Open tabs: ${state.session?.tabs.length || 0}`,
+          `Recent actions: ${
+            state.actions
+              .slice(-5)
+              .map((action) => action.name)
+              .join(", ") || "none"
+          }`,
+        ].join("\n"),
+      );
+    },
+  );
+
+  server.registerResource(
+    "vessel-runtime-state",
+    "vessel://runtime/state",
+    {
+      title: "Vessel Runtime State",
+      description:
+        "Current supervisor, session, and checkpoint state for the Vessel browser runtime.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [
+        {
+          uri: "vessel://runtime/state",
+          text: JSON.stringify(runtime.getState(), null, 2),
+        },
+      ],
+    }),
+  );
+
   server.registerTool(
     "vessel_extract_content",
     {
@@ -327,9 +426,16 @@ function registerTools(
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(runtime, tabManager, "go_back", {}, async () => {
+        if (!tab.view.webContents.navigationHistory.canGoBack()) {
+          return "No previous page in history";
+        }
+        const beforeUrl = tab.view.webContents.getURL();
         tabManager.goBack(tabManager.getActiveTabId()!);
         await waitForLoad(tab.view.webContents);
-        return `Went back to ${tab.view.webContents.getURL()}`;
+        const afterUrl = tab.view.webContents.getURL();
+        return afterUrl !== beforeUrl
+          ? `Went back to ${afterUrl}`
+          : `Back action completed but page stayed on ${afterUrl}`;
       });
     },
   );
@@ -344,9 +450,16 @@ function registerTools(
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(runtime, tabManager, "go_forward", {}, async () => {
+        if (!tab.view.webContents.navigationHistory.canGoForward()) {
+          return "No forward page in history";
+        }
+        const beforeUrl = tab.view.webContents.getURL();
         tabManager.goForward(tabManager.getActiveTabId()!);
         await waitForLoad(tab.view.webContents);
-        return `Went forward to ${tab.view.webContents.getURL()}`;
+        const afterUrl = tab.view.webContents.getURL();
+        return afterUrl !== beforeUrl
+          ? `Went forward to ${afterUrl}`
+          : `Forward action completed but page stayed on ${afterUrl}`;
       });
     },
   );
@@ -446,17 +559,7 @@ function registerTools(
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
           }
-          return tab.view.webContents.executeJavaScript(`
-            (function() {
-              const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-              if (!el) return 'Element not found';
-              el.focus();
-              el.value = ${JSON.stringify(text)};
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return 'Typed into: ' + (el.getAttribute('aria-label') || el.placeholder || el.name || 'input');
-            })()
-          `);
+          return setElementValue(tab.view.webContents, resolvedSelector, text);
         },
       );
     },
@@ -494,17 +597,7 @@ function registerTools(
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
           }
-          return tab.view.webContents.executeJavaScript(`
-            (function() {
-              const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-              if (!el) return 'Element not found';
-              el.focus();
-              el.value = ${JSON.stringify(text)};
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return 'Typed into: ' + (el.getAttribute('aria-label') || el.placeholder || el.name || 'input');
-            })()
-          `);
+          return setElementValue(tab.view.webContents, resolvedSelector, text);
         },
       );
     },
@@ -857,7 +950,19 @@ function registerTools(
       if (!tab) return asTextResponse("Error: No active tab");
 
       try {
+        const bounds = tab.view.getBounds();
+        if (bounds.width <= 0 || bounds.height <= 0) {
+          return asTextResponse(
+            "Error capturing screenshot: active tab has zero-sized bounds",
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
         const image = await tab.view.webContents.capturePage();
+        if (image.isEmpty()) {
+          return asTextResponse(
+            "Error capturing screenshot: page image was empty",
+          );
+        }
         const png = image.toPNG();
         const base64 = png.toString("base64");
         return {
@@ -900,7 +1005,39 @@ async function resolveSelector(
   if (selector) return selector;
   if (index == null) return null;
   return wc.executeJavaScript(
-    `window.__vessel?.getElementSelector?.(${index}) || null`,
+    `
+      (function() {
+        if (window.__vessel?.getElementSelector) {
+          return window.__vessel.getElementSelector(${index});
+        }
+        const all = document.querySelectorAll(
+          "a[href], button, [role='button'], input:not([type='hidden']), select, textarea"
+        );
+        const el = all[${index} - 1];
+        if (!el) return null;
+        if (el.id) return "#" + CSS.escape(el.id);
+        const name = el.getAttribute("name");
+        if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+        const parts = [];
+        let current = el;
+        for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
+          const tag = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) {
+            parts.unshift(tag);
+            break;
+          }
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          if (siblings.length > 1) {
+            parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
+          } else {
+            parts.unshift(tag);
+          }
+          current = parent;
+        }
+        return parts.join(" > ");
+      })()
+    `,
   );
 }
 
