@@ -81,6 +81,7 @@ export type ActionStatus =
   | "rejected";
 
 export interface SessionTabSnapshot {
+  id: string;
   url: string;
   title: string;
 }
@@ -88,6 +89,7 @@ export interface SessionTabSnapshot {
 export interface SessionSnapshot {
   tabs: SessionTabSnapshot[];
   activeIndex: number;
+  activeTabId?: string;
   capturedAt: string;
   note?: string;
 }

@@ -506,24 +506,43 @@ function mergePageContent(
     .map((candidate) => normalizePageContent(candidate))
     .filter((page) => !isMeaningfullyEmpty(page));
 
-  const mergedBase =
-    pages.length > 0
-      ? {
-          title: bestString(pages.map((page) => page.title)),
-          content: bestString(pages.map((page) => page.content)),
-          htmlContent: bestString(pages.map((page) => page.htmlContent)),
-          byline: bestString(pages.map((page) => page.byline)),
-          excerpt: bestString(pages.map((page) => page.excerpt)),
-          url: bestString(pages.map((page) => page.url)),
-          headings: bestArray(pages.map((page) => page.headings)),
-          navigation: bestArray(pages.map((page) => page.navigation)),
-          interactiveElements: bestArray(
-            pages.map((page) => page.interactiveElements),
-          ),
-          forms: bestArray(pages.map((page) => page.forms)),
-          landmarks: bestArray(pages.map((page) => page.landmarks)),
-        }
-      : { ...EMPTY_PAGE_CONTENT };
+  if (pages.length === 0) {
+    return {
+      ...EMPTY_PAGE_CONTENT,
+      title: webContents.getTitle() || "",
+      url: webContents.getURL() || "",
+    };
+  }
+
+  // The first candidate (preload) is authoritative for interactive elements
+  // because its indices match the content-script's elementSelectors map used
+  // by resolveElementSelector(). Other candidates may supply richer text content.
+  const preload = pages[0];
+  const hasPreloadInteractives =
+    preload.interactiveElements.length > 0 ||
+    preload.navigation.length > 0 ||
+    preload.forms.length > 0;
+
+  const mergedBase = {
+    title: bestString(pages.map((page) => page.title)),
+    content: bestString(pages.map((page) => page.content)),
+    htmlContent: bestString(pages.map((page) => page.htmlContent)),
+    byline: bestString(pages.map((page) => page.byline)),
+    excerpt: bestString(pages.map((page) => page.excerpt)),
+    url: bestString(pages.map((page) => page.url)),
+    headings: bestArray(pages.map((page) => page.headings)),
+    // Use preload's interactive data when available to keep indices consistent
+    navigation: hasPreloadInteractives
+      ? preload.navigation
+      : bestArray(pages.map((page) => page.navigation)),
+    interactiveElements: hasPreloadInteractives
+      ? preload.interactiveElements
+      : bestArray(pages.map((page) => page.interactiveElements)),
+    forms: hasPreloadInteractives
+      ? preload.forms
+      : bestArray(pages.map((page) => page.forms)),
+    landmarks: bestArray(pages.map((page) => page.landmarks)),
+  };
 
   return {
     ...mergedBase,

@@ -111,10 +111,12 @@ export class TabManager {
 
     return {
       tabs: states.map((state) => ({
+        id: state.id,
         url: state.url || "about:blank",
         title: state.title,
       })),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
+      activeTabId: activeId || undefined,
       capturedAt: new Date().toISOString(),
       note,
     };
@@ -124,7 +126,7 @@ export class TabManager {
     const tabs =
       snapshot.tabs.length > 0
         ? snapshot.tabs
-        : [{ url: "about:blank", title: "New Tab" }];
+        : [{ id: "", url: "about:blank", title: "New Tab" }];
     const activeIndex = Math.max(
       0,
       Math.min(snapshot.activeIndex, tabs.length - 1),

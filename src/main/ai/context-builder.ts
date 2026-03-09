@@ -195,6 +195,119 @@ function formatLandmarks(landmarks: PageContent["landmarks"]): string {
 /**
  * Build the structured context section
  */
+export type ExtractMode =
+  | "full"
+  | "summary"
+  | "interactives_only"
+  | "forms_only"
+  | "text_only"
+  | "visible_only";
+
+export function buildScopedContext(
+  page: PageContent,
+  mode: ExtractMode,
+): string {
+  switch (mode) {
+    case "summary": {
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      if (page.byline) sections.push(`**Author:** ${page.byline}`);
+      if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
+      sections.push("");
+      sections.push("### Document Outline");
+      sections.push(formatHeadings(page.headings));
+      sections.push("");
+      sections.push(
+        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.content.length} chars`,
+      );
+      return sections.join("\n");
+    }
+
+    case "interactives_only": {
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      sections.push("");
+      if (page.navigation.length > 0) {
+        sections.push("### Navigation");
+        sections.push(formatNavigation(page.navigation));
+        sections.push("");
+      }
+      if (page.interactiveElements.length > 0) {
+        sections.push(
+          `### Interactive Elements (${page.interactiveElements.length})`,
+        );
+        sections.push(
+          formatInteractiveElements(page.interactiveElements),
+        );
+      }
+      return sections.join("\n");
+    }
+
+    case "forms_only": {
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      sections.push("");
+      if (page.forms.length > 0) {
+        sections.push(`### Forms (${page.forms.length})`);
+        sections.push(formatForms(page.forms));
+      } else {
+        sections.push("No forms found on this page.");
+      }
+      return sections.join("\n");
+    }
+
+    case "text_only": {
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      sections.push("");
+      const truncated =
+        page.content.length > 60000
+          ? page.content.slice(0, 60000) + "\n[Content truncated...]"
+          : page.content;
+      sections.push(truncated);
+      return sections.join("\n");
+    }
+
+    case "visible_only": {
+      const visibleElements = page.interactiveElements.filter(
+        (el) => el.visible !== false,
+      );
+      const visibleNav = page.navigation.filter(
+        (el) => el.visible !== false,
+      );
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      sections.push("");
+      if (visibleNav.length > 0) {
+        sections.push("### Visible Navigation");
+        sections.push(formatNavigation(visibleNav));
+        sections.push("");
+      }
+      if (visibleElements.length > 0) {
+        sections.push(
+          `### Visible Interactive Elements (${visibleElements.length})`,
+        );
+        sections.push(formatInteractiveElements(visibleElements));
+        sections.push("");
+      }
+      if (page.forms.length > 0) {
+        sections.push("### Forms");
+        sections.push(formatForms(page.forms));
+      }
+      return sections.join("\n");
+    }
+
+    case "full":
+    default:
+      return buildStructuredContext(page);
+  }
+}
+
 export function buildStructuredContext(page: PageContent): string {
   const sections: string[] = [];
 

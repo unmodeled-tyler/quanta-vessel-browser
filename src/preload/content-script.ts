@@ -53,6 +53,7 @@ interface PageContent {
 
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
+const indexedElements = new WeakMap<Element, number>();
 
 function escapeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -106,8 +107,11 @@ function generateSelector(el: Element): string {
 }
 
 function assignIndex(el: Element): number {
+  const existing = indexedElements.get(el);
+  if (existing != null) return existing;
   elementIndex += 1;
   elementSelectors[elementIndex] = generateSelector(el);
+  indexedElements.set(el, elementIndex);
   return elementIndex;
 }
 
@@ -515,8 +519,9 @@ function vesselExtractContent(): PageContent {
   try {
     elementIndex = 0;
     Object.keys(elementSelectors).forEach(
-      (key) => delete elementSelectors[key],
+      (key) => delete elementSelectors[key as any],
     );
+    // WeakMap entries are GC'd automatically; no explicit clearing needed
 
     const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
@@ -554,14 +559,9 @@ function vesselExtractContent(): PageContent {
 }
 
 function resolveElementSelector(index: number): string | null {
-  if (elementSelectors[index]) return elementSelectors[index];
-
-  const all = document.querySelectorAll(
-    "a[href], button, [role='button'], input:not([type='hidden']), select, textarea",
-  );
-  const el = all[index - 1];
-  if (!el) return null;
-  return generateSelector(el);
+  // Only use the authoritative elementSelectors map — never fall back to DOM
+  // order scanning, which uses a different element ordering than extraction.
+  return elementSelectors[index] || null;
 }
 
 contextBridge.exposeInMainWorld("__vessel", {

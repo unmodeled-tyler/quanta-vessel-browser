@@ -3,7 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { AgentRuntime } from "../agent/runtime";
-import { buildStructuredContext } from "../ai/context-builder";
+import {
+  buildStructuredContext,
+  buildScopedContext,
+  type ExtractMode,
+} from "../ai/context-builder";
 import { extractContent } from "../content/extractor";
 import type { TabManager } from "../tabs/tab-manager";
 
@@ -44,9 +48,15 @@ function waitForPotentialNavigation(
       resolve();
     };
     const onStart = () => {
+      wc.removeListener("did-navigate", onNavigate);
+      wc.once("did-navigate", () => {
+        void waitForLoad(wc, timeout).then(finish);
+      });
       void waitForLoad(wc, timeout).then(finish);
     };
-    const onNavigate = () => finish();
+    const onNavigate = () => {
+      void waitForLoad(wc, timeout).then(finish);
+    };
     const onNavigateInPage = () => finish();
     const timer = setTimeout(finish, timeout);
 
@@ -89,6 +99,44 @@ function getTabByMatch(tabManager: TabManager, match: string) {
   );
 }
 
+function getPostActionState(
+  tabManager: TabManager,
+  name: string,
+): string {
+  // Append state context for navigation/interaction actions
+  const tab = tabManager.getActiveTab();
+  if (!tab) return "";
+
+  const wc = tab.view.webContents;
+  const navActions = [
+    "navigate",
+    "go_back",
+    "go_forward",
+    "click",
+    "submit_form",
+    "reload",
+  ];
+  const interactActions = ["type", "type_text", "select_option", "press_key"];
+  const tabActions = ["create_tab", "switch_tab", "close_tab"];
+
+  if (navActions.includes(name)) {
+    const history = wc.navigationHistory;
+    return `\n[state: url=${wc.getURL()}, canGoBack=${history.canGoBack()}, canGoForward=${history.canGoForward()}, loading=${wc.isLoading()}]`;
+  }
+
+  if (interactActions.includes(name)) {
+    return `\n[state: url=${wc.getURL()}, tabId=${tabManager.getActiveTabId()}]`;
+  }
+
+  if (tabActions.includes(name)) {
+    const activeId = tabManager.getActiveTabId();
+    const count = tabManager.getAllStates().length;
+    return `\n[state: activeTab=${activeId}, totalTabs=${count}]`;
+  }
+
+  return "";
+}
+
 async function withAction(
   runtime: AgentRuntime,
   tabManager: TabManager,
@@ -105,7 +153,8 @@ async function withAction(
       dangerous: isDangerousAction(name),
       executor,
     });
-    return asTextResponse(result);
+    const stateInfo = getPostActionState(tabManager, name);
+    return asTextResponse(result + stateInfo);
   } catch (error) {
     return asTextResponse(
       `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -380,27 +429,56 @@ function registerTools(
     }),
   );
 
+  const EXTRACT_MODES: ExtractMode[] = [
+    "full",
+    "summary",
+    "interactives_only",
+    "forms_only",
+    "text_only",
+    "visible_only",
+  ];
+
+  function buildExtractResponse(
+    pageContent: PageContent,
+    mode: ExtractMode,
+  ): string {
+    if (mode === "full") {
+      const structured = buildStructuredContext(pageContent);
+      const truncated =
+        pageContent.content.length > 30000
+          ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
+          : pageContent.content;
+      return `${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+    }
+    if (mode === "text_only") {
+      return buildScopedContext(pageContent, mode);
+    }
+    return buildScopedContext(pageContent, mode);
+  }
+
   server.registerTool(
     "vessel_extract_content",
     {
       title: "Extract Page Content",
       description:
-        "Extract the full structured content of the current page including text, headings, interactive elements with indices, forms, and navigation.",
+        "Extract structured content from the current page. Modes: 'full' (default, everything), 'summary' (title+headings+stats), 'interactives_only' (clickable elements with indices), 'forms_only' (form fields only), 'text_only' (page text, no interactives), 'visible_only' (only visible elements).",
+      inputSchema: {
+        mode: z
+          .enum(EXTRACT_MODES as [string, ...string[]])
+          .optional()
+          .describe(
+            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only",
+          ),
+      },
     },
-    async () => {
+    async ({ mode }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
-        const structured = buildStructuredContext(pageContent);
-        const truncated =
-          pageContent.content.length > 30000
-            ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
-            : pageContent.content;
-        return asTextResponse(
-          `${structured}\n\n## PAGE CONTENT\n\n${truncated}`,
-        );
+        const effectiveMode = (mode || "full") as ExtractMode;
+        return asTextResponse(buildExtractResponse(pageContent, effectiveMode));
       } catch (error) {
         return asTextResponse(
           `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -414,22 +492,24 @@ function registerTools(
     {
       title: "Read Page",
       description:
-        "Alias for vessel_extract_content. Reads the current page with structured context.",
+        "Alias for vessel_extract_content. Supports same modes: full, summary, interactives_only, forms_only, text_only, visible_only.",
+      inputSchema: {
+        mode: z
+          .enum(EXTRACT_MODES as [string, ...string[]])
+          .optional()
+          .describe(
+            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only",
+          ),
+      },
     },
-    async () => {
+    async ({ mode }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
-        const structured = buildStructuredContext(pageContent);
-        const truncated =
-          pageContent.content.length > 30000
-            ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
-            : pageContent.content;
-        return asTextResponse(
-          `${structured}\n\n## PAGE CONTENT\n\n${truncated}`,
-        );
+        const effectiveMode = (mode || "full") as ExtractMode;
+        return asTextResponse(buildExtractResponse(pageContent, effectiveMode));
       } catch (error) {
         return asTextResponse(
           `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -564,26 +644,33 @@ function registerTools(
         "click",
         { index, selector },
         async () => {
-          const beforeUrl = tab.view.webContents.getURL();
-          const resolvedSelector = await resolveSelector(
-            tab.view.webContents,
-            index,
-            selector,
-          );
+          const wc = tab.view.webContents;
+          const beforeUrl = wc.getURL();
+          const resolvedSelector = await resolveSelector(wc, index, selector);
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
           }
-          const result = await tab.view.webContents.executeJavaScript(`
+          const clickInfo = await wc.executeJavaScript(`
             (function() {
               const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-              if (!el) return 'Element not found';
+              if (!el) return { error: 'Element not found' };
+              const text = (el.textContent || el.tagName).trim().slice(0, 100);
+              const href = el.tagName === 'A' ? el.href : null;
               el.click();
-              return 'Clicked: ' + (el.textContent || el.tagName).trim().slice(0, 100);
+              return { text: text, href: href };
             })()
           `);
-          await waitForPotentialNavigation(tab.view.webContents, beforeUrl);
-          const afterUrl = tab.view.webContents.getURL();
-          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+          if (clickInfo.error) return clickInfo.error;
+          const clickText = `Clicked: ${clickInfo.text}`;
+          await waitForPotentialNavigation(wc, beforeUrl);
+          // If click didn't navigate but element was a link, use explicit navigation
+          const midUrl = wc.getURL();
+          if (midUrl === beforeUrl && clickInfo.href && clickInfo.href !== beforeUrl && !clickInfo.href.startsWith("javascript:")) {
+            wc.loadURL(clickInfo.href);
+            await waitForLoad(wc);
+          }
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl ? `${clickText} -> ${afterUrl}` : clickText;
         },
       );
     },
@@ -1070,35 +1157,57 @@ async function resolveSelector(
   return wc.executeJavaScript(
     `
       (function() {
+        // Primary path: use the content-script's authoritative index map
         if (window.__vessel?.getElementSelector) {
           return window.__vessel.getElementSelector(${index});
         }
-        const all = document.querySelectorAll(
-          "a[href], button, [role='button'], input:not([type='hidden']), select, textarea"
-        );
-        const el = all[${index} - 1];
-        if (!el) return null;
-        if (el.id) return "#" + CSS.escape(el.id);
-        const name = el.getAttribute("name");
-        if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
-        const parts = [];
-        let current = el;
-        for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
-          const tag = current.tagName.toLowerCase();
-          const parent = current.parentElement;
-          if (!parent) {
-            parts.unshift(tag);
-            break;
+
+        // Fallback: replicate the same extraction order as content-script
+        // (nav links → buttons → non-nav links → form inputs)
+        function selectorFor(el) {
+          if (!el) return null;
+          if (el.id) return "#" + CSS.escape(el.id);
+          var name = el.getAttribute("name");
+          if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+          var parts = [];
+          var current = el;
+          for (var depth = 0; current && current !== document.body && depth < 5; depth++) {
+            var tag = current.tagName.toLowerCase();
+            var parent = current.parentElement;
+            if (!parent) { parts.unshift(tag); break; }
+            var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
+            if (siblings.length > 1) {
+              parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
+            } else {
+              parts.unshift(tag);
+            }
+            current = parent;
           }
-          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
-          if (siblings.length > 1) {
-            parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
-          } else {
-            parts.unshift(tag);
-          }
-          current = parent;
+          return parts.join(" > ");
         }
-        return parts.join(" > ");
+
+        var seen = new Set();
+        var ordered = [];
+
+        // 1. Nav links
+        document.querySelectorAll("nav a[href], [role='navigation'] a[href]").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 2. Buttons
+        document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 3. Non-nav links
+        document.querySelectorAll("a[href]").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 4. Form inputs
+        document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+
+        var target = ordered[${index} - 1];
+        return target ? selectorFor(target) : null;
       })()
     `,
   );

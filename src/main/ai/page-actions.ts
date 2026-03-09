@@ -41,9 +41,18 @@ function waitForPotentialNavigation(
       resolve();
     };
     const onStart = () => {
+      // Wait for did-navigate (history commit) then load finish, not just load
+      wc.removeListener("did-navigate", onNavigate);
+      wc.once("did-navigate", () => {
+        void waitForLoad(wc, timeout).then(finish);
+      });
+      // Safety: if did-navigate never fires, still resolve on load finish
       void waitForLoad(wc, timeout).then(finish);
     };
-    const onNavigate = () => finish();
+    const onNavigate = () => {
+      // Navigation committed to history — wait for load to complete
+      void waitForLoad(wc, timeout).then(finish);
+    };
     const onNavigateInPage = () => finish();
     const timer = setTimeout(finish, timeout);
 
@@ -68,35 +77,57 @@ async function resolveSelector(
   return wc.executeJavaScript(
     `
       (function() {
+        // Primary path: use the content-script's authoritative index map
         if (window.__vessel?.getElementSelector) {
           return window.__vessel.getElementSelector(${index});
         }
-        const all = document.querySelectorAll(
-          "a[href], button, [role='button'], input:not([type='hidden']), select, textarea"
-        );
-        const el = all[${index} - 1];
-        if (!el) return null;
-        if (el.id) return "#" + CSS.escape(el.id);
-        const name = el.getAttribute("name");
-        if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
-        const parts = [];
-        let current = el;
-        for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
-          const tag = current.tagName.toLowerCase();
-          const parent = current.parentElement;
-          if (!parent) {
-            parts.unshift(tag);
-            break;
+
+        // Fallback: replicate the same extraction order as content-script
+        // (nav links → buttons → non-nav links → form inputs)
+        function selectorFor(el) {
+          if (!el) return null;
+          if (el.id) return "#" + CSS.escape(el.id);
+          var name = el.getAttribute("name");
+          if (name) return el.tagName.toLowerCase() + "[name=\\"" + CSS.escape(name) + "\\"]";
+          var parts = [];
+          var current = el;
+          for (var depth = 0; current && current !== document.body && depth < 5; depth++) {
+            var tag = current.tagName.toLowerCase();
+            var parent = current.parentElement;
+            if (!parent) { parts.unshift(tag); break; }
+            var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
+            if (siblings.length > 1) {
+              parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
+            } else {
+              parts.unshift(tag);
+            }
+            current = parent;
           }
-          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
-          if (siblings.length > 1) {
-            parts.unshift(tag + ":nth-of-type(" + (siblings.indexOf(current) + 1) + ")");
-          } else {
-            parts.unshift(tag);
-          }
-          current = parent;
+          return parts.join(" > ");
         }
-        return parts.join(" > ");
+
+        var seen = new Set();
+        var ordered = [];
+
+        // 1. Nav links
+        document.querySelectorAll("nav a[href], [role='navigation'] a[href]").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 2. Buttons
+        document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 3. Non-nav links
+        document.querySelectorAll("a[href]").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+        // 4. Form inputs
+        document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea").forEach(function(el) {
+          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
+        });
+
+        var target = ordered[${index} - 1];
+        return target ? selectorFor(target) : null;
       })()
     `,
   );
@@ -352,6 +383,43 @@ async function pressKey(
   `);
 }
 
+function getPostActionState(
+  ctx: ActionContext,
+  name: string,
+): string {
+  const tab = ctx.tabManager.getActiveTab();
+  if (!tab) return "";
+
+  const wc = tab.view.webContents;
+  const navActions = [
+    "navigate",
+    "go_back",
+    "go_forward",
+    "click",
+    "submit_form",
+    "reload",
+  ];
+  const interactActions = ["type_text", "select_option", "press_key"];
+  const tabActions = ["create_tab", "switch_tab"];
+
+  if (navActions.includes(name)) {
+    const history = wc.navigationHistory;
+    return `\n[state: url=${wc.getURL()}, canGoBack=${history.canGoBack()}, canGoForward=${history.canGoForward()}, loading=${wc.isLoading()}]`;
+  }
+
+  if (interactActions.includes(name)) {
+    return `\n[state: url=${wc.getURL()}, tabId=${ctx.tabManager.getActiveTabId()}]`;
+  }
+
+  if (tabActions.includes(name)) {
+    const activeId = ctx.tabManager.getActiveTabId();
+    const count = ctx.tabManager.getAllStates().length;
+    return `\n[state: activeTab=${activeId}, totalTabs=${count}]`;
+  }
+
+  return "";
+}
+
 export async function executeAction(
   name: string,
   args: Record<string, any>,
@@ -369,7 +437,7 @@ export async function executeAction(
 
   const wc = tab?.view.webContents;
 
-  return ctx.runtime.runControlledAction({
+  const result = await ctx.runtime.runControlledAction({
     source: "ai",
     name,
     args,
@@ -460,17 +528,28 @@ export async function executeAction(
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
           const beforeUrl = wc.getURL();
-          const result = await wc.executeJavaScript(`
+          // Get element info and href if it's a link
+          const clickInfo = await wc.executeJavaScript(`
             (function() {
               const el = document.querySelector(${JSON.stringify(selector)});
-              if (!el) return 'Element not found with selector: ${selector.replace(/'/g, "\\'")}';
+              if (!el) return { error: 'Element not found with selector: ${selector.replace(/'/g, "\\'")}' };
+              const text = (el.textContent || el.tagName).trim().slice(0, 100);
+              const href = el.tagName === 'A' ? el.href : null;
               el.click();
-              return 'Clicked: ' + (el.textContent || el.tagName).trim().slice(0, 100);
+              return { text: text, href: href };
             })()
           `);
+          if (clickInfo.error) return clickInfo.error;
+          const clickText = `Clicked: ${clickInfo.text}`;
           await waitForPotentialNavigation(wc, beforeUrl);
+          // If click didn't navigate but element was a link, use explicit navigation
+          const midUrl = wc.getURL();
+          if (midUrl === beforeUrl && clickInfo.href && clickInfo.href !== beforeUrl && !clickInfo.href.startsWith("javascript:")) {
+            wc.loadURL(clickInfo.href);
+            await waitForLoad(wc);
+          }
           const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+          return afterUrl !== beforeUrl ? `${clickText} -> ${afterUrl}` : clickText;
         }
 
         case "type_text": {
@@ -545,4 +624,6 @@ export async function executeAction(
       }
     },
   });
+
+  return result + getPostActionState(ctx, name);
 }
