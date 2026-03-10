@@ -381,22 +381,28 @@ async function submitForm(
       ) {
         return { error: 'Submit control is disabled' };
       }
-      const action =
+      // Collect form data and determine method
+      const submitterActionAttr =
         (submitter instanceof HTMLButtonElement ||
           submitter instanceof HTMLInputElement
-          ? submitter.formAction
-          : '') ||
-        form.action ||
-        window.location.href;
+          ? submitter.getAttribute('formaction')?.trim()
+          : '') || '';
+      const action = submitterActionAttr
+        ? new URL(submitterActionAttr, document.baseURI).toString()
+        : form.action || window.location.href;
+      const submitterMethodAttr =
+        (submitter instanceof HTMLButtonElement ||
+          submitter instanceof HTMLInputElement
+          ? submitter.getAttribute('formmethod')?.trim()
+          : '') || '';
       const method = (
-        ((submitter instanceof HTMLButtonElement ||
-          submitter instanceof HTMLInputElement)
-          ? submitter.formMethod
-          : '') ||
+        submitterMethodAttr ||
+        form.getAttribute('method') ||
         form.method ||
         'GET'
       ).toUpperCase();
       let fd;
+
       try {
         fd = submitter instanceof HTMLElement
           ? new FormData(form, submitter)
