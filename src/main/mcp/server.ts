@@ -13,7 +13,14 @@ import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
-import { capturePageToVault, writeMemoryNote } from "../memory/obsidian";
+import {
+  appendToMemoryNote,
+  capturePageToVault,
+  linkBookmarkToMemory,
+  listMemoryNotes,
+  searchMemoryNotes,
+  writeMemoryNote,
+} from "../memory/obsidian";
 
 let httpServer: http.Server | null = null;
 
@@ -1788,6 +1795,130 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_memory_append",
+    {
+      title: "Append Memory Note",
+      description:
+        "Append markdown content to an existing note in the configured Obsidian vault.",
+      inputSchema: {
+        note_path: z
+          .string()
+          .describe("Relative path to an existing note inside the vault"),
+        content: z.string().describe("Markdown content to append"),
+        heading: z
+          .string()
+          .optional()
+          .describe("Optional section heading to add before the content"),
+      },
+    },
+    async ({ note_path, content, heading }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_note_append",
+        { note_path, heading },
+        async () => {
+          const saved = appendToMemoryNote({
+            notePath: note_path,
+            content,
+            heading,
+          });
+          return `Appended memory note at ${saved.relativePath}`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_memory_list",
+    {
+      title: "List Memory Notes",
+      description:
+        "List recent markdown notes in the configured Obsidian vault.",
+      inputSchema: {
+        folder: z
+          .string()
+          .optional()
+          .describe("Optional relative folder inside the vault"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .max(200)
+          .optional()
+          .describe("Maximum number of notes to return"),
+      },
+    },
+    async ({ folder, limit }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_note_list",
+        { folder, limit },
+        async () => {
+          const notes = listMemoryNotes({ folder, limit });
+          if (notes.length === 0) {
+            return "No memory notes found.";
+          }
+          return notes
+            .map(
+              (note) =>
+                `- ${note.title} | path=${note.relativePath} | modified=${note.modifiedAt}${note.tags.length ? ` | tags=${note.tags.join(",")}` : ""}`,
+            )
+            .join("\n");
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_memory_search",
+    {
+      title: "Search Memory Notes",
+      description:
+        "Search markdown notes in the configured Obsidian vault by title, path, body, and optional tags.",
+      inputSchema: {
+        query: z.string().describe("Search query"),
+        folder: z
+          .string()
+          .optional()
+          .describe("Optional relative folder inside the vault"),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Optional tags that matching notes must contain"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .max(100)
+          .optional()
+          .describe("Maximum number of matching notes to return"),
+      },
+    },
+    async ({ query, folder, tags, limit }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_note_search",
+        { query, folder, tags, limit },
+        async () => {
+          const notes = searchMemoryNotes({ query, folder, tags, limit });
+          if (notes.length === 0) {
+            return `No memory notes matched "${query}".`;
+          }
+          return notes
+            .map(
+              (note) =>
+                `- ${note.title} | path=${note.relativePath} | modified=${note.modifiedAt}${note.tags.length ? ` | tags=${note.tags.join(",")}` : ""}`,
+            )
+            .join("\n");
+        },
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_memory_page_capture",
     {
       title: "Capture Page To Memory",
@@ -1832,6 +1963,63 @@ function registerTools(
             tags,
           });
           return `Captured page "${saved.title}" to ${saved.relativePath}`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_memory_link_bookmark",
+    {
+      title: "Link Bookmark To Memory",
+      description:
+        "Create a note for a bookmark or append bookmark details into an existing memory note.",
+      inputSchema: {
+        bookmark_id: z.string().describe("Bookmark ID to link"),
+        note_path: z
+          .string()
+          .optional()
+          .describe("Existing relative note path to append into"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional title when creating a new note"),
+        folder: z
+          .string()
+          .optional()
+          .describe("Relative folder when creating a new note"),
+        note: z
+          .string()
+          .optional()
+          .describe(
+            "Optional rationale or breadcrumb to store with the bookmark",
+          ),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Optional tags when creating a new note"),
+      },
+    },
+    async ({ bookmark_id, note_path, title, folder, note, tags }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_link_bookmark",
+        { bookmark_id, note_path, title, folder, tags },
+        async () => {
+          const bookmark = bookmarkManager.getBookmark(bookmark_id);
+          if (!bookmark) {
+            return `Bookmark ${bookmark_id} not found`;
+          }
+          const saved = linkBookmarkToMemory({
+            bookmark,
+            notePath: note_path,
+            title,
+            folder,
+            note,
+            tags,
+          });
+          return `Linked bookmark "${bookmark.title}" to memory note ${saved.relativePath}`;
         },
       );
     },

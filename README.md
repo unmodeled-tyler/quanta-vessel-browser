@@ -118,6 +118,15 @@ Notes:
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
+Initial memory tools:
+
+- `vessel_memory_note_create`
+- `vessel_memory_append`
+- `vessel_memory_list`
+- `vessel_memory_search`
+- `vessel_memory_page_capture`
+- `vessel_memory_link_bookmark`
+
 Generic HTTP MCP config:
 
 ```json
