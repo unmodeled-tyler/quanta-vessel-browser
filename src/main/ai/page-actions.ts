@@ -740,6 +740,7 @@ export async function executeAction(
       "create_tab",
       "restore_checkpoint",
       "list_bookmarks",
+      "search_bookmarks",
       "create_bookmark_folder",
       "save_bookmark",
       "open_bookmark",
@@ -1000,6 +1001,9 @@ export async function executeAction(
             lines.push(
               `[${folder.name}] (id=${folder.id}, ${items.length} items)`,
             );
+            if ("summary" in folder && typeof folder.summary === "string") {
+              lines.push(`summary: ${folder.summary}`);
+            }
             for (const bookmark of items) {
               lines.push(
                 `- ${bookmark.title} | ${bookmark.url} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`,
@@ -1009,8 +1013,33 @@ export async function executeAction(
           return lines.length ? lines.join("\n") : "No bookmarks saved yet";
         }
 
+        case "search_bookmarks": {
+          const query = typeof args.query === "string" ? args.query.trim() : "";
+          if (!query) return "Error: query is required";
+
+          const matches = bookmarkManager.searchBookmarks(query);
+          if (matches.length === 0) {
+            return `No bookmarks matched "${query}"`;
+          }
+
+          const lines = matches.map(({ bookmark, folder }) => {
+            const folderLabel =
+              bookmark.folderId === "unsorted"
+                ? "Unsorted"
+                : (folder?.name ?? bookmark.folderId);
+            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
+          });
+          return [`Matches for "${query}" (${matches.length})`, ...lines].join(
+            "\n",
+          );
+        }
+
         case "create_bookmark_folder": {
           const name = typeof args.name === "string" ? args.name.trim() : "";
+          const summary =
+            typeof args.summary === "string" && args.summary.trim()
+              ? args.summary.trim()
+              : undefined;
           if (!name) return "Error: Folder name is required";
           const existing = bookmarkManager
             .getState()
@@ -1020,7 +1049,7 @@ export async function executeAction(
           if (existing) {
             return `Folder "${existing.name}" already exists (id=${existing.id})`;
           }
-          const folder = bookmarkManager.createFolder(name);
+          const folder = bookmarkManager.createFolderWithSummary(name, summary);
           return `Created folder "${folder.name}" (id=${folder.id})`;
         }
 

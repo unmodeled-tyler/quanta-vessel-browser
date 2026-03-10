@@ -32,8 +32,10 @@ export function useBookmarks() {
     ) => window.vessel.bookmarks.saveBookmark(url, title, folderId, note),
     removeBookmark: (id: string) => window.vessel.bookmarks.removeBookmark(id),
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
+    createFolderWithSummary: (name: string, summary?: string) =>
+      window.vessel.bookmarks.createFolderWithSummary(name, summary),
     removeFolder: (id: string) => window.vessel.bookmarks.removeFolder(id),
-    renameFolder: (id: string, newName: string) =>
-      window.vessel.bookmarks.renameFolder(id, newName),
+    renameFolder: (id: string, newName: string, summary?: string) =>
+      window.vessel.bookmarks.renameFolder(id, newName, summary),
   };
 }

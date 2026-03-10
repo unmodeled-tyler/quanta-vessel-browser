@@ -116,13 +116,19 @@ const api = {
       ipcRenderer.invoke(Channels.BOOKMARK_REMOVE, id),
     createFolder: (name: string): Promise<BookmarkFolder> =>
       ipcRenderer.invoke(Channels.FOLDER_CREATE, name),
+    createFolderWithSummary: (
+      name: string,
+      summary?: string,
+    ): Promise<BookmarkFolder> =>
+      ipcRenderer.invoke(Channels.FOLDER_CREATE, name, summary),
     removeFolder: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(Channels.FOLDER_REMOVE, id),
     renameFolder: (
       id: string,
       newName: string,
+      summary?: string,
     ): Promise<BookmarkFolder | null> =>
-      ipcRenderer.invoke(Channels.FOLDER_RENAME, id, newName),
+      ipcRenderer.invoke(Channels.FOLDER_RENAME, id, newName, summary),
     onUpdate: (cb: (state: BookmarksState) => void): (() => void) => {
       const handler = (_: unknown, state: BookmarksState) => cb(state);
       ipcRenderer.on(Channels.BOOKMARKS_UPDATE, handler);

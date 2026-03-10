@@ -213,6 +213,7 @@ export interface Bookmark {
 export interface BookmarkFolder {
   id: string;
   name: string;
+  summary?: string;
   createdAt: string;
 }
 

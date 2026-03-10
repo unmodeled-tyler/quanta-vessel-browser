@@ -1525,16 +1525,20 @@ function registerTools(
       description: "Create a named folder for organizing bookmarks.",
       inputSchema: {
         name: z.string().describe("Name for the new folder"),
+        summary: z
+          .string()
+          .optional()
+          .describe("Optional one-sentence summary shown in the UI"),
       },
     },
-    async ({ name }) => {
+    async ({ name, summary }) => {
       return withAction(
         runtime,
         tabManager,
         "create_bookmark_folder",
-        { name },
+        { name, summary },
         async () => {
-          const folder = bookmarkManager.createFolder(name);
+          const folder = bookmarkManager.createFolderWithSummary(name, summary);
           return `Created folder "${folder.name}" (id=${folder.id})`;
         },
       );
@@ -1620,6 +1624,9 @@ function registerTools(
             lines.push(
               `\n[${folder.name}] (id=${folder.id}, ${items.length} items)`,
             );
+            if ("summary" in folder && typeof folder.summary === "string") {
+              lines.push(`  summary: ${folder.summary}`);
+            }
             for (const b of items) {
               lines.push(
                 `  - ${b.title} | ${b.url} | id=${b.id}${b.note ? ` | note: ${b.note}` : ""}`,
@@ -1629,6 +1636,43 @@ function registerTools(
           return lines.length
             ? lines.join("\n").trim()
             : "No bookmarks saved yet.";
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_search",
+    {
+      title: "Search Bookmarks",
+      description:
+        "Search bookmarks by title, URL, note, folder name, or folder summary.",
+      inputSchema: {
+        query: z.string().describe("Search term to match against bookmarks"),
+      },
+    },
+    async ({ query }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "search_bookmarks",
+        { query },
+        async () => {
+          const matches = bookmarkManager.searchBookmarks(query);
+          if (matches.length === 0) {
+            return `No bookmarks matched "${query}"`;
+          }
+
+          const lines = matches.map(({ bookmark, folder }) => {
+            const folderLabel =
+              bookmark.folderId === "unsorted"
+                ? "Unsorted"
+                : (folder?.name ?? bookmark.folderId);
+            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
+          });
+          return [`Matches for "${query}" (${matches.length})`, ...lines].join(
+            "\n",
+          );
         },
       );
     },
@@ -1739,16 +1783,24 @@ function registerTools(
       inputSchema: {
         folder_id: z.string().describe("ID of the folder to rename"),
         new_name: z.string().describe("New name for the folder"),
+        summary: z
+          .string()
+          .optional()
+          .describe("Optional one-sentence summary for the folder"),
       },
     },
-    async ({ folder_id, new_name }) => {
+    async ({ folder_id, new_name, summary }) => {
       return withAction(
         runtime,
         tabManager,
         "rename_bookmark_folder",
-        { folder_id, new_name },
+        { folder_id, new_name, summary },
         async () => {
-          const folder = bookmarkManager.renameFolder(folder_id, new_name);
+          const folder = bookmarkManager.renameFolder(
+            folder_id,
+            new_name,
+            summary,
+          );
           return folder
             ? `Renamed folder to "${folder.name}"`
             : `Folder ${folder_id} not found`;

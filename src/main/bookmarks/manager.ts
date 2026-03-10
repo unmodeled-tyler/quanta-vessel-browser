@@ -77,6 +77,39 @@ export function getBookmark(id: string): Bookmark | null {
   return bookmark ? { ...bookmark } : null;
 }
 
+export function searchBookmarks(query: string): Array<{
+  bookmark: Bookmark;
+  folder: BookmarkFolder | null;
+}> {
+  load();
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+
+  return state!.bookmarks
+    .filter((bookmark) => {
+      const folder = state!.folders.find(
+        (item) => item.id === bookmark.folderId,
+      );
+      const haystacks = [
+        bookmark.title,
+        bookmark.url,
+        bookmark.note,
+        folder?.name,
+        folder?.summary,
+      ];
+      return haystacks.some(
+        (value) =>
+          typeof value === "string" && value.toLowerCase().includes(normalized),
+      );
+    })
+    .map((bookmark) => ({
+      bookmark: { ...bookmark },
+      folder:
+        state!.folders.find((item) => item.id === bookmark.folderId) ?? null,
+    }))
+    .sort((a, b) => b.bookmark.savedAt.localeCompare(a.bookmark.savedAt));
+}
+
 export function createFolder(name: string): BookmarkFolder {
   load();
   const trimmed = name.trim();
@@ -84,6 +117,25 @@ export function createFolder(name: string): BookmarkFolder {
   const folder: BookmarkFolder = {
     id: randomUUID(),
     name: trimmed,
+    createdAt: new Date().toISOString(),
+  };
+  state!.folders.push(folder);
+  save();
+  emit();
+  return folder;
+}
+
+export function createFolderWithSummary(
+  name: string,
+  summary?: string,
+): BookmarkFolder {
+  load();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Folder name cannot be empty");
+  const folder: BookmarkFolder = {
+    id: randomUUID(),
+    name: trimmed,
+    summary: summary?.trim() || undefined,
     createdAt: new Date().toISOString(),
   };
   state!.folders.push(folder);
@@ -147,6 +199,7 @@ export function removeFolder(id: string): boolean {
 export function renameFolder(
   id: string,
   newName: string,
+  summary?: string,
 ): BookmarkFolder | null {
   load();
   const folder = state!.folders.find((f) => f.id === id);
@@ -154,6 +207,7 @@ export function renameFolder(
   const trimmed = newName.trim();
   if (!trimmed) return null;
   folder.name = trimmed;
+  folder.summary = summary?.trim() || undefined;
   save();
   emit();
   return { ...folder };

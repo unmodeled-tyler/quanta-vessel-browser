@@ -187,9 +187,12 @@ export function registerIpcHandlers(
     return bookmarkManager.getState();
   });
 
-  ipcMain.handle(Channels.FOLDER_CREATE, (_, name: string) => {
-    return bookmarkManager.createFolder(name);
-  });
+  ipcMain.handle(
+    Channels.FOLDER_CREATE,
+    (_, name: string, summary?: string) => {
+      return bookmarkManager.createFolderWithSummary(name, summary);
+    },
+  );
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
@@ -205,9 +208,12 @@ export function registerIpcHandlers(
     return bookmarkManager.removeFolder(id);
   });
 
-  ipcMain.handle(Channels.FOLDER_RENAME, (_, id: string, newName: string) => {
-    return bookmarkManager.renameFolder(id, newName);
-  });
+  ipcMain.handle(
+    Channels.FOLDER_RENAME,
+    (_, id: string, newName: string, summary?: string) => {
+      return bookmarkManager.renameFolder(id, newName, summary);
+    },
+  );
 
   // --- Window controls ---
 

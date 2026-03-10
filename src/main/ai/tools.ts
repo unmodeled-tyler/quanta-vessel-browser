@@ -268,6 +268,21 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "search_bookmarks",
+    description:
+      "Search bookmarks by title, URL, note, folder name, or folder summary.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Search term to match against saved bookmarks",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "create_bookmark_folder",
     description: "Create a bookmark folder for organizing saved pages.",
     input_schema: {
@@ -276,6 +291,11 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         name: {
           type: "string",
           description: "Folder name to create",
+        },
+        summary: {
+          type: "string",
+          description:
+            "Optional one-sentence summary shown in the UI for this folder",
         },
       },
       required: ["name"],

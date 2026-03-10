@@ -187,6 +187,8 @@
 .bookmark-panel-subtitle,
 .bookmark-current-url,
 .bookmark-folder-meta,
+.bookmark-folder-summary,
+.bookmark-folder-collapsed-hint,
 .bookmark-empty-folder,
 .bookmark-item-url,
 .bookmark-item-time,
@@ -318,6 +320,13 @@
     align-items: stretch;
 }
 
+.bookmark-folder-form-fields {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+}
+
 .bookmark-folder-list,
 .bookmark-items {
     display: flex;
@@ -325,10 +334,49 @@
     gap: 8px;
 }
 
+.bookmark-folder-header.clickable {
+    cursor: pointer;
+}
+
+.bookmark-folder-header.clickable:hover {
+    color: var(--text-primary);
+}
+
+.bookmark-folder-overview {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.bookmark-folder-chevron {
+    color: #9fb8ff;
+    font-size: 12px;
+    line-height: 1.4;
+    transform: rotate(0deg);
+    transition: transform 150ms ease;
+    margin-top: 1px;
+}
+
+.bookmark-folder-chevron.expanded {
+    transform: rotate(90deg);
+}
+
 .bookmark-folder-actions {
     display: flex;
     align-items: center;
     gap: 6px;
+}
+
+.bookmark-folder-summary {
+    margin-top: 2px;
+    color: var(--text-muted);
+}
+
+.bookmark-folder-collapsed-hint {
+    color: var(--text-muted);
+    padding: 2px 0;
 }
 
 .bookmark-empty-folder {
@@ -854,6 +902,7 @@
     .bookmark-save-controls,
     .bookmark-folder-create,
     .bookmark-folder-header,
+    .bookmark-folder-overview,
     .bookmark-folder-edit,
     .bookmark-item-footer,
     .agent-panel-header,
