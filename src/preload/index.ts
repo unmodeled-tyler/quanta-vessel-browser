@@ -7,11 +7,6 @@ import type {
   Bookmark,
   BookmarkFolder,
   BookmarksState,
-  ProviderConfig,
-  ProviderModelsResult,
-  ProviderMeta,
-  ProviderId,
-  ProviderUpdateResult,
   SessionSnapshot,
 } from "../shared/types";
 
@@ -106,14 +101,6 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     set: (key: string, value: any) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
-  },
-  provider: {
-    list: (): Promise<Record<ProviderId, ProviderMeta>> =>
-      ipcRenderer.invoke(Channels.PROVIDER_LIST),
-    update: (config: ProviderConfig): Promise<ProviderUpdateResult> =>
-      ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
-    fetchModels: (config: ProviderConfig): Promise<ProviderModelsResult> =>
-      ipcRenderer.invoke(Channels.PROVIDER_FETCH_MODELS, config),
   },
   bookmarks: {
     get: (): Promise<BookmarksState> =>

@@ -102,10 +102,7 @@ function getTabByMatch(tabManager: TabManager, match: string) {
   );
 }
 
-function getPostActionState(
-  tabManager: TabManager,
-  name: string,
-): string {
+function getPostActionState(tabManager: TabManager, name: string): string {
   // Append state context for navigation/interaction actions
   const tab = tabManager.getActiveTab();
   if (!tab) return "";
@@ -259,8 +256,7 @@ async function submitForm(
         return forms.length > 0 ? 'form' : null;
       })()
     `);
-    if (!resolvedSelector)
-      return "Error: No form found on the page";
+    if (!resolvedSelector) return "Error: No form found on the page";
   }
 
   // Get form info to determine submission method
@@ -659,7 +655,6 @@ function registerTools(
   server: McpServer,
   tabManager: TabManager,
   runtime: AgentRuntime,
-  onBookmarkMutation?: () => void,
 ): void {
   server.registerPrompt(
     "vessel-supervisor-brief",
@@ -942,7 +937,12 @@ function registerTools(
           const clickText = `Clicked: ${elInfo.text}`;
 
           // For anchor links: use loadURL (browser-initiated = guaranteed history)
-          if (elInfo.href && elInfo.href !== beforeUrl && !elInfo.href.startsWith("javascript:") && !elInfo.href.startsWith("#")) {
+          if (
+            elInfo.href &&
+            elInfo.href !== beforeUrl &&
+            !elInfo.href.startsWith("javascript:") &&
+            !elInfo.href.startsWith("#")
+          ) {
             wc.loadURL(elInfo.href);
             await waitForLoad(wc);
             const afterUrl = wc.getURL();
@@ -958,7 +958,9 @@ function registerTools(
           `);
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl ? `${clickText} -> ${afterUrl}` : clickText;
+          return afterUrl !== beforeUrl
+            ? `${clickText} -> ${afterUrl}`
+            : clickText;
         },
       );
     },
@@ -1098,7 +1100,12 @@ function registerTools(
           const wc = tab.view.webContents;
           const beforeUrl = wc.getURL();
           const result = await submitForm(wc, index, selector);
-          if (result.startsWith("Error") || result.startsWith("Target") || result.startsWith("No parent") || result.startsWith("Submit control")) {
+          if (
+            result.startsWith("Error") ||
+            result.startsWith("Target") ||
+            result.startsWith("No parent") ||
+            result.startsWith("Submit control")
+          ) {
             return result;
           }
           // Wait for navigation from form submission
@@ -1490,18 +1497,13 @@ function registerTools(
     "vessel_clear_highlights",
     {
       title: "Clear Highlights",
-      description:
-        "Remove all visual highlights from the current page.",
+      description: "Remove all visual highlights from the current page.",
     },
     async () => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
-      return withAction(
-        runtime,
-        tabManager,
-        "clear_highlights",
-        {},
-        async () => clearHighlights(tab.view.webContents),
+      return withAction(runtime, tabManager, "clear_highlights", {}, async () =>
+        clearHighlights(tab.view.webContents),
       );
     },
   );
@@ -1519,7 +1521,6 @@ function registerTools(
     },
     async ({ name }) => {
       const folder = bookmarkManager.createFolder(name);
-      if (onBookmarkMutation) onBookmarkMutation();
       return asTextResponse(
         `Created folder "${folder.name}" (id=${folder.id})`,
       );
@@ -1552,7 +1553,6 @@ function registerTools(
         folder_id,
         note,
       );
-      if (onBookmarkMutation) onBookmarkMutation();
       const folderLabel =
         bookmark.folderId === "unsorted"
           ? "Unsorted"
@@ -1581,16 +1581,11 @@ function registerTools(
     },
     async ({ folder_id }) => {
       const state = bookmarkManager.getState();
-      const folders = [
-        { id: "unsorted", name: "Unsorted" },
-        ...state.folders,
-      ];
+      const folders = [{ id: "unsorted", name: "Unsorted" }, ...state.folders];
       const lines: string[] = [];
       for (const folder of folders) {
         if (folder_id && folder.id !== folder_id) continue;
-        const items = state.bookmarks.filter(
-          (b) => b.folderId === folder.id,
-        );
+        const items = state.bookmarks.filter((b) => b.folderId === folder.id);
         lines.push(
           `\n[${folder.name}] (id=${folder.id}, ${items.length} items)`,
         );
@@ -1617,7 +1612,6 @@ function registerTools(
     },
     async ({ bookmark_id }) => {
       const removed = bookmarkManager.removeBookmark(bookmark_id);
-      if (removed && onBookmarkMutation) onBookmarkMutation();
       return asTextResponse(
         removed
           ? `Removed bookmark ${bookmark_id}`
@@ -1630,15 +1624,13 @@ function registerTools(
     "vessel_folder_remove",
     {
       title: "Remove Bookmark Folder",
-      description:
-        "Remove a folder. Bookmarks in it are moved to Unsorted.",
+      description: "Remove a folder. Bookmarks in it are moved to Unsorted.",
       inputSchema: {
         folder_id: z.string().describe("ID of the folder to remove"),
       },
     },
     async ({ folder_id }) => {
       const removed = bookmarkManager.removeFolder(folder_id);
-      if (removed && onBookmarkMutation) onBookmarkMutation();
       return asTextResponse(
         removed
           ? `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`
@@ -1659,7 +1651,6 @@ function registerTools(
     },
     async ({ folder_id, new_name }) => {
       const folder = bookmarkManager.renameFolder(folder_id, new_name);
-      if (folder && onBookmarkMutation) onBookmarkMutation();
       return asTextResponse(
         folder
           ? `Renamed folder to "${folder.name}"`
@@ -1789,13 +1780,12 @@ async function resolveSelector(
 function createMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
-  onBookmarkMutation?: () => void,
 ): McpServer {
   const server = new McpServer({
     name: "vessel-browser",
     version: "0.1.0",
   });
-  registerTools(server, tabManager, runtime, onBookmarkMutation);
+  registerTools(server, tabManager, runtime);
   return server;
 }
 
@@ -1803,7 +1793,6 @@ export function startMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
   port: number,
-  onBookmarkMutation?: () => void,
 ): void {
   httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${port}`);
@@ -1828,7 +1817,7 @@ export function startMcpServer(
     }
 
     try {
-      const mcpServer = createMcpServer(tabManager, runtime, onBookmarkMutation);
+      const mcpServer = createMcpServer(tabManager, runtime);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });

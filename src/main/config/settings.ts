@@ -4,11 +4,6 @@ import fs from "fs";
 import type { VesselSettings } from "../../shared/types";
 
 const defaults: VesselSettings = {
-  provider: {
-    id: "anthropic",
-    apiKey: "",
-    model: "claude-sonnet-4-20250514",
-  },
   defaultUrl: "https://start.duckduckgo.com",
   theme: "dark",
   sidebarWidth: 340,
@@ -27,23 +22,15 @@ export function loadSettings(): VesselSettings {
   if (settings) return settings;
   try {
     const raw = fs.readFileSync(getSettingsPath(), "utf-8");
-    const parsed = JSON.parse(raw);
-    // Migrate old single apiKey format
-    if (parsed.apiKey && !parsed.provider) {
-      parsed.provider = {
-        id: "anthropic",
-        apiKey: parsed.apiKey,
-        model: "claude-sonnet-4-20250514",
-      };
-      delete parsed.apiKey;
-    }
+    const parsed = JSON.parse(raw) as Partial<VesselSettings> & {
+      apiKey?: string;
+      provider?: unknown;
+    };
+    delete parsed.apiKey;
+    delete parsed.provider;
     settings = {
       ...defaults,
       ...parsed,
-      provider: {
-        ...defaults.provider,
-        ...(parsed.provider ?? {}),
-      },
     };
   } catch {
     settings = { ...defaults };

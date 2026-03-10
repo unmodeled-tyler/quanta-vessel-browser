@@ -1,6 +1,7 @@
 import type { WebContents } from "electron";
 import type { AgentCheckpoint } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
+import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
@@ -474,6 +475,30 @@ function findCheckpoint(
   return null;
 }
 
+function resolveBookmarkFolderId(
+  args: Record<string, any>,
+): string | undefined {
+  const folderId =
+    typeof args.folderId === "string" ? args.folderId.trim() : "";
+  if (folderId) {
+    return bookmarkManager.getState().folders.find((f) => f.id === folderId)
+      ?.id;
+  }
+
+  const folderName =
+    typeof args.folderName === "string" ? args.folderName.trim() : "";
+  if (!folderName) return undefined;
+
+  const existing = bookmarkManager
+    .getState()
+    .folders.find(
+      (folder) => folder.name.toLowerCase() === folderName.toLowerCase(),
+    );
+  if (existing) return existing.id;
+
+  return bookmarkManager.createFolder(folderName).id;
+}
+
 async function selectOption(
   wc: WebContents,
   args: Record<string, any>,
@@ -527,8 +552,7 @@ async function submitForm(
         return forms.length > 0 ? 'form' : null;
       })()
     `);
-    if (!selector)
-      return "Error: No form found on the page";
+    if (!selector) return "Error: No form found on the page";
   }
 
   // Get form info to determine submission method
@@ -666,10 +690,7 @@ async function pressKey(
   `);
 }
 
-function getPostActionState(
-  ctx: ActionContext,
-  name: string,
-): string {
+function getPostActionState(ctx: ActionContext, name: string): string {
   const tab = ctx.tabManager.getActiveTab();
   if (!tab) return "";
 
@@ -712,7 +733,14 @@ export async function executeAction(
 
   if (
     !tab &&
-    !["list_tabs", "create_tab", "restore_checkpoint"].includes(name)
+    ![
+      "list_tabs",
+      "create_tab",
+      "restore_checkpoint",
+      "list_bookmarks",
+      "create_bookmark_folder",
+      "save_bookmark",
+    ].includes(name)
   ) {
     return "Error: No active tab";
   }
@@ -824,7 +852,12 @@ export async function executeAction(
           const clickText = `Clicked: ${elInfo.text}`;
 
           // For anchor links: use loadURL (browser-initiated = guaranteed history)
-          if (elInfo.href && elInfo.href !== beforeUrl && !elInfo.href.startsWith("javascript:") && !elInfo.href.startsWith("#")) {
+          if (
+            elInfo.href &&
+            elInfo.href !== beforeUrl &&
+            !elInfo.href.startsWith("javascript:") &&
+            !elInfo.href.startsWith("#")
+          ) {
             wc.loadURL(elInfo.href);
             await waitForLoad(wc);
             const afterUrl = wc.getURL();
@@ -840,7 +873,9 @@ export async function executeAction(
           `);
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl ? `${clickText} -> ${afterUrl}` : clickText;
+          return afterUrl !== beforeUrl
+            ? `${clickText} -> ${afterUrl}`
+            : clickText;
         }
 
         case "type_text": {
@@ -859,7 +894,12 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const beforeUrl = wc.getURL();
           const result = await submitForm(wc, args);
-          if (result.startsWith("Error") || result.startsWith("Target") || result.startsWith("No parent") || result.startsWith("Submit control")) {
+          if (
+            result.startsWith("Error") ||
+            result.startsWith("Target") ||
+            result.startsWith("No parent") ||
+            result.startsWith("Submit control")
+          ) {
             return result;
           }
           await waitForPotentialNavigation(wc, beforeUrl);
@@ -925,13 +965,99 @@ export async function executeAction(
           return `Restored checkpoint ${checkpoint.name}`;
         }
 
+        case "list_bookmarks": {
+          const state = bookmarkManager.getState();
+          const folderId =
+            typeof args.folderId === "string" ? args.folderId.trim() : "";
+          const folderName =
+            typeof args.folderName === "string" ? args.folderName.trim() : "";
+          const resolvedFolderId =
+            folderId ||
+            (folderName
+              ? (state.folders.find(
+                  (folder) =>
+                    folder.name.toLowerCase() === folderName.toLowerCase(),
+                )?.id ?? "")
+              : "");
+
+          if (folderName && !resolvedFolderId) {
+            return `Folder "${folderName}" not found`;
+          }
+
+          const folders = [
+            { id: "unsorted", name: "Unsorted" },
+            ...state.folders,
+          ];
+          const lines: string[] = [];
+          for (const folder of folders) {
+            if (resolvedFolderId && folder.id !== resolvedFolderId) continue;
+            const items = state.bookmarks.filter(
+              (bookmark) => bookmark.folderId === folder.id,
+            );
+            lines.push(
+              `[${folder.name}] (id=${folder.id}, ${items.length} items)`,
+            );
+            for (const bookmark of items) {
+              lines.push(
+                `- ${bookmark.title} | ${bookmark.url} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`,
+              );
+            }
+          }
+          return lines.length ? lines.join("\n") : "No bookmarks saved yet";
+        }
+
+        case "create_bookmark_folder": {
+          const name = typeof args.name === "string" ? args.name.trim() : "";
+          if (!name) return "Error: Folder name is required";
+          const existing = bookmarkManager
+            .getState()
+            .folders.find(
+              (folder) => folder.name.toLowerCase() === name.toLowerCase(),
+            );
+          if (existing) {
+            return `Folder "${existing.name}" already exists (id=${existing.id})`;
+          }
+          const folder = bookmarkManager.createFolder(name);
+          return `Created folder "${folder.name}" (id=${folder.id})`;
+        }
+
+        case "save_bookmark": {
+          const currentUrl = wc?.getURL().trim() || "";
+          const url =
+            typeof args.url === "string" && args.url.trim()
+              ? args.url.trim()
+              : currentUrl;
+          if (!url) return "Error: No URL provided and no active page to save";
+
+          const currentTitle = wc?.getTitle().trim() || url;
+          const title =
+            typeof args.title === "string" && args.title.trim()
+              ? args.title.trim()
+              : currentTitle;
+          const folderId = resolveBookmarkFolderId(args);
+          const note =
+            typeof args.note === "string" && args.note.trim()
+              ? args.note.trim()
+              : undefined;
+          const bookmark = bookmarkManager.saveBookmark(
+            url,
+            title,
+            folderId,
+            note,
+          );
+          const folderLabel =
+            bookmark.folderId === "unsorted"
+              ? "Unsorted"
+              : (bookmarkManager
+                  .getState()
+                  .folders.find((folder) => folder.id === bookmark.folderId)
+                  ?.name ?? bookmark.folderId);
+          return `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`;
+        }
+
         case "highlight": {
           if (!wc) return "Error: No active tab";
-          const selector = await resolveSelector(
-            wc,
-            args.index,
-            args.selector,
-          );
+          const selector = await resolveSelector(wc, args.index, args.selector);
           return highlightOnPage(
             wc,
             selector,

@@ -668,9 +668,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <Show when={messages().length === 0 && !isStreaming()}>
             <div class="sidebar-empty">
-              <p>Ask me anything about the current page.</p>
+              <p>External harnesses drive Vessel.</p>
               <p class="sidebar-empty-hint">
-                Try "summarize", "what is this about?", or any question.
+                Use this panel to watch runtime state, approvals, checkpoints,
+                and bookmarks.
               </p>
             </div>
           </Show>
@@ -684,7 +685,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             value={input()}
             onInput={(e) => setInput(e.currentTarget.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask something..."
+            placeholder="Local chat disabled; use Hermes or OpenClaw"
             rows={2}
             disabled={isStreaming()}
           />

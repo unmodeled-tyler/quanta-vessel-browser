@@ -249,4 +249,68 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: "list_bookmarks",
+    description:
+      "List bookmark folders and saved pages. Optionally filter by folder name or ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        folderId: {
+          type: "string",
+          description: "Exact bookmark folder ID to filter by",
+        },
+        folderName: {
+          type: "string",
+          description: "Exact bookmark folder name to filter by",
+        },
+      },
+    },
+  },
+  {
+    name: "create_bookmark_folder",
+    description: "Create a bookmark folder for organizing saved pages.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Folder name to create",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "save_bookmark",
+    description:
+      "Save the current page or a specified URL as a bookmark. If folderName is provided and missing, create it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to save. Omit to save the current page.",
+        },
+        title: {
+          type: "string",
+          description:
+            "Title for the bookmark. Omit to use the current page title.",
+        },
+        folderId: {
+          type: "string",
+          description: "Folder ID to save into",
+        },
+        folderName: {
+          type: "string",
+          description:
+            "Folder name to save into. Created automatically if missing.",
+        },
+        note: {
+          type: "string",
+          description: "Optional note about why the page was saved",
+        },
+      },
+    },
+  },
 ];

@@ -189,7 +189,6 @@ export interface ProviderModelsResult {
 }
 
 export interface VesselSettings {
-  provider: ProviderConfig;
   defaultUrl: string;
   theme: "dark";
   sidebarWidth: number;

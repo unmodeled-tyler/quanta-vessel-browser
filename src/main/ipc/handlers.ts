@@ -1,14 +1,5 @@
 import { ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
-import type { AIProvider } from "../ai/provider";
-import {
-  createProvider,
-  fetchProviderModels,
-  sanitizeProviderConfig,
-  validateProviderConfig,
-} from "../ai/provider";
-import { PROVIDERS } from "../ai/providers";
-import { handleAIQuery } from "../ai/commands";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
@@ -16,9 +7,6 @@ import { layoutViews, type WindowState } from "../window";
 import type {
   ApprovalMode,
   AgentRuntimeState,
-  ProviderConfig,
-  ProviderModelsResult,
-  ProviderUpdateResult,
   SessionSnapshot,
 } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
@@ -29,35 +17,6 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, mainWindow } = windowState;
-
-  let provider: AIProvider | null = null;
-  let providerError =
-    "No AI provider configured. Open settings (Ctrl+,) to set one up.";
-
-  const refreshProvider = (config: ProviderConfig): string | null => {
-    const normalized = sanitizeProviderConfig(config);
-    const validationError = validateProviderConfig(normalized);
-    if (validationError) {
-      provider = null;
-      providerError = validationError;
-      return validationError;
-    }
-
-    try {
-      provider = createProvider(normalized);
-      providerError = "";
-      return null;
-    } catch (error) {
-      provider = null;
-      providerError =
-        error instanceof Error
-          ? error.message
-          : "Failed to initialize the selected AI provider.";
-      return providerError;
-    }
-  };
-
-  refreshProvider(loadSettings().provider);
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
     chromeView.webContents.send(channel, ...args);
@@ -106,30 +65,18 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
     sendToRendererViews(Channels.AI_STREAM_START, query);
-
-    if (!provider) {
-      sendToRendererViews(Channels.AI_STREAM_CHUNK, providerError);
-      sendToRendererViews(Channels.AI_STREAM_END);
-      return;
-    }
-
-    const activeTab = tabManager.getActiveTab();
-    const activeWebContents = activeTab?.view.webContents;
-
-    await handleAIQuery(
-      query,
-      provider,
-      activeWebContents,
-      (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
-      () => sendToRendererViews(Channels.AI_STREAM_END),
-      tabManager,
-      runtime,
+    sendToRendererViews(
+      Channels.AI_STREAM_CHUNK,
+      [
+        "Vessel does not run a locally configured model.",
+        "Control it through an external agent harness such as Hermes Agent or OpenClaw.",
+        "Use the sidebar here for runtime visibility, approvals, checkpoints, and bookmarks.",
+      ].join("\n\n"),
     );
+    sendToRendererViews(Channels.AI_STREAM_END);
   });
 
-  ipcMain.handle(Channels.AI_CANCEL, () => {
-    provider?.cancel();
-  });
+  ipcMain.handle(Channels.AI_CANCEL, () => undefined);
 
   // --- Content handlers ---
 
@@ -189,9 +136,6 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_SET, (_, key: string, value: any) => {
     setSetting(key as any, value);
-    if (key === "provider") {
-      refreshProvider(value as ProviderConfig);
-    }
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
     }
@@ -237,53 +181,6 @@ export function registerIpcHandlers(
     (_, snapshot?: SessionSnapshot | null) => runtime.restoreSession(snapshot),
   );
 
-  // --- Provider handlers ---
-
-  ipcMain.handle(Channels.PROVIDER_LIST, () => {
-    return PROVIDERS;
-  });
-
-  ipcMain.handle(
-    Channels.PROVIDER_UPDATE,
-    (_, config: ProviderConfig): ProviderUpdateResult => {
-      const normalized = sanitizeProviderConfig(config);
-      setSetting("provider", normalized);
-      const error = refreshProvider(normalized);
-
-      if (error) {
-        return { ok: false, error };
-      }
-
-      return { ok: true };
-    },
-  );
-
-  ipcMain.handle(
-    Channels.PROVIDER_FETCH_MODELS,
-    async (_, config: ProviderConfig): Promise<ProviderModelsResult> => {
-      const normalized = sanitizeProviderConfig(config);
-
-      try {
-        const models = await fetchProviderModels(normalized);
-        return {
-          ok: true,
-          models: Array.from(new Set(models)).sort((a, b) =>
-            a.localeCompare(b),
-          ),
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          models: [],
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to fetch models from the provider.",
-        };
-      }
-    },
-  );
-
   // --- Bookmark handlers ---
 
   ipcMain.handle(Channels.BOOKMARKS_GET, () => {
@@ -291,54 +188,25 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.FOLDER_CREATE, (_, name: string) => {
-    const folder = bookmarkManager.createFolder(name);
-    sendToRendererViews(Channels.BOOKMARKS_UPDATE, bookmarkManager.getState());
-    return folder;
+    return bookmarkManager.createFolder(name);
   });
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
-    (_, url: string, title: string, folderId?: string, note?: string) => {
-      const bookmark = bookmarkManager.saveBookmark(url, title, folderId, note);
-      sendToRendererViews(
-        Channels.BOOKMARKS_UPDATE,
-        bookmarkManager.getState(),
-      );
-      return bookmark;
-    },
+    (_, url: string, title: string, folderId?: string, note?: string) =>
+      bookmarkManager.saveBookmark(url, title, folderId, note),
   );
 
   ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
-    const removed = bookmarkManager.removeBookmark(id);
-    if (removed) {
-      sendToRendererViews(
-        Channels.BOOKMARKS_UPDATE,
-        bookmarkManager.getState(),
-      );
-    }
-    return removed;
+    return bookmarkManager.removeBookmark(id);
   });
 
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
-    const removed = bookmarkManager.removeFolder(id);
-    if (removed) {
-      sendToRendererViews(
-        Channels.BOOKMARKS_UPDATE,
-        bookmarkManager.getState(),
-      );
-    }
-    return removed;
+    return bookmarkManager.removeFolder(id);
   });
 
   ipcMain.handle(Channels.FOLDER_RENAME, (_, id: string, newName: string) => {
-    const folder = bookmarkManager.renameFolder(id, newName);
-    if (folder) {
-      sendToRendererViews(
-        Channels.BOOKMARKS_UPDATE,
-        bookmarkManager.getState(),
-      );
-    }
-    return folder;
+    return bookmarkManager.renameFolder(id, newName);
   });
 
   // --- Window controls ---

@@ -50,13 +50,13 @@ function bootstrap(): void {
   }
 
   registerIpcHandlers(windowState, runtime);
-
-  // Start MCP server for external agent integration
-  startMcpServer(tabManager, runtime, settings.mcpPort, () => {
-    const state = bookmarkManager.getState();
+  bookmarkManager.subscribe((state) => {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
     sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
   });
+
+  // Start MCP server for external agent integration
+  startMcpServer(tabManager, runtime, settings.mcpPort);
 
   // Restore previous session, or open the default tab once chrome is ready
   chromeView.webContents.once("did-finish-load", () => {

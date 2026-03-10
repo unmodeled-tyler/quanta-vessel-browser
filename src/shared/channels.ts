@@ -40,11 +40,6 @@ export const Channels = {
   SETTINGS_GET: "settings:get",
   SETTINGS_SET: "settings:set",
 
-  // Provider
-  PROVIDER_LIST: "provider:list",
-  PROVIDER_UPDATE: "provider:update",
-  PROVIDER_FETCH_MODELS: "provider:fetch-models",
-
   // Bookmarks
   BOOKMARKS_GET: "bookmarks:get",
   BOOKMARKS_UPDATE: "bookmarks:update",

@@ -1,36 +1,9 @@
-import {
-  createMemo,
-  createSignal,
-  For,
-  Show,
-  onMount,
-  type Component,
-} from "solid-js";
-import type {
-  ApprovalMode,
-  ProviderConfig,
-  ProviderId,
-  ProviderModelsResult,
-  ProviderMeta,
-  ProviderUpdateResult,
-} from "../../../../shared/types";
+import { createSignal, Show, onMount, type Component } from "solid-js";
+import type { ApprovalMode } from "../../../../shared/types";
 import { useUI } from "../../stores/ui";
-
-const DEFAULT_PROVIDER: ProviderConfig = {
-  id: "anthropic",
-  apiKey: "",
-  model: "claude-sonnet-4-20250514",
-  baseUrl: "",
-};
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
-  const [providerMap, setProviderMap] = createSignal<
-    Record<ProviderId, ProviderMeta>
-  >({} as Record<ProviderId, ProviderMeta>);
-  const [config, setConfig] = createSignal<ProviderConfig>(DEFAULT_PROVIDER);
-  const [availableModels, setAvailableModels] = createSignal<string[]>([]);
-  const [isFetchingModels, setIsFetchingModels] = createSignal(false);
   const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
   const [approvalMode, setApprovalMode] =
     createSignal<ApprovalMode>("confirm-dangerous");
@@ -40,121 +13,25 @@ const Settings: Component = () => {
   } | null>(null);
 
   onMount(async () => {
-    const [settings, providers] = await Promise.all([
-      window.vessel.settings.get(),
-      window.vessel.provider.list(),
-    ]);
-
-    setProviderMap(providers as Record<ProviderId, ProviderMeta>);
-    setAvailableModels(
-      Array.from(
-        new Set(
-          [
-            ...(providers[settings.provider.id]?.models || []),
-            settings.provider.model,
-          ].filter(Boolean),
-        ),
-      ),
-    );
-    setConfig({
-      ...DEFAULT_PROVIDER,
-      ...settings.provider,
-      baseUrl: settings.provider?.baseUrl || "",
-    });
+    const settings = await window.vessel.settings.get();
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
   });
 
-  const providerEntries = createMemo(() => Object.values(providerMap()));
-  const activeProvider = createMemo(() => providerMap()[config().id]);
-  const modelOptions = createMemo(() =>
-    Array.from(
-      new Set(
-        [
-          ...(activeProvider()?.models || []),
-          ...availableModels(),
-          config().model,
-        ].filter(Boolean),
-      ),
-    ),
-  );
-  const showBaseUrl = createMemo(
-    () => config().id === "custom" || Boolean(activeProvider()?.defaultBaseUrl),
-  );
-  const selectedModelOption = createMemo(() =>
-    modelOptions().includes(config().model) ? config().model : "__custom__",
-  );
-
-  const updateConfig = (patch: Partial<ProviderConfig>) => {
-    setStatus(null);
-    setConfig((current) => ({
-      ...current,
-      ...patch,
-    }));
-  };
-
-  const handleProviderChange = (id: ProviderId) => {
-    const meta = providerMap()[id];
-    setStatus(null);
-    setAvailableModels(meta?.models || []);
-    setConfig({
-      id,
-      apiKey: "",
-      model: meta?.defaultModel || "",
-      baseUrl: meta?.defaultBaseUrl || "",
-    });
-  };
-
-  const handleFetchModels = async () => {
-    setStatus(null);
-    setIsFetchingModels(true);
-
-    const result = (await window.vessel.provider.fetchModels(
-      config(),
-    )) as ProviderModelsResult;
-
-    setIsFetchingModels(false);
-
-    if (!result.ok) {
-      setStatus({
-        kind: "error",
-        text: result.error || "Failed to fetch models.",
-      });
-      return;
-    }
-
-    setAvailableModels(result.models);
-    if (
-      (!config().model || !result.models.includes(config().model)) &&
-      result.models[0]
-    ) {
-      updateConfig({ model: result.models[0] });
-    }
-    setStatus({
-      kind: "success",
-      text: `Loaded ${result.models.length} model${result.models.length === 1 ? "" : "s"}.`,
-    });
-  };
-
   const handleSave = async () => {
-    const result = (await window.vessel.provider.update(
-      config(),
-    )) as ProviderUpdateResult;
-
-    if (!result.ok) {
+    try {
+      await Promise.all([
+        window.vessel.settings.set("autoRestoreSession", autoRestoreSession()),
+        window.vessel.settings.set("approvalMode", approvalMode()),
+      ]);
+      setStatus({ kind: "success", text: "Saved." });
+    } catch (error) {
       setStatus({
         kind: "error",
-        text: result.error || "Failed to save AI settings.",
+        text:
+          error instanceof Error ? error.message : "Failed to save settings.",
       });
-      return;
     }
-
-    await Promise.all([
-      window.vessel.settings.set("autoRestoreSession", autoRestoreSession()),
-      window.vessel.settings.set("approvalMode", approvalMode()),
-    ]);
-
-    setStatus({ kind: "success", text: "Saved." });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -169,120 +46,16 @@ const Settings: Component = () => {
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
         >
-          <h2 class="settings-title">AI Settings</h2>
+          <h2 class="settings-title">Runtime Settings</h2>
 
-          <div class="settings-field">
-            <label class="settings-label" for="provider-select">
-              Provider
-            </label>
-            <select
-              id="provider-select"
-              class="settings-input settings-select"
-              value={config().id}
-              onChange={(e) =>
-                handleProviderChange(e.currentTarget.value as ProviderId)
-              }
-            >
-              <For each={providerEntries()}>
-                {(provider) => (
-                  <option value={provider.id}>{provider.name}</option>
-                )}
-              </For>
-            </select>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="model-input">
-              Model
-            </label>
-            <Show when={modelOptions().length > 0}>
-              <div class="settings-model-picker">
-                <select
-                  class="settings-input settings-select"
-                  value={selectedModelOption()}
-                  onChange={(e) => {
-                    const value = e.currentTarget.value;
-                    if (value !== "__custom__") {
-                      updateConfig({ model: value });
-                    }
-                  }}
-                >
-                  <option value="__custom__">Custom model ID...</option>
-                  <For each={modelOptions()}>
-                    {(model) => <option value={model}>{model}</option>}
-                  </For>
-                </select>
-              </div>
-            </Show>
-            <div class="settings-row">
-              <input
-                id="model-input"
-                class="settings-input"
-                list="provider-models"
-                value={config().model}
-                onInput={(e) => updateConfig({ model: e.currentTarget.value })}
-                placeholder={
-                  activeProvider()?.defaultModel || "Enter model name"
-                }
-                spellcheck={false}
-              />
-              <button
-                class="settings-secondary"
-                type="button"
-                onClick={handleFetchModels}
-                disabled={isFetchingModels()}
-              >
-                {isFetchingModels() ? "Loading..." : "Fetch models"}
-              </button>
-            </div>
-            <datalist id="provider-models">
-              <For each={modelOptions()}>
-                {(model) => <option value={model} />}
-              </For>
-            </datalist>
-            <p class="settings-hint">
-              Type any model ID manually, or fetch the live list from the
-              provider.
+          <div class="settings-callout">
+            <div class="settings-callout-title">External Agent Control</div>
+            <p class="settings-callout-copy">
+              Vessel is configured to run under an external harness such as
+              Hermes Agent or OpenClaw. Provider and model selection are not
+              configured inside Vessel.
             </p>
           </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="api-key-input">
-              {activeProvider()?.requiresApiKey
-                ? "API Key"
-                : "API Key (Optional)"}
-            </label>
-            <input
-              id="api-key-input"
-              class="settings-input"
-              type="password"
-              value={config().apiKey}
-              onInput={(e) => updateConfig({ apiKey: e.currentTarget.value })}
-              placeholder={
-                activeProvider()?.apiKeyPlaceholder || "Enter API key"
-              }
-              spellcheck={false}
-            />
-            <p class="settings-hint">{activeProvider()?.apiKeyHint}</p>
-          </div>
-
-          <Show when={showBaseUrl()}>
-            <div class="settings-field">
-              <label class="settings-label" for="base-url-input">
-                Base URL
-              </label>
-              <input
-                id="base-url-input"
-                class="settings-input"
-                value={config().baseUrl || ""}
-                onInput={(e) =>
-                  updateConfig({ baseUrl: e.currentTarget.value })
-                }
-                placeholder={activeProvider()?.defaultBaseUrl || "https://..."}
-                spellcheck={false}
-              />
-            </div>
-          </Show>
 
           <div class="settings-field">
             <label class="settings-label" for="approval-mode-select">
@@ -358,6 +131,25 @@ const Settings: Component = () => {
           color: var(--text-primary);
           margin-bottom: 20px;
         }
+        .settings-callout {
+          margin-bottom: 18px;
+          padding: 12px;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(159, 184, 255, 0.18);
+          background: rgba(159, 184, 255, 0.08);
+        }
+        .settings-callout-title {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-primary);
+          margin-bottom: 6px;
+        }
+        .settings-callout-copy {
+          font-size: 12px;
+          line-height: 1.5;
+          color: var(--text-secondary);
+          margin: 0;
+        }
         .settings-field {
           margin-bottom: 16px;
         }
@@ -378,13 +170,6 @@ const Settings: Component = () => {
           color: var(--text-primary);
           font-size: 13px;
           font-family: var(--font-mono);
-        }
-        .settings-row {
-          display: flex;
-          gap: 8px;
-        }
-        .settings-model-picker {
-          margin-bottom: 8px;
         }
         .settings-select {
           appearance: none;
@@ -414,24 +199,6 @@ const Settings: Component = () => {
         .settings-toggle input {
           width: 14px;
           height: 14px;
-        }
-        .settings-secondary {
-          flex-shrink: 0;
-          height: 34px;
-          padding: 0 12px;
-          border-radius: var(--radius-md);
-          background: var(--bg-tertiary);
-          color: var(--text-secondary);
-          border: 1px solid var(--border-subtle);
-          font-size: 12px;
-          font-weight: 500;
-        }
-        .settings-secondary:hover:not(:disabled) {
-          background: var(--border-visible);
-        }
-        .settings-secondary:disabled {
-          opacity: 0.55;
-          cursor: default;
         }
         .settings-status {
           margin-top: 12px;

@@ -6,14 +6,14 @@ An agent-first web browser for Linux.
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
-Today, Vessel provides the browser shell, page visibility, and AI surfaces needed to support that model. The long-term goal is not "a browser with AI features," but a browser runtime for autonomous agents with a clear supervisory experience for humans.
+Today, Vessel provides the browser shell, page visibility, and supervisory surfaces needed to support that model. The long-term goal is not "a browser with AI features," but a browser runtime for autonomous agents with a clear supervisory experience for humans.
 
 ## Features
 
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
-- **AI Command Bar** (`Ctrl+L`) — issue page-aware commands, summarize pages, ask questions, search
-- **AI Sidebar** (`Ctrl+Shift+L`) — streaming conversation about the current page and browsing context
+- **AI Command Bar** (`Ctrl+L`) — reserved for harness-driven workflows and future runtime commands
+- **AI Sidebar** (`Ctrl+Shift+L`) — runtime visibility for approvals, checkpoints, actions, and bookmarks
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
@@ -38,7 +38,7 @@ That means the product should optimize for:
 | UI Framework | SolidJS |
 | Language | TypeScript |
 | Build | electron-vite + Vite |
-| AI | Multi-provider agent layer (Anthropic + OpenAI-compatible providers) |
+| AI Control | External agent harnesses (Hermes Agent, OpenClaw, MCP clients) |
 | Content Extraction | @mozilla/readability |
 
 ## Architecture
@@ -47,8 +47,8 @@ That means the product should optimize for:
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
 ├── AgentRuntime (session + supervision)  ├── CommandBar (Ctrl+L)
-├── Provider adapters (streaming)         ├── AI Sidebar (resizable)
-├── MCP server for external agents        └── Signal stores (tabs, ai, ui)
+├── MCP server for external agents        ├── AI Sidebar (resizable)
+├── Agent supervision + bookmarks         └── Signal stores (tabs, ai, ui)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
 
@@ -76,18 +76,17 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`)
-3. Choose the model provider your harness will use for in-browser reasoning
-4. Enter the provider credentials or base URL required for that provider
-5. Confirm the MCP port setting in `vessel-settings.json` if your harness expects a specific port
-6. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
-7. Use Vessel's sidebar supervisor controls to pause, approve, checkpoint, or restore the browser session while the harness runs
+3. Confirm the MCP port setting in `vessel-settings.json` if your harness expects a specific port
+4. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
+5. Use Vessel's sidebar supervisor controls to pause, approve, checkpoint, or restore the browser session while the harness runs
 
 Notes:
 
 - Vessel exposes browser control to external agents through its local MCP server
 - The default MCP port is `3100`
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
-- If you want to use the built-in sidebar directly, you can still configure any supported provider in Settings and query the current page without an external harness
+- Vessel does not expose local model or provider configuration in-app
+- The intended control plane is an external harness driving Vessel through MCP
 
 ## Keyboard Shortcuts
 
@@ -105,7 +104,7 @@ Notes:
 ```
 src/
 ├── main/                 # Electron main process
-│   ├── ai/               # Provider adapters, context builder, commands
+│   ├── ai/               # Agent tool definitions and query flow
 │   ├── tabs/             # Tab + TabManager (WebContentsView)
 │   ├── agent/            # Agent runtime, checkpoints, supervision
 │   ├── content/          # Readability extraction, reader mode

@@ -11,6 +11,14 @@ import type {
 const UNSORTED_ID = "unsorted";
 
 let state: BookmarksState | null = null;
+const listeners = new Set<(state: BookmarksState) => void>();
+
+function cloneState(current: BookmarksState): BookmarksState {
+  return {
+    folders: current.folders.map((folder) => ({ ...folder })),
+    bookmarks: current.bookmarks.map((bookmark) => ({ ...bookmark })),
+  };
+}
 
 function getBookmarksPath(): string {
   return path.join(app.getPath("userData"), "vessel-bookmarks.json");
@@ -32,11 +40,29 @@ function load(): BookmarksState {
 }
 
 function save(): void {
+  fs.mkdirSync(path.dirname(getBookmarksPath()), { recursive: true });
   fs.writeFileSync(getBookmarksPath(), JSON.stringify(state, null, 2), "utf-8");
 }
 
+function emit(): void {
+  if (!state) return;
+  const snapshot = cloneState(state);
+  for (const listener of listeners) {
+    listener(snapshot);
+  }
+}
+
 export function getState(): BookmarksState {
-  return load();
+  return cloneState(load());
+}
+
+export function subscribe(
+  listener: (state: BookmarksState) => void,
+): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function createFolder(name: string): BookmarkFolder {
@@ -50,6 +76,7 @@ export function createFolder(name: string): BookmarkFolder {
   };
   state!.folders.push(folder);
   save();
+  emit();
   return folder;
 }
 
@@ -75,6 +102,7 @@ export function saveBookmark(
   };
   state!.bookmarks.push(bookmark);
   save();
+  emit();
   return bookmark;
 }
 
@@ -84,6 +112,7 @@ export function removeBookmark(id: string): boolean {
   state!.bookmarks = state!.bookmarks.filter((b) => b.id !== id);
   if (state!.bookmarks.length !== before) {
     save();
+    emit();
     return true;
   }
   return false;
@@ -99,6 +128,7 @@ export function removeFolder(id: string): boolean {
   );
   state!.folders = state!.folders.filter((f) => f.id !== id);
   save();
+  emit();
   return true;
 }
 
@@ -113,5 +143,6 @@ export function renameFolder(
   if (!trimmed) return null;
   folder.name = trimmed;
   save();
+  emit();
   return { ...folder };
 }
