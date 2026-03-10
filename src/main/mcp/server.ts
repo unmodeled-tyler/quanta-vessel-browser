@@ -243,9 +243,24 @@ async function submitForm(
   index?: number,
   selector?: string,
 ): Promise<string> {
-  const resolvedSelector = await resolveSelector(wc, index, selector);
-  if (!resolvedSelector)
-    return "Error: No form-related index or selector provided";
+  let resolvedSelector = await resolveSelector(wc, index, selector);
+
+  // If no index/selector provided, find the first visible form on the page
+  if (!resolvedSelector) {
+    resolvedSelector = await wc.executeJavaScript(`
+      (function() {
+        var forms = document.querySelectorAll('form');
+        for (var i = 0; i < forms.length; i++) {
+          var f = forms[i];
+          var rect = f.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) return 'form';
+        }
+        return forms.length > 0 ? 'form' : null;
+      })()
+    `);
+    if (!resolvedSelector)
+      return "Error: No form found on the page";
+  }
 
   // Get form info to determine submission method
   const formInfo = await wc.executeJavaScript(`
@@ -395,29 +410,57 @@ async function waitForCondition(
     return "Error: wait_for requires text or selector";
   }
 
+  // Wait for any pending load to finish first
+  if (wc.isLoading()) {
+    await waitForLoad(wc, Math.min(effectiveTimeout, 5000));
+  }
+
   const startedAt = Date.now();
   while (Date.now() - startedAt < effectiveTimeout) {
-    const matched = await wc.executeJavaScript(`
+    const result = await wc.executeJavaScript(`
       (function() {
-        const selector = ${JSON.stringify(expectedSelector)};
-        const text = ${JSON.stringify(expectedText)};
-        if (selector && document.querySelector(selector)) return true;
-        if (text && document.body?.innerText?.includes(text)) return true;
-        return false;
+        var selector = ${JSON.stringify(expectedSelector)};
+        var text = ${JSON.stringify(expectedText)};
+        if (selector) {
+          try {
+            if (document.querySelector(selector)) return 'selector';
+          } catch (e) {
+            return 'invalid_selector:' + e.message;
+          }
+        }
+        if (text && document.body && document.body.innerText && document.body.innerText.includes(text)) return 'text';
+        return '';
       })()
     `);
 
-    if (matched) {
-      return expectedSelector
-        ? `Matched selector ${expectedSelector}`
-        : `Matched text "${expectedText.slice(0, 80)}"`;
+    if (result === "selector") {
+      return `Matched selector ${expectedSelector}`;
+    }
+    if (result === "text") {
+      return `Matched text "${expectedText.slice(0, 80)}"`;
+    }
+    if (typeof result === "string" && result.startsWith("invalid_selector:")) {
+      return `Error: Invalid selector "${expectedSelector}" — ${result.slice(17)}`;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
+  // On timeout, provide diagnostic info
+  const diagnostic = expectedSelector
+    ? await wc.executeJavaScript(`
+        (function() {
+          try {
+            var count = document.querySelectorAll(${JSON.stringify(expectedSelector)}).length;
+            return count > 0 ? 'found ' + count + ' after timeout' : 'not found (page has ' + document.querySelectorAll('*').length + ' elements)';
+          } catch (e) { return 'selector error: ' + e.message; }
+        })()
+      `)
+    : "";
+
+  const suffix = diagnostic ? ` (${diagnostic})` : "";
   return expectedSelector
-    ? `Timed out waiting for selector ${expectedSelector}`
+    ? `Timed out waiting for selector ${expectedSelector}${suffix}`
     : `Timed out waiting for text "${expectedText.slice(0, 80)}"`;
 }
 
@@ -921,7 +964,20 @@ function registerTools(
         tabManager,
         "press_key",
         { key, index, selector },
-        async () => pressKey(tab.view.webContents, key, index, selector),
+        async () => {
+          const wc = tab.view.webContents;
+          const beforeUrl = wc.getURL();
+          const result = await pressKey(wc, key, index, selector);
+          // Enter can trigger form submission or navigation
+          if (key === "Enter") {
+            await waitForPotentialNavigation(wc, beforeUrl, 3000);
+            const afterUrl = wc.getURL();
+            if (afterUrl !== beforeUrl) {
+              return `${result} -> ${afterUrl}`;
+            }
+          }
+          return result;
+        },
       );
     },
   );

@@ -259,21 +259,36 @@ async function waitForCondition(
     return "Error: wait_for requires text or selector";
   }
 
+  // Wait for any pending load to finish first
+  if (wc.isLoading()) {
+    await waitForLoad(wc, Math.min(timeoutMs, 5000));
+  }
+
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const matched = await wc.executeJavaScript(`
+    const result = await wc.executeJavaScript(`
       (function() {
-        const selector = ${JSON.stringify(selector)};
-        const text = ${JSON.stringify(text)};
-        if (selector && document.querySelector(selector)) return true;
-        if (text && document.body?.innerText?.includes(text)) return true;
-        return false;
+        var selector = ${JSON.stringify(selector)};
+        var text = ${JSON.stringify(text)};
+        if (selector) {
+          try {
+            if (document.querySelector(selector)) return 'selector';
+          } catch (e) {
+            return 'invalid_selector:' + e.message;
+          }
+        }
+        if (text && document.body && document.body.innerText && document.body.innerText.includes(text)) return 'text';
+        return '';
       })()
     `);
-    if (matched) {
-      return selector
-        ? `Matched selector ${selector}`
-        : `Matched text "${text.slice(0, 80)}"`;
+    if (result === "selector") {
+      return `Matched selector ${selector}`;
+    }
+    if (result === "text") {
+      return `Matched text "${text.slice(0, 80)}"`;
+    }
+    if (typeof result === "string" && result.startsWith("invalid_selector:")) {
+      return `Error: Invalid selector "${selector}" — ${result.slice(17)}`;
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -343,8 +358,24 @@ async function submitForm(
   wc: WebContents,
   args: Record<string, any>,
 ): Promise<string> {
-  const selector = await resolveSelector(wc, args.index, args.selector);
-  if (!selector) return "Error: No form-related index or selector provided";
+  let selector = await resolveSelector(wc, args.index, args.selector);
+
+  // If no index/selector provided, find the first visible form on the page
+  if (!selector) {
+    selector = await wc.executeJavaScript(`
+      (function() {
+        var forms = document.querySelectorAll('form');
+        for (var i = 0; i < forms.length; i++) {
+          var f = forms[i];
+          var rect = f.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) return 'form';
+        }
+        return forms.length > 0 ? 'form' : null;
+      })()
+    `);
+    if (!selector)
+      return "Error: No form found on the page";
+  }
 
   // Get form info to determine submission method
   const formInfo = await wc.executeJavaScript(`
@@ -684,8 +715,18 @@ export async function executeAction(
 
         case "press_key": {
           if (!wc) return "Error: No active tab";
+          const beforeUrl = wc.getURL();
           const result = await pressKey(wc, args);
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          const key = typeof args.key === "string" ? args.key.trim() : "";
+          if (key === "Enter") {
+            await waitForPotentialNavigation(wc, beforeUrl, 3000);
+            const afterUrl = wc.getURL();
+            if (afterUrl !== beforeUrl) {
+              return `${result} -> ${afterUrl}`;
+            }
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
           return result;
         }
 
