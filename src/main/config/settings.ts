@@ -10,6 +10,7 @@ const defaults: VesselSettings = {
   mcpPort: 3100,
   autoRestoreSession: true,
   clearBookmarksOnLaunch: false,
+  obsidianVaultPath: "",
   approvalMode: "confirm-dangerous",
 };
 

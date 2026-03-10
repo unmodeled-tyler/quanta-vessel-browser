@@ -2,6 +2,12 @@
 
 *Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
 
+### One-Line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
+```
+
 An agent-first web browser for Linux.
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
@@ -14,6 +20,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **AI Command Bar** (`Ctrl+L`) — reserved for harness-driven workflows and future runtime commands
 - **AI Sidebar** (`Ctrl+Shift+L`) — runtime visibility for approvals, checkpoints, actions, and bookmarks
+- **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
@@ -109,6 +116,7 @@ Notes:
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel does not expose local model or provider configuration in-app
 - The intended control plane is an external harness driving Vessel through MCP
+- If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
 Generic HTTP MCP config:
 

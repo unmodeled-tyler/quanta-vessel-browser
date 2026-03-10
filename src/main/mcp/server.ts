@@ -13,6 +13,7 @@ import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
+import { capturePageToVault, writeMemoryNote } from "../memory/obsidian";
 
 let httpServer: http.Server | null = null;
 
@@ -1744,6 +1745,93 @@ function registerTools(
           return folder
             ? `Renamed folder to "${folder.name}"`
             : `Folder ${folder_id} not found`;
+        },
+      );
+    },
+  );
+
+  // --- Memory tools ---
+
+  server.registerTool(
+    "vessel_memory_note_create",
+    {
+      title: "Create Memory Note",
+      description:
+        "Write a markdown note into the configured Obsidian vault for research notes, breadcrumbs, or synthesis.",
+      inputSchema: {
+        title: z.string().describe("Title of the note"),
+        body: z.string().describe("Markdown body for the note"),
+        folder: z
+          .string()
+          .optional()
+          .describe(
+            "Relative folder inside the vault (default: Vessel/Research)",
+          ),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Optional tags to store in frontmatter"),
+      },
+    },
+    async ({ title, body, folder, tags }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_note_create",
+        { title, folder, tags },
+        async () => {
+          const saved = writeMemoryNote({ title, body, folder, tags });
+          return `Saved memory note "${saved.title}" to ${saved.relativePath}`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_memory_page_capture",
+    {
+      title: "Capture Page To Memory",
+      description:
+        "Capture the current page into the configured Obsidian vault as a markdown note with URL, excerpt, and content snapshot.",
+      inputSchema: {
+        title: z.string().optional().describe("Optional note title override"),
+        folder: z
+          .string()
+          .optional()
+          .describe("Relative folder inside the vault (default: Vessel/Pages)"),
+        summary: z
+          .string()
+          .optional()
+          .describe("Optional summary written into the note"),
+        note: z
+          .string()
+          .optional()
+          .describe("Optional research note or breadcrumb"),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Optional tags to store in frontmatter"),
+      },
+    },
+    async ({ title, folder, summary, note, tags }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "memory_page_capture",
+        { title, folder, tags },
+        async () => {
+          const page = await extractContent(tab.view.webContents);
+          const saved = capturePageToVault({
+            page,
+            title,
+            folder,
+            summary,
+            note,
+            tags,
+          });
+          return `Captured page "${saved.title}" to ${saved.relativePath}`;
         },
       );
     },

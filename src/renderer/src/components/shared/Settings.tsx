@@ -7,6 +7,7 @@ const Settings: Component = () => {
   const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
   const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
     createSignal(false);
+  const [obsidianVaultPath, setObsidianVaultPath] = createSignal("");
   const [approvalMode, setApprovalMode] =
     createSignal<ApprovalMode>("confirm-dangerous");
   const [status, setStatus] = createSignal<{
@@ -18,6 +19,7 @@ const Settings: Component = () => {
     const settings = await window.vessel.settings.get();
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
+    setObsidianVaultPath(settings.obsidianVaultPath ?? "");
     setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
   });
 
@@ -29,6 +31,7 @@ const Settings: Component = () => {
           "clearBookmarksOnLaunch",
           clearBookmarksOnLaunch(),
         ),
+        window.vessel.settings.set("obsidianVaultPath", obsidianVaultPath()),
         window.vessel.settings.set("approvalMode", approvalMode()),
       ]);
       setStatus({ kind: "success", text: "Saved." });
@@ -84,6 +87,24 @@ const Settings: Component = () => {
             </select>
             <p class="settings-hint">
               Controls when the human supervisor must approve agent actions.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="obsidian-vault-path">
+              Obsidian Vault Path
+            </label>
+            <input
+              id="obsidian-vault-path"
+              class="settings-input"
+              value={obsidianVaultPath()}
+              onInput={(e) => setObsidianVaultPath(e.currentTarget.value)}
+              placeholder="/home/you/Documents/MyVault"
+              spellcheck={false}
+            />
+            <p class="settings-hint">
+              Optional. When set, Vessel memory tools can write markdown notes
+              into this vault for research breadcrumbs and summaries.
             </p>
           </div>
 

@@ -195,6 +195,7 @@ export interface VesselSettings {
   mcpPort: number;
   autoRestoreSession: boolean;
   clearBookmarksOnLaunch: boolean;
+  obsidianVaultPath: string;
   approvalMode: ApprovalMode;
 }
 

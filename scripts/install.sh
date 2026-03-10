@@ -114,6 +114,7 @@ const defaults = {
   mcpPort: port,
   autoRestoreSession: true,
   clearBookmarksOnLaunch: false,
+  obsidianVaultPath: "",
   approvalMode: "confirm-dangerous",
 };
 
