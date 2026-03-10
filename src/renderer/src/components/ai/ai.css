@@ -117,6 +117,14 @@
     color: var(--accent-primary);
 }
 
+.sidebar-logo {
+    display: block;
+    width: auto;
+    height: 26px;
+    max-width: 112px;
+    object-fit: contain;
+}
+
 .sidebar-clear,
 .sidebar-close {
     font-size: 11px;

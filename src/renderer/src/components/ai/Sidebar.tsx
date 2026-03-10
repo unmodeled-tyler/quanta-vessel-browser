@@ -14,6 +14,7 @@ import { useTabs } from "../../stores/tabs";
 import { useBookmarks } from "../../stores/bookmarks";
 import { renderMarkdown } from "../../lib/markdown";
 import type { BookmarkFolder } from "../../../../shared/types";
+import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
 
 const UNSORTED_FOLDER: BookmarkFolder = {
@@ -286,7 +287,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           />
         </Show>
         <div class="sidebar-header">
-          <span class="sidebar-title">Vessel AI</span>
+          <img class="sidebar-logo" src={vesselLogo} alt="Vessel" />
           <div class="sidebar-header-actions">
             <button
               class="sidebar-clear"
