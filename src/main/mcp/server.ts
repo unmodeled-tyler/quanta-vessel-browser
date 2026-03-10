@@ -466,21 +466,21 @@ async function waitForCondition(
 
 const VESSEL_HIGHLIGHT_CSS = `
 .__vessel-highlight {
-  outline: 3px solid #8b7ec8 !important;
+  outline: 3px solid #f0c636 !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 12px rgba(139, 126, 200, 0.5) !important;
+  box-shadow: 0 0 12px rgba(240, 198, 54, 0.5) !important;
   transition: outline-color 0.3s, box-shadow 0.3s;
 }
 .__vessel-highlight-text {
-  background: rgba(139, 126, 200, 0.3) !important;
-  border-bottom: 2px solid #8b7ec8 !important;
+  background: rgba(240, 198, 54, 0.3) !important;
+  border-bottom: 2px solid #f0c636 !important;
   padding: 1px 2px !important;
   border-radius: 2px !important;
 }
 .__vessel-highlight-label {
   position: absolute;
-  background: #8b7ec8;
-  color: #fff;
+  background: #f0c636;
+  color: #1a1a1e;
   font-size: 11px;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   padding: 2px 8px;
