@@ -9,8 +9,13 @@ curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-brows
 ```
 ![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
 
+---
+
 
 An agent-first web browser for Linux.
+
+<img width="1280" height="800" alt="vessel_2026-03-10_170917_8761" src="https://github.com/user-attachments/assets/ce2c96dc-d1c1-43dc-aba6-19441ca4228d" />
+
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
