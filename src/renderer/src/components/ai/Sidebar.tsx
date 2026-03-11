@@ -287,7 +287,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           />
         </Show>
         <div class="sidebar-header">
-          <img class="sidebar-logo" src={vesselLogo} alt="Vessel" />
+          <div class="sidebar-brand">
+            <img class="sidebar-logo" src={vesselLogo} alt="Vessel" />
+            <span class="sidebar-brand-text">Vessel Browser</span>
+          </div>
           <div class="sidebar-header-actions">
             <button
               class="sidebar-clear"
