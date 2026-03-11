@@ -31,6 +31,18 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.visible === false) {
     meta.push("hidden");
   }
+  if (el.visible !== false && el.inViewport === false) {
+    meta.push("offscreen");
+  }
+  if (el.inViewport && el.fullyInViewport === false) {
+    meta.push("partially-visible");
+  }
+  if (el.obscured) {
+    meta.push("obscured");
+  }
+  if (el.blockedByOverlay) {
+    meta.push("blocked-by-overlay");
+  }
   if (el.disabled) {
     meta.push("disabled");
   }
@@ -41,6 +53,15 @@ function formatElementMeta(el: InteractiveElement): string[] {
     meta.push(`value="${el.value.slice(0, 60)}"`);
   }
   return meta;
+}
+
+function isVisibleToUser(el: InteractiveElement): boolean {
+  return (
+    el.visible !== false &&
+    el.inViewport !== false &&
+    el.obscured !== true &&
+    el.blockedByOverlay !== true
+  );
 }
 
 /**
@@ -192,6 +213,26 @@ function formatLandmarks(landmarks: PageContent["landmarks"]): string {
     .join("\n");
 }
 
+function formatViewport(page: PageContent): string {
+  return `${page.viewport.width}x${page.viewport.height} at scroll (${page.viewport.scrollX}, ${page.viewport.scrollY})`;
+}
+
+function formatOverlays(overlays: PageContent["overlays"]): string {
+  if (overlays.length === 0) return "None detected";
+
+  const items = limitItems(overlays, 10);
+  return items
+    .map((overlay) => {
+      const parts = [`- ${overlay.type}`];
+      if (overlay.role) parts.push(`role=${overlay.role}`);
+      if (overlay.blocksInteraction) parts.push("blocking");
+      if (overlay.label) parts.push(`label="${overlay.label.slice(0, 80)}"`);
+      if (overlay.text) parts.push(`text="${overlay.text.slice(0, 100)}"`);
+      return parts.join(" ");
+    })
+    .join("\n");
+}
+
 /**
  * Build the structured context section
  */
@@ -212,6 +253,7 @@ export function buildScopedContext(
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
       if (page.byline) sections.push(`**Author:** ${page.byline}`);
       if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
       sections.push("");
@@ -221,6 +263,11 @@ export function buildScopedContext(
       sections.push(
         `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.content.length} chars`,
       );
+      if (page.overlays.length > 0) {
+        sections.push(
+          `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
+        );
+      }
       return sections.join("\n");
     }
 
@@ -228,7 +275,13 @@ export function buildScopedContext(
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if (page.overlays.length > 0) {
+        sections.push("### Active Overlays");
+        sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
       if (page.navigation.length > 0) {
         sections.push("### Navigation");
         sections.push(formatNavigation(page.navigation));
@@ -238,9 +291,7 @@ export function buildScopedContext(
         sections.push(
           `### Interactive Elements (${page.interactiveElements.length})`,
         );
-        sections.push(
-          formatInteractiveElements(page.interactiveElements),
-        );
+        sections.push(formatInteractiveElements(page.interactiveElements));
       }
       return sections.join("\n");
     }
@@ -249,7 +300,13 @@ export function buildScopedContext(
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if (page.overlays.length > 0) {
+        sections.push("### Active Overlays");
+        sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
       if (page.forms.length > 0) {
         sections.push(`### Forms (${page.forms.length})`);
         sections.push(formatForms(page.forms));
@@ -263,6 +320,7 @@ export function buildScopedContext(
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
       const truncated =
         page.content.length > 60000
@@ -273,16 +331,24 @@ export function buildScopedContext(
     }
 
     case "visible_only": {
-      const visibleElements = page.interactiveElements.filter(
-        (el) => el.visible !== false,
-      );
-      const visibleNav = page.navigation.filter(
-        (el) => el.visible !== false,
-      );
+      const visibleElements = page.interactiveElements.filter(isVisibleToUser);
+      const visibleNav = page.navigation.filter(isVisibleToUser);
+      const visibleForms = page.forms
+        .map((form) => ({
+          ...form,
+          fields: form.fields.filter(isVisibleToUser),
+        }))
+        .filter((form) => form.fields.length > 0);
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if (page.overlays.length > 0) {
+        sections.push("### Active Overlays");
+        sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
       if (visibleNav.length > 0) {
         sections.push("### Visible Navigation");
         sections.push(formatNavigation(visibleNav));
@@ -290,14 +356,18 @@ export function buildScopedContext(
       }
       if (visibleElements.length > 0) {
         sections.push(
-          `### Visible Interactive Elements (${visibleElements.length})`,
+          `### Visible In-Viewport Interactive Elements (${visibleElements.length})`,
         );
         sections.push(formatInteractiveElements(visibleElements));
         sections.push("");
       }
-      if (page.forms.length > 0) {
-        sections.push("### Forms");
-        sections.push(formatForms(page.forms));
+      if (visibleForms.length > 0) {
+        sections.push("### Visible Forms");
+        sections.push(formatForms(visibleForms));
+      } else if (visibleElements.length === 0 && visibleNav.length === 0) {
+        sections.push(
+          "No currently visible, unobstructed interactive elements were detected in the viewport.",
+        );
       }
       return sections.join("\n");
     }
@@ -316,6 +386,7 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push("");
   sections.push(`**URL:** ${page.url}`);
   sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
   if (page.byline) sections.push(`**Author:** ${page.byline}`);
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
@@ -333,6 +404,10 @@ export function buildStructuredContext(page: PageContent): string {
   // Landmarks
   sections.push("### Page Landmarks (ARIA)");
   sections.push(formatLandmarks(page.landmarks));
+  sections.push("");
+
+  sections.push("### Active Overlays / Modals");
+  sections.push(formatOverlays(page.overlays));
   sections.push("");
 
   // Interactive Elements
@@ -358,6 +433,12 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push(`**Navigation Links:** ${page.navigation.length}`);
   sections.push(`**Interactive Elements:** ${page.interactiveElements.length}`);
   sections.push(`**Forms:** ${page.forms.length}`);
+  sections.push(
+    `**Visible In-Viewport Elements:** ${page.interactiveElements.filter(isVisibleToUser).length}`,
+  );
+  sections.push(
+    `**Blocking Overlays:** ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
+  );
   sections.push(`**Landmarks:** ${page.landmarks.length}`);
 
   return sections.join("\n");

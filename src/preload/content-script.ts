@@ -24,6 +24,10 @@ interface InteractiveElement {
   value?: string;
   options?: string[];
   visible?: boolean;
+  inViewport?: boolean;
+  fullyInViewport?: boolean;
+  obscured?: boolean;
+  blockedByOverlay?: boolean;
   disabled?: boolean;
 }
 
@@ -48,6 +52,20 @@ interface PageContent {
     method?: string;
     fields: InteractiveElement[];
   }>;
+  viewport: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+  };
+  overlays: Array<{
+    type: "dialog" | "modal" | "overlay";
+    role?: string;
+    label?: string;
+    selector?: string;
+    text?: string;
+    blocksInteraction?: boolean;
+  }>;
   landmarks: Array<{
     role: string;
     label?: string;
@@ -55,9 +73,21 @@ interface PageContent {
   }>;
 }
 
+interface OverlayCandidate {
+  element: HTMLElement;
+  type: "dialog" | "modal" | "overlay";
+  role?: string;
+  label?: string;
+  selector?: string;
+  text?: string;
+  blocksInteraction?: boolean;
+  zIndex: number;
+}
+
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
 let indexedElements = new WeakMap<Element, number>();
+let activeOverlays: OverlayCandidate[] = [];
 
 function generateSelector(el: Element): string {
   return generateStableSelector(el);
@@ -103,6 +133,190 @@ function isElementVisible(el: Element): boolean {
   }
   const rect = el.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
+}
+
+function isInViewportRect(rect: DOMRect): boolean {
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.right > 0 &&
+    rect.top < window.innerHeight &&
+    rect.left < window.innerWidth
+  );
+}
+
+function isFullyInViewportRect(rect: DOMRect): boolean {
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.top >= 0 &&
+    rect.left >= 0 &&
+    rect.bottom <= window.innerHeight &&
+    rect.right <= window.innerWidth
+  );
+}
+
+function parseZIndex(style: CSSStyleDeclaration): number {
+  const value = Number.parseInt(style.zIndex, 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getViewportCenterCoverage(rect: DOMRect): boolean {
+  const centerX = window.innerWidth / 2;
+  const centerY = window.innerHeight / 2;
+  return (
+    rect.left <= centerX &&
+    rect.right >= centerX &&
+    rect.top <= centerY &&
+    rect.bottom >= centerY
+  );
+}
+
+function getOverlayLabel(el: HTMLElement): string | undefined {
+  return (
+    getTrimmedText(el.getAttribute("aria-label")) ||
+    getNodeTextByIds(el.getAttribute("aria-labelledby")) ||
+    getTrimmedText(el.id) ||
+    undefined
+  );
+}
+
+function getOverlayType(
+  el: HTMLElement,
+): "dialog" | "modal" | "overlay" | null {
+  const tag = el.tagName.toLowerCase();
+  const role = el.getAttribute("role");
+  if (tag === "dialog" || role === "dialog" || role === "alertdialog") {
+    return "dialog";
+  }
+  if (el.getAttribute("aria-modal") === "true") {
+    return "modal";
+  }
+  return "overlay";
+}
+
+function detectOverlays(): OverlayCandidate[] {
+  if (!document.body) return [];
+
+  const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+  const overlays: OverlayCandidate[] = [];
+  const seen = new Set<HTMLElement>();
+
+  Array.from(document.body.querySelectorAll("*")).forEach((node) => {
+    if (!(node instanceof HTMLElement) || seen.has(node)) return;
+    if (!isElementVisible(node)) return;
+
+    const style = window.getComputedStyle(node);
+    if (style.pointerEvents === "none") return;
+
+    const rect = node.getBoundingClientRect();
+    if (!isInViewportRect(rect)) return;
+
+    const position = style.position;
+    const zIndex = parseZIndex(style);
+    const areaRatio = (rect.width * rect.height) / viewportArea;
+    const overlayType = getOverlayType(node);
+    const dialogLike = overlayType === "dialog" || overlayType === "modal";
+    const blockingSurface =
+      (position === "fixed" || position === "sticky") &&
+      zIndex >= 10 &&
+      areaRatio >= 0.3 &&
+      getViewportCenterCoverage(rect);
+
+    if (!dialogLike && !blockingSurface) return;
+
+    seen.add(node);
+    overlays.push({
+      element: node,
+      type: overlayType ?? "overlay",
+      role: getTrimmedText(node.getAttribute("role")) || undefined,
+      label: getOverlayLabel(node),
+      selector: generateSelector(node),
+      text: getTrimmedText(node.textContent)?.slice(0, 160),
+      blocksInteraction: dialogLike || blockingSurface,
+      zIndex,
+    });
+  });
+
+  return overlays.sort((a, b) => {
+    if ((a.blocksInteraction ? 1 : 0) !== (b.blocksInteraction ? 1 : 0)) {
+      return (b.blocksInteraction ? 1 : 0) - (a.blocksInteraction ? 1 : 0);
+    }
+    return b.zIndex - a.zIndex;
+  });
+}
+
+function samplePointForRect(rect: DOMRect): { x: number; y: number } | null {
+  if (!isInViewportRect(rect)) return null;
+  const maxX = Math.max(0, window.innerWidth - 1);
+  const maxY = Math.max(0, window.innerHeight - 1);
+  return {
+    x: Math.min(maxX, Math.max(0, rect.left + rect.width / 2)),
+    y: Math.min(maxY, Math.max(0, rect.top + rect.height / 2)),
+  };
+}
+
+function getVisibilityState(
+  el: Element,
+): Pick<
+  InteractiveElement,
+  "visible" | "inViewport" | "fullyInViewport" | "obscured" | "blockedByOverlay"
+> {
+  if (!(el instanceof HTMLElement)) {
+    return {
+      visible: true,
+      inViewport: true,
+      fullyInViewport: true,
+      obscured: false,
+      blockedByOverlay: false,
+    };
+  }
+
+  const rect = el.getBoundingClientRect();
+  const visible = isElementVisible(el);
+  const inViewport = visible && isInViewportRect(rect);
+  const fullyInViewport = visible && isFullyInViewportRect(rect);
+  let obscured = false;
+  let blockedByOverlay = false;
+
+  if (inViewport) {
+    const point = samplePointForRect(rect);
+    if (point) {
+      const topElement = document.elementFromPoint(point.x, point.y);
+      if (
+        topElement &&
+        topElement !== el &&
+        !el.contains(topElement) &&
+        !(topElement instanceof HTMLElement && topElement.contains(el))
+      ) {
+        obscured = true;
+        blockedByOverlay = activeOverlays.some(
+          (overlay) =>
+            overlay.blocksInteraction &&
+            overlay.element.contains(topElement) &&
+            !overlay.element.contains(el),
+        );
+      }
+    }
+  }
+
+  return {
+    visible,
+    inViewport,
+    fullyInViewport,
+    obscured,
+    blockedByOverlay,
+  };
+}
+
+function getViewportSnapshot() {
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+  };
 }
 
 function isElementDisabled(el: Element): boolean {
@@ -216,6 +430,10 @@ function buildBaseMetadata(
   | "role"
   | "description"
   | "visible"
+  | "inViewport"
+  | "fullyInViewport"
+  | "obscured"
+  | "blockedByOverlay"
   | "disabled"
 > {
   return {
@@ -224,7 +442,7 @@ function buildBaseMetadata(
     index: assignIndex(el),
     role: getElementRole(el),
     description: getElementDescription(el),
-    visible: isElementVisible(el),
+    ...getVisibilityState(el),
     disabled: isElementDisabled(el),
   };
 }
@@ -495,16 +713,14 @@ function extractLandmarks(): Array<{
 }
 
 function vesselExtractContent(): PageContent {
-  try {
-    elementIndex = 0;
-    Object.keys(elementSelectors).forEach(
-      (key) => delete elementSelectors[key as any],
-    );
-    // WeakMap entries are GC'd automatically; no explicit clearing needed
-
-    const documentClone = document.cloneNode(true) as Document;
-    const reader = new Readability(documentClone);
-    const article = reader.parse();
+  const extractStructuredContent = (article?: {
+    title?: string | null;
+    textContent?: string | null;
+    content?: string | null;
+    byline?: string | null;
+    excerpt?: string | null;
+  }): PageContent => {
+    activeOverlays = detectOverlays();
 
     return {
       title: article?.title || document.title,
@@ -517,23 +733,29 @@ function vesselExtractContent(): PageContent {
       navigation: extractNavigation(),
       interactiveElements: extractInteractiveElements(),
       forms: extractForms(),
+      viewport: getViewportSnapshot(),
+      overlays: activeOverlays.map(
+        ({ element: _element, zIndex: _zIndex, ...overlay }) => overlay,
+      ),
       landmarks: extractLandmarks(),
     };
+  };
+
+  try {
+    elementIndex = 0;
+    activeOverlays = [];
+    Object.keys(elementSelectors).forEach(
+      (key) => delete elementSelectors[key as any],
+    );
+    // WeakMap entries are GC'd automatically; no explicit clearing needed
+
+    const documentClone = document.cloneNode(true) as Document;
+    const reader = new Readability(documentClone);
+    const article = reader.parse();
+    return extractStructuredContent(article || undefined);
   } catch (error) {
     console.error("Vessel content extraction error:", error);
-    return {
-      title: document.title,
-      content: document.body?.innerText || "",
-      htmlContent: "",
-      byline: "",
-      excerpt: "",
-      url: window.location.href,
-      headings: extractHeadings(),
-      navigation: extractNavigation(),
-      interactiveElements: extractInteractiveElements(),
-      forms: extractForms(),
-      landmarks: extractLandmarks(),
-    };
+    return extractStructuredContent();
   }
 }
 

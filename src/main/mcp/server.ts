@@ -742,7 +742,7 @@ function registerTools(
     {
       title: "Extract Page Content",
       description:
-        "Extract structured content from the current page. Modes: 'full' (default, everything), 'summary' (title+headings+stats), 'interactives_only' (clickable elements with indices), 'forms_only' (form fields only), 'text_only' (page text, no interactives), 'visible_only' (only visible elements).",
+        "Extract structured content from the current page. Modes: 'full' (default, everything), 'summary' (title+headings+stats), 'interactives_only' (clickable elements with indices), 'forms_only' (form fields only), 'text_only' (page text, no interactives), 'visible_only' (only currently visible, in-viewport, unobstructed elements plus active overlays).",
       inputSchema: {
         mode: z
           .enum(EXTRACT_MODES as [string, ...string[]])

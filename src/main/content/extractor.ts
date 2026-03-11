@@ -12,6 +12,13 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   navigation: [],
   interactiveElements: [],
   forms: [],
+  viewport: {
+    width: 0,
+    height: 0,
+    scrollX: 0,
+    scrollY: 0,
+  },
+  overlays: [],
   landmarks: [],
 };
 
@@ -573,6 +580,10 @@ function mergePageContent(
     forms: hasPreloadInteractives
       ? preload.forms
       : bestArray(pages.map((page) => page.forms)),
+    viewport:
+      pages.find((page) => page.viewport.width > 0 || page.viewport.height > 0)
+        ?.viewport ?? EMPTY_PAGE_CONTENT.viewport,
+    overlays: bestArray(pages.map((page) => page.overlays)),
     landmarks: bestArray(pages.map((page) => page.landmarks)),
   };
 
@@ -627,6 +638,16 @@ function normalizePageContent(value: unknown): PageContent {
       ? page.interactiveElements
       : [],
     forms: Array.isArray(page.forms) ? page.forms : [],
+    viewport:
+      page.viewport &&
+      typeof page.viewport === "object" &&
+      typeof page.viewport.width === "number" &&
+      typeof page.viewport.height === "number" &&
+      typeof page.viewport.scrollX === "number" &&
+      typeof page.viewport.scrollY === "number"
+        ? page.viewport
+        : EMPTY_PAGE_CONTENT.viewport,
+    overlays: Array.isArray(page.overlays) ? page.overlays : [],
     landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
   };
 }

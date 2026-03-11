@@ -25,6 +25,10 @@ export interface InteractiveElement {
   value?: string;
   options?: string[];
   visible?: boolean;
+  inViewport?: boolean;
+  fullyInViewport?: boolean;
+  obscured?: boolean;
+  blockedByOverlay?: boolean;
   disabled?: boolean;
 }
 
@@ -56,6 +60,20 @@ export interface PageContent {
     action?: string;
     method?: string;
     fields: InteractiveElement[];
+  }>;
+  viewport: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+  };
+  overlays: Array<{
+    type: "dialog" | "modal" | "overlay";
+    role?: string;
+    label?: string;
+    selector?: string;
+    text?: string;
+    blocksInteraction?: boolean;
   }>;
   landmarks: Array<{
     role: string;
