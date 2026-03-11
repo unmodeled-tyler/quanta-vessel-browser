@@ -4,6 +4,7 @@ import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
+import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import { buildStructuredContext } from "./context-builder";
 
@@ -571,6 +572,7 @@ function isDangerousAction(name: string): boolean {
     "create_tab",
     "switch_tab",
     "restore_checkpoint",
+    "load_session",
   ].includes(name);
 }
 
@@ -1076,7 +1078,12 @@ function getPostActionState(ctx: ActionContext, name: string): string {
     "reload",
   ];
   const interactActions = ["type_text", "select_option", "press_key"];
-  const tabActions = ["create_tab", "switch_tab", "set_ad_blocking"];
+  const tabActions = [
+    "create_tab",
+    "switch_tab",
+    "set_ad_blocking",
+    "load_session",
+  ];
 
   if (navActions.includes(name)) {
     return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
@@ -1110,6 +1117,10 @@ export async function executeAction(
       "create_tab",
       "set_ad_blocking",
       "restore_checkpoint",
+      "save_session",
+      "load_session",
+      "list_sessions",
+      "delete_session",
       "list_bookmarks",
       "search_bookmarks",
       "create_bookmark_folder",
@@ -1371,6 +1382,45 @@ export async function executeAction(
           }
           ctx.runtime.restoreCheckpoint(checkpoint.id);
           return `Restored checkpoint ${checkpoint.name}`;
+        }
+
+        case "save_session": {
+          const name = typeof args.name === "string" ? args.name.trim() : "";
+          if (!name) return "Error: Session name is required";
+          const saved = await namedSessionManager.saveNamedSession(
+            ctx.tabManager,
+            name,
+          );
+          return `Saved session "${saved.name}" (${saved.cookieCount} cookies, ${saved.originCount} localStorage origins)`;
+        }
+
+        case "load_session": {
+          const name = typeof args.name === "string" ? args.name.trim() : "";
+          if (!name) return "Error: Session name is required";
+          const loaded = await namedSessionManager.loadNamedSession(
+            ctx.tabManager,
+            name,
+          );
+          return `Loaded session "${loaded.name}" (${loaded.cookieCount} cookies, ${loaded.originCount} localStorage origins)`;
+        }
+
+        case "list_sessions": {
+          const sessions = namedSessionManager.listNamedSessions();
+          if (sessions.length === 0) return "No saved sessions";
+          return sessions
+            .map(
+              (item) =>
+                `- ${item.name} | updated=${item.updatedAt} | cookies=${item.cookieCount} | origins=${item.originCount}${item.domains.length ? ` | domains=${item.domains.slice(0, 6).join(", ")}${item.domains.length > 6 ? ", ..." : ""}` : ""}`,
+            )
+            .join("\n");
+        }
+
+        case "delete_session": {
+          const name = typeof args.name === "string" ? args.name.trim() : "";
+          if (!name) return "Error: Session name is required";
+          return namedSessionManager.deleteNamedSession(name)
+            ? `Deleted session "${name}"`
+            : `Session "${name}" not found`;
         }
 
         case "list_bookmarks": {

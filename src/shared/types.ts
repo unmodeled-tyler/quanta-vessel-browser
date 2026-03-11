@@ -121,6 +121,39 @@ export interface SessionSnapshot {
   note?: string;
 }
 
+export interface PersistedCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  session: boolean;
+  expirationDate?: number;
+  sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
+  url?: string;
+}
+
+export interface PersistedOriginStorage {
+  origin: string;
+  entries: Record<string, string>;
+}
+
+export interface NamedSessionSummary {
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  cookieCount: number;
+  originCount: number;
+  domains: string[];
+}
+
+export interface NamedSessionData extends NamedSessionSummary {
+  cookies: PersistedCookie[];
+  localStorage: PersistedOriginStorage[];
+  snapshot: SessionSnapshot;
+}
+
 export interface AgentActionEntry {
   id: string;
   source: ActionSource;

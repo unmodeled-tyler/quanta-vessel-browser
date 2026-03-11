@@ -288,6 +288,59 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "save_session",
+    description:
+      "Persist the current browser cookies, localStorage, and tab layout under a reusable session name.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Session name such as github-logged-in",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "load_session",
+    description:
+      "Load a previously saved named session, restoring cookies, localStorage, and saved tabs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Previously saved session name",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_sessions",
+    description:
+      "List previously saved named browser sessions with cookie and storage counts.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "delete_session",
+    description: "Delete a previously saved named browser session.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Saved session name to delete",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "list_bookmarks",
     description:
       "List bookmark folders and saved pages. Optionally filter by folder name or ID.",

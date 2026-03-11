@@ -30,6 +30,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands, not the primary chat interface
 - **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision split into Supervisor, Bookmarks, and Checkpoints panels
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
+- **Named Session Persistence** — save cookies, localStorage, and current tab layout under a reusable name, then reload it after a restart
 - **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
@@ -142,6 +143,7 @@ Notes:
 - Vessel does not expose local model or provider configuration in-app
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
+- Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
@@ -173,6 +175,15 @@ Page interaction and recovery tools exposed today include:
 - `vessel_dismiss_popup`
 - `vessel_set_ad_blocking`
 - `vessel_wait_for`
+
+Named session tools exposed today include:
+
+- `vessel_save_session`
+- `vessel_load_session`
+- `vessel_list_sessions`
+- `vessel_delete_session`
+
+Session files are sensitive because they may contain login cookies and tokens. Vessel stores them under the app user-data directory with restrictive file permissions.
 
 Notable extraction modes include:
 

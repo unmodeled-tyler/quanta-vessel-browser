@@ -65,6 +65,7 @@ Instructions:
 - Only say you completed an action after the corresponding tool succeeds. If no tool supports the request, say so plainly.
 - Use list_tabs before switching context across multiple tabs.
 - Create a checkpoint before risky multi-step flows or before leaving an important state.
+- Use save_session after completing a login flow you may need again later, and load_session to resume that authenticated state in future runs.
 - Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.
 - After clicking or navigating, use read_page to see the updated content.
 - If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.

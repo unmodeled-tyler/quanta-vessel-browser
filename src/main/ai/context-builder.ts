@@ -52,6 +52,11 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.value) {
     meta.push(`value="${el.value.slice(0, 60)}"`);
   }
+  if (el.selector) {
+    const selectorHint =
+      el.selector.length > 80 ? `${el.selector.slice(0, 77)}...` : el.selector;
+    meta.push(`selector="${selectorHint}"`);
+  }
   return meta;
 }
 

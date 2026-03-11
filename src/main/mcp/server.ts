@@ -13,6 +13,7 @@ import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
+import * as namedSessionManager from "../sessions/manager";
 import {
   appendToMemoryNote,
   capturePageToVault,
@@ -1860,6 +1861,83 @@ function registerTools(
           runtime.restoreCheckpoint(checkpoint.id);
           return `Restored checkpoint ${checkpoint.name}`;
         },
+      ),
+  );
+
+  server.registerTool(
+    "vessel_save_session",
+    {
+      title: "Save Session",
+      description:
+        "Persist the current cookies, localStorage, and tab layout under a reusable session name.",
+      inputSchema: {
+        name: z.string().describe("Session name such as github-logged-in"),
+      },
+    },
+    async ({ name }) =>
+      withAction(runtime, tabManager, "save_session", { name }, async () => {
+        const saved = await namedSessionManager.saveNamedSession(
+          tabManager,
+          name,
+        );
+        return `Saved session "${saved.name}" (${saved.cookieCount} cookies, ${saved.originCount} localStorage origins)`;
+      }),
+  );
+
+  server.registerTool(
+    "vessel_load_session",
+    {
+      title: "Load Session",
+      description:
+        "Load a previously saved named session, restoring cookies, localStorage, and saved tabs.",
+      inputSchema: {
+        name: z.string().describe("Previously saved session name"),
+      },
+    },
+    async ({ name }) =>
+      withAction(runtime, tabManager, "load_session", { name }, async () => {
+        const loaded = await namedSessionManager.loadNamedSession(
+          tabManager,
+          name,
+        );
+        return `Loaded session "${loaded.name}" (${loaded.cookieCount} cookies, ${loaded.originCount} localStorage origins)`;
+      }),
+  );
+
+  server.registerTool(
+    "vessel_list_sessions",
+    {
+      title: "List Sessions",
+      description:
+        "List previously saved named browser sessions with cookie and storage counts.",
+    },
+    async () =>
+      withAction(runtime, tabManager, "list_sessions", {}, async () => {
+        const sessions = namedSessionManager.listNamedSessions();
+        if (sessions.length === 0) return "No saved sessions";
+        return sessions
+          .map(
+            (item) =>
+              `- ${item.name} | updated=${item.updatedAt} | cookies=${item.cookieCount} | origins=${item.originCount}${item.domains.length ? ` | domains=${item.domains.slice(0, 6).join(", ")}${item.domains.length > 6 ? ", ..." : ""}` : ""}`,
+          )
+          .join("\n");
+      }),
+  );
+
+  server.registerTool(
+    "vessel_delete_session",
+    {
+      title: "Delete Session",
+      description: "Delete a previously saved named browser session.",
+      inputSchema: {
+        name: z.string().describe("Saved session name to delete"),
+      },
+    },
+    async ({ name }) =>
+      withAction(runtime, tabManager, "delete_session", { name }, async () =>
+        namedSessionManager.deleteNamedSession(name)
+          ? `Deleted session "${name}"`
+          : `Session "${name}" not found`,
       ),
   );
 
