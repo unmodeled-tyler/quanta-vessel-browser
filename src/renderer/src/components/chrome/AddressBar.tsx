@@ -1,19 +1,19 @@
-import { createSignal, createEffect, type Component } from 'solid-js';
-import { useTabs } from '../../stores/tabs';
-import { useUI } from '../../stores/ui';
-import './chrome.css';
+import { createSignal, createEffect, type Component } from "solid-js";
+import { useTabs } from "../../stores/tabs";
+import { useUI } from "../../stores/ui";
+import "./chrome.css";
 
 const AddressBar: Component = () => {
   const { activeTab, navigate, goBack, goForward, reload } = useTabs();
-  const { openCommandBar, toggleSidebar, openSettings } = useUI();
-  const [inputValue, setInputValue] = createSignal('');
+  const { toggleSidebar, openSettings } = useUI();
+  const [inputValue, setInputValue] = createSignal("");
   let inputRef: HTMLInputElement | undefined;
 
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
-    if (tab && !inputRef?.matches(':focus')) {
-      setInputValue(tab.url === 'about:blank' ? '' : tab.url);
+    if (tab && !inputRef?.matches(":focus")) {
+      setInputValue(tab.url === "about:blank" ? "" : tab.url);
     }
   });
 
@@ -141,31 +141,6 @@ const AddressBar: Component = () => {
           </svg>
         </button>
         <button
-          class="nav-btn ai-btn"
-          onClick={openCommandBar}
-          title="AI Command Bar (Ctrl+L)"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <circle
-              cx="7"
-              cy="7"
-              r="5.5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.2"
-            />
-            <circle cx="5" cy="6" r="0.8" fill="currentColor" />
-            <circle cx="9" cy="6" r="0.8" fill="currentColor" />
-            <path
-              d="M5 9c0.5 1 3.5 1 4 0"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="0.8"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
-        <button
           class="nav-btn"
           onClick={toggleSidebar}
           title="AI Sidebar (Ctrl+Shift+L)"
@@ -191,7 +166,11 @@ const AddressBar: Component = () => {
             />
           </svg>
         </button>
-        <button class="nav-btn" onClick={openSettings} title="Settings (Ctrl+,)">
+        <button
+          class="nav-btn"
+          onClick={openSettings}
+          title="Settings (Ctrl+,)"
+        >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <circle
               cx="7"

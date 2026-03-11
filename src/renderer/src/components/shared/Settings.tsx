@@ -1,11 +1,4 @@
-import {
-  createMemo,
-  createSignal,
-  Show,
-  onMount,
-  type Component,
-} from "solid-js";
-import type { ApprovalMode } from "../../../../shared/types";
+import { createSignal, Show, onMount, type Component } from "solid-js";
 import { useUI } from "../../stores/ui";
 
 const Settings: Component = () => {
@@ -14,8 +7,6 @@ const Settings: Component = () => {
   const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
     createSignal(false);
   const [obsidianVaultPath, setObsidianVaultPath] = createSignal("");
-  const [approvalMode, setApprovalMode] =
-    createSignal<ApprovalMode>("confirm-dangerous");
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
@@ -26,20 +17,6 @@ const Settings: Component = () => {
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
-    setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
-  });
-
-  const approvalModeHint = createMemo(() => {
-    switch (approvalMode()) {
-      case "manual":
-        return "The supervisor must approve every agent action before it runs.";
-      case "confirm-dangerous":
-        return "Routine actions run automatically, but risky actions pause for approval.";
-      case "auto":
-        return "The agent can run all actions without approval prompts.";
-      default:
-        return "Controls when the human supervisor must approve agent actions.";
-    }
   });
 
   const handleSave = async () => {
@@ -51,7 +28,6 @@ const Settings: Component = () => {
           clearBookmarksOnLaunch(),
         ),
         window.vessel.settings.set("obsidianVaultPath", obsidianVaultPath()),
-        window.vessel.settings.set("approvalMode", approvalMode()),
       ]);
       setStatus({ kind: "success", text: "Saved." });
     } catch (error) {
@@ -84,25 +60,6 @@ const Settings: Component = () => {
               Hermes Agent or OpenClaw. Provider and model selection are not
               configured inside Vessel.
             </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="approval-mode-select">
-              Approval Mode
-            </label>
-            <select
-              id="approval-mode-select"
-              class="settings-input settings-select"
-              value={approvalMode()}
-              onChange={(e) =>
-                setApprovalMode(e.currentTarget.value as ApprovalMode)
-              }
-            >
-              <option value="manual">Ask every time</option>
-              <option value="confirm-dangerous">Ask for risky actions</option>
-              <option value="auto">Allow all actions</option>
-            </select>
-            <p class="settings-hint">{approvalModeHint()}</p>
           </div>
 
           <div class="settings-field">
