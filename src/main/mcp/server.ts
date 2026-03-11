@@ -82,6 +82,120 @@ function waitForPotentialNavigation(
   });
 }
 
+async function scrollPage(
+  wc: Electron.WebContents,
+  deltaY: number,
+): Promise<{
+  beforeY: number;
+  afterY: number;
+  movedY: number;
+}> {
+  return wc.executeJavaScript(`
+    (async function() {
+      function viewportHeight() {
+        return window.innerHeight || document.documentElement?.clientHeight || 0;
+      }
+
+      function currentScrollY(target) {
+        return Math.max(
+          window.scrollY || 0,
+          window.pageYOffset || 0,
+          window.visualViewport?.pageTop || 0,
+          target?.scrollTop || 0,
+          document.scrollingElement?.scrollTop || 0,
+          document.documentElement?.scrollTop || 0,
+          document.body?.scrollTop || 0,
+        );
+      }
+
+      function isScrollable(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        return (
+          (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+          el.scrollHeight > el.clientHeight + 8
+        );
+      }
+
+      function findScrollTarget() {
+        const centerX = (window.innerWidth || document.documentElement?.clientWidth || 0) / 2;
+        const centerY = viewportHeight() / 2;
+        let current = document.elementFromPoint(centerX, centerY);
+        while (current) {
+          if (isScrollable(current)) return current;
+          current = current.parentElement;
+        }
+        return document.scrollingElement || document.documentElement || document.body;
+      }
+
+      const target = findScrollTarget();
+      const beforeY = currentScrollY(target);
+      const maxScroll = Math.max(
+        0,
+        (target?.scrollHeight || document.documentElement?.scrollHeight || document.body?.scrollHeight || 0) -
+          (target?.clientHeight || viewportHeight()),
+      );
+      const targetY = Math.max(0, Math.min(maxScroll, beforeY + ${deltaY}));
+
+      if (Math.abs(targetY - beforeY) < 1) {
+        return { beforeY, afterY: beforeY, movedY: 0 };
+      }
+
+      return await new Promise((resolve) => {
+        let lastY = beforeY;
+        let stableFrames = 0;
+        let finished = false;
+        const startedAt = performance.now();
+
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          const afterY = currentScrollY(target);
+          resolve({
+            beforeY,
+            afterY,
+            movedY: Math.round(afterY - beforeY),
+          });
+        };
+
+        const check = () => {
+          const currentY = currentScrollY(target);
+          if (Math.abs(currentY - targetY) <= 2 || Math.abs(currentY - lastY) < 0.5) {
+            stableFrames += 1;
+          } else {
+            stableFrames = 0;
+          }
+          lastY = currentY;
+
+          if (stableFrames >= 4 || performance.now() - startedAt > 1500) {
+            finish();
+            return;
+          }
+
+          requestAnimationFrame(check);
+        };
+
+        try {
+          if (target && typeof target.scrollTo === "function") {
+            target.scrollTo({ top: targetY, behavior: "smooth" });
+          } else {
+            window.scrollTo({ top: targetY, behavior: "smooth" });
+          }
+        } catch {
+          if (target) {
+            target.scrollTop = targetY;
+          } else {
+            window.scrollTo(0, targetY);
+          }
+        }
+
+        requestAnimationFrame(check);
+      });
+    })()
+  `);
+}
+
 function isDangerousAction(name: string): boolean {
   return [
     "navigate",
@@ -1187,10 +1301,8 @@ function registerTools(
         async () => {
           const pixels = amount || 500;
           const dir = direction === "up" ? -pixels : pixels;
-          await tab.view.webContents.executeJavaScript(
-            `window.scrollBy(0, ${dir})`,
-          );
-          return `Scrolled ${direction} by ${pixels}px`;
+          const result = await scrollPage(tab.view.webContents, dir);
+          return `Scrolled ${direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
         },
       );
     },
