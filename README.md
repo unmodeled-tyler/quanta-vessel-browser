@@ -27,13 +27,14 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
-- **AI Command Bar** (`Ctrl+L`) — reserved for harness-driven workflows and future runtime commands
-- **AI Sidebar** (`Ctrl+Shift+L`) — runtime visibility for approvals, checkpoints, actions, and bookmarks
+- **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands, not the primary chat interface
+- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision split into Supervisor, Bookmarks, and Checkpoints panels
+- **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
 - **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
-- **Minimal Dark Theme** — warm palette (`#1a1a1e` bg, muted purple accents), no pure black/white
+- **Minimal Dark Theme** — warm dark grays, restrained accent color, and no pure black/white
 
 ## Positioning
 
@@ -62,9 +63,9 @@ That means the product should optimize for:
 ```
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
-├── AgentRuntime (session + supervision)  ├── CommandBar (Ctrl+L)
+├── AgentRuntime (session + supervision)  ├── CommandBar (secondary surface)
 ├── MCP server for external agents        ├── AI Sidebar (resizable)
-├── Agent supervision + bookmarks         └── Signal stores (tabs, ai, ui)
+├── Supervision, bookmarks, checkpoints   └── Signal stores (tabs, ai, ui)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
 
@@ -106,17 +107,29 @@ npm run dev
 
 # Production build
 npm run build
+
+# Package an unpacked Linux app
+npm run dist:dir
+
+# Package a Linux AppImage
+npm run dist
 ```
+
+Notes:
+
+- `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
+- packaged builds created with `npm run dist` / `npm run dist:dir` use the Vessel app icon
 
 ### Setting up Vessel for Hermes Agent or OpenClaw
 
 Vessel is designed to act as the browser runtime that your external agent harness drives.
 
 1. Launch Vessel
-2. Open Settings (`Ctrl+,`)
-3. Confirm the MCP port setting in `vessel-settings.json` if your harness expects a specific port
+2. Optional: open Settings (`Ctrl+,`) to set an Obsidian vault path or session preferences
+3. If your harness expects a custom port, confirm the MCP port in `~/.config/vessel/vessel-settings.json`
 4. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
-5. Use Vessel's sidebar supervisor controls to pause, approve, checkpoint, or restore the browser session while the harness runs
+5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
+6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
 
 Notes:
 
@@ -124,6 +137,7 @@ Notes:
 - The default MCP port is `3100`
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel does not expose local model or provider configuration in-app
+- Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
@@ -135,6 +149,17 @@ Initial memory tools:
 - `vessel_memory_search`
 - `vessel_memory_page_capture`
 - `vessel_memory_link_bookmark`
+
+Bookmark and folder tools exposed today include:
+
+- `vessel_bookmark_list`
+- `vessel_bookmark_search`
+- `vessel_bookmark_open`
+- `vessel_bookmark_save`
+- `vessel_bookmark_remove`
+- `vessel_create_folder`
+- `vessel_folder_rename`
+- `vessel_folder_remove`
 
 Generic HTTP MCP config:
 
