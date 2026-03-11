@@ -16,6 +16,8 @@ An agent-first web browser for Linux.
 
 <img width="1280" height="800" alt="vessel_2026-03-10_170917_8761" src="https://github.com/user-attachments/assets/ce2c96dc-d1c1-43dc-aba6-19441ca4228d" />
 
+<img width="1280" height="800" alt="vessel_2026-03-10_204143_6698" src="https://github.com/user-attachments/assets/a50ab3ae-08bf-4696-8e49-91c0976e8c68" />
+
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
