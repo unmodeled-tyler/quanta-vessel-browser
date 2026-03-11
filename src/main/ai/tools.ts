@@ -184,6 +184,15 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "dismiss_popup",
+    description:
+      "Dismiss a modal, popup, newsletter gate, cookie banner, or overlay using common close/decline actions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
     name: "read_page",
     description:
       "Re-read the current page content. Use after navigation or interaction to see updated content.",

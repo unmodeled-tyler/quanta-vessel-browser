@@ -77,110 +77,64 @@ async function scrollPage(
   afterY: number;
   movedY: number;
 }> {
-  return wc.executeJavaScript(`
-    (async function() {
-      function viewportHeight() {
-        return window.innerHeight || document.documentElement?.clientHeight || 0;
-      }
-
-      function currentScrollY(target) {
-        return Math.max(
+  const getSnapshot = async () =>
+    wc.executeJavaScript(`
+      (function() {
+        const width = window.innerWidth || document.documentElement?.clientWidth || 0;
+        const height = window.innerHeight || document.documentElement?.clientHeight || 0;
+        const scrollY = Math.max(
           window.scrollY || 0,
           window.pageYOffset || 0,
           window.visualViewport?.pageTop || 0,
-          target?.scrollTop || 0,
           document.scrollingElement?.scrollTop || 0,
           document.documentElement?.scrollTop || 0,
           document.body?.scrollTop || 0,
         );
-      }
-
-      function isScrollable(el) {
-        if (!(el instanceof HTMLElement)) return false;
-        const style = window.getComputedStyle(el);
-        const overflowY = style.overflowY;
-        return (
-          (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
-          el.scrollHeight > el.clientHeight + 8
-        );
-      }
-
-      function findScrollTarget() {
-        const centerX = (window.innerWidth || document.documentElement?.clientWidth || 0) / 2;
-        const centerY = viewportHeight() / 2;
-        let current = document.elementFromPoint(centerX, centerY);
-        while (current) {
-          if (isScrollable(current)) return current;
-          current = current.parentElement;
-        }
-        return document.scrollingElement || document.documentElement || document.body;
-      }
-
-      const target = findScrollTarget();
-      const beforeY = currentScrollY(target);
-      const maxScroll = Math.max(
-        0,
-        (target?.scrollHeight || document.documentElement?.scrollHeight || document.body?.scrollHeight || 0) -
-          (target?.clientHeight || viewportHeight()),
-      );
-      const targetY = Math.max(0, Math.min(maxScroll, beforeY + ${deltaY}));
-
-      if (Math.abs(targetY - beforeY) < 1) {
-        return { beforeY, afterY: beforeY, movedY: 0 };
-      }
-
-      return await new Promise((resolve) => {
-        let lastY = beforeY;
-        let stableFrames = 0;
-        let finished = false;
-        const startedAt = performance.now();
-
-        const finish = () => {
-          if (finished) return;
-          finished = true;
-          const afterY = currentScrollY(target);
-          resolve({
-            beforeY,
-            afterY,
-            movedY: Math.round(afterY - beforeY),
-          });
+        return {
+          x: Math.max(1, Math.round(width / 2)),
+          y: Math.max(1, Math.round(height / 2)),
+          scrollY,
         };
+      })()
+    `);
 
-        const check = () => {
-          const currentY = currentScrollY(target);
-          if (Math.abs(currentY - targetY) <= 2 || Math.abs(currentY - lastY) < 0.5) {
-            stableFrames += 1;
-          } else {
-            stableFrames = 0;
-          }
-          lastY = currentY;
+  const before = await getSnapshot();
+  wc.sendInputEvent({ type: "mouseMove", x: before.x, y: before.y });
+  await sleep(16);
+  wc.sendInputEvent({
+    type: "mouseWheel",
+    x: before.x,
+    y: before.y,
+    deltaX: 0,
+    deltaY,
+  });
 
-          if (stableFrames >= 4 || performance.now() - startedAt > 1500) {
-            finish();
-            return;
-          }
+  let lastY = before.scrollY;
+  let stableSamples = 0;
+  let moved = false;
+  const startedAt = Date.now();
 
-          requestAnimationFrame(check);
-        };
+  while (Date.now() - startedAt < 1500) {
+    await sleep(50);
+    const current = await getSnapshot();
+    if (Math.abs(current.scrollY - lastY) < 1) {
+      stableSamples += 1;
+    } else {
+      stableSamples = 0;
+      moved = true;
+    }
+    lastY = current.scrollY;
+    if (moved && stableSamples >= 3) {
+      break;
+    }
+  }
 
-        try {
-          if (target && typeof target.scrollTo === "function") {
-            target.scrollTo({ top: targetY, behavior: "smooth" });
-          } else {
-            window.scrollTo({ top: targetY, behavior: "smooth" });
-          }
-        } catch {
-          if (target) {
-            target.scrollTop = targetY;
-          } else {
-            window.scrollTo(0, targetY);
-          }
-        }
-
-        requestAnimationFrame(check);
-      });
-    })()
-  `);
+  const after = await getSnapshot();
+  return {
+    beforeY: before.scrollY,
+    afterY: after.scrollY,
+    movedY: Math.round(after.scrollY - before.scrollY),
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -266,6 +220,220 @@ async function clickElement(
   return target.obstructed
     ? "Clicked via pointer events (target may be partially obstructed)"
     : "Clicked via pointer events";
+}
+
+async function dismissPopup(wc: WebContents): Promise<string> {
+  const before = await extractContent(wc);
+  const initialBlocking = before.overlays.filter(
+    (overlay) => overlay.blocksInteraction,
+  ).length;
+
+  const candidates = await wc.executeJavaScript(`
+    (function() {
+      function text(value) {
+        const trimmed = value == null ? "" : String(value).trim();
+        return trimmed || "";
+      }
+
+      function escapeSelectorValue(value) {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return String(value).replace(/["\\\\]/g, "\\\\$&");
+      }
+
+      function uniqueSelector(candidate) {
+        if (!candidate) return null;
+        try {
+          return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function selectorFor(el) {
+        if (!el) return null;
+        if (el.id) return "#" + escapeSelectorValue(el.id);
+        const attrs = ["data-testid", "data-test", "aria-label", "name", "title"];
+        for (const attr of attrs) {
+          const value = text(el.getAttribute && el.getAttribute(attr));
+          if (!value) continue;
+          const candidate = el.tagName.toLowerCase() + "[" + attr + "=\\"" + escapeSelectorValue(value) + "\\"]";
+          const unique = uniqueSelector(candidate);
+          if (unique) return unique;
+        }
+        const parts = [];
+        let current = el;
+        while (current) {
+          if (current.id) {
+            parts.unshift("#" + escapeSelectorValue(current.id));
+            break;
+          }
+          const tag = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) {
+            parts.unshift(tag);
+            break;
+          }
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          const index = siblings.indexOf(current) + 1;
+          parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+          current = parent;
+        }
+        const selector = parts.join(" > ");
+        return uniqueSelector(selector) || selector;
+      }
+
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return true;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+          return false;
+        }
+        if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
+          return false;
+        }
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      function overlayRoots() {
+        const nodes = [];
+        document.querySelectorAll("dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']").forEach((el) => {
+          if (isVisible(el)) nodes.push(el);
+        });
+        document.querySelectorAll("body *").forEach((el) => {
+          if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const zIndex = Number.parseInt(style.zIndex, 10);
+          const coversCenter =
+            rect.left <= (window.innerWidth || 0) / 2 &&
+            rect.right >= (window.innerWidth || 0) / 2 &&
+            rect.top <= (window.innerHeight || 0) / 2 &&
+            rect.bottom >= (window.innerHeight || 0) / 2;
+          if (
+            (style.position === "fixed" || style.position === "sticky") &&
+            Number.isFinite(zIndex) &&
+            zIndex >= 10 &&
+            coversCenter
+          ) {
+            nodes.push(el);
+          }
+        });
+        return Array.from(new Set(nodes));
+      }
+
+      function scoreCandidate(el, rooted) {
+        const label = text(
+          el.getAttribute("aria-label") ||
+            el.getAttribute("title") ||
+            el.textContent ||
+            el.getAttribute("value"),
+        ).toLowerCase();
+        const classText = text(el.className).toLowerCase();
+        const idText = text(el.id).toLowerCase();
+        let score = rooted ? 30 : 0;
+        if (/^x$|^×$/.test(label)) score += 120;
+        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you/.test(label)) score += 100;
+        if (/close|dismiss|modal-close|overlay-close/.test(classText + " " + idText)) score += 90;
+        if (el.getAttribute("aria-label")) score += 20;
+        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label)) score -= 80;
+        const rect = el.getBoundingClientRect();
+        if (rect.top < 120) score += 10;
+        if (rect.right > (window.innerWidth || 0) - 120) score += 15;
+        return score;
+      }
+
+      const selector = "button, [role='button'], a[href], input[type='button'], input[type='submit'], [aria-label], [title]";
+      const results = [];
+      const roots = overlayRoots();
+
+      function collect(container, rooted) {
+        container.querySelectorAll(selector).forEach((el) => {
+          if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+          const candidateSelector = selectorFor(el);
+          if (!candidateSelector) return;
+          const label = text(
+            el.getAttribute("aria-label") ||
+              el.getAttribute("title") ||
+              el.textContent ||
+              el.getAttribute("value"),
+          );
+          if (!label) return;
+          results.push({
+            selector: candidateSelector,
+            label: label.slice(0, 120),
+            score: scoreCandidate(el, rooted),
+          });
+        });
+      }
+
+      roots.forEach((root) => collect(root, true));
+      if (results.length === 0) {
+        collect(document, false);
+      }
+
+      const seen = new Set();
+      return results
+        .filter((candidate) => {
+          if (seen.has(candidate.selector)) return false;
+          seen.add(candidate.selector);
+          return candidate.score > 0;
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+    })()
+  `);
+
+  if (Array.isArray(candidates)) {
+    for (const candidate of candidates) {
+      if (
+        !candidate ||
+        typeof candidate !== "object" ||
+        typeof candidate.selector !== "string"
+      ) {
+        continue;
+      }
+      const result = await clickElement(wc, candidate.selector);
+      if (result.startsWith("Error:")) continue;
+      await sleep(250);
+      const after = await extractContent(wc);
+      const blocking = after.overlays.filter(
+        (overlay) => overlay.blocksInteraction,
+      ).length;
+      if (
+        blocking < initialBlocking ||
+        (initialBlocking > 0 && blocking === 0)
+      ) {
+        const label =
+          typeof candidate.label === "string" && candidate.label
+            ? candidate.label
+            : "popup control";
+        return `Dismissed popup using "${label}"`;
+      }
+    }
+  }
+
+  wc.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+  await sleep(16);
+  wc.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+  await sleep(200);
+
+  const afterEscape = await extractContent(wc);
+  const escapeBlocking = afterEscape.overlays.filter(
+    (overlay) => overlay.blocksInteraction,
+  ).length;
+  if (
+    escapeBlocking < initialBlocking ||
+    (initialBlocking > 0 && escapeBlocking === 0)
+  ) {
+    return "Dismissed popup with Escape";
+  }
+
+  return initialBlocking > 0
+    ? "Could not dismiss the blocking popup automatically"
+    : "No blocking popup detected";
 }
 
 async function resolveSelector(
@@ -1128,6 +1296,11 @@ export async function executeAction(
           const dir = args.direction === "up" ? -pixels : pixels;
           const result = await scrollPage(wc, dir);
           return `Scrolled ${args.direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
+        }
+
+        case "dismiss_popup": {
+          if (!wc) return "Error: No active tab";
+          return dismissPopup(wc);
         }
 
         case "read_page": {
