@@ -43,6 +43,98 @@ function asPromptResponse(text: string) {
   };
 }
 
+function formatFolderStatus(limit = 6): string {
+  const folders = bookmarkManager.listFolderOverviews();
+  const visible = folders.slice(0, limit);
+  const summary = visible
+    .map((folder) => `${folder.name} (${folder.count})`)
+    .join(", ");
+  return `Folder status: ${summary}${folders.length > limit ? ", ..." : ""}`;
+}
+
+function describeFolder(folderId?: string): string {
+  if (!folderId || folderId === bookmarkManager.UNSORTED_ID) {
+    return "Unsorted";
+  }
+  return bookmarkManager.getFolder(folderId)?.name ?? folderId;
+}
+
+function resolveBookmarkFolderTarget(args: {
+  folder_id?: unknown;
+  folder_name?: unknown;
+  folder_summary?: unknown;
+  create_folder_if_missing?: unknown;
+  archive?: unknown;
+}): {
+  folderId?: string;
+  folderName: string;
+  createdFolder?: string;
+  error?: string;
+} {
+  const folderId =
+    typeof args.folder_id === "string" ? args.folder_id.trim() : "";
+  if (folderId) {
+    if (folderId === bookmarkManager.UNSORTED_ID) {
+      return {
+        folderId: bookmarkManager.UNSORTED_ID,
+        folderName: "Unsorted",
+      };
+    }
+
+    const folder = bookmarkManager.getFolder(folderId);
+    if (!folder) {
+      return { folderName: "Unsorted", error: `Folder ${folderId} not found` };
+    }
+    return { folderId: folder.id, folderName: folder.name };
+  }
+
+  const requestedName =
+    typeof args.folder_name === "string" && args.folder_name.trim()
+      ? args.folder_name.trim()
+      : args.archive
+        ? bookmarkManager.ARCHIVE_FOLDER_NAME
+        : "";
+
+  if (!requestedName || requestedName.toLowerCase() === "unsorted") {
+    return {
+      folderId: bookmarkManager.UNSORTED_ID,
+      folderName: "Unsorted",
+    };
+  }
+
+  const existing = bookmarkManager.findFolderByName(requestedName);
+  if (existing) {
+    return { folderId: existing.id, folderName: existing.name };
+  }
+
+  const createIfMissing = args.create_folder_if_missing !== false;
+  if (!createIfMissing) {
+    return {
+      folderName: requestedName,
+      error: `Folder "${requestedName}" not found`,
+    };
+  }
+
+  const folderSummary =
+    typeof args.folder_summary === "string" && args.folder_summary.trim()
+      ? args.folder_summary.trim()
+      : undefined;
+  const { folder } = bookmarkManager.ensureFolder(requestedName, folderSummary);
+  return {
+    folderId: folder.id,
+    folderName: folder.name,
+    createdFolder: folder.name,
+  };
+}
+
+function composeFolderAwareResponse(
+  message: string,
+  createdFolder?: string,
+): string {
+  const prefix = createdFolder ? `Created folder "${createdFolder}".\n` : "";
+  return `${prefix}${message}\n${formatFolderStatus()}`;
+}
+
 function waitForPotentialNavigation(
   wc: Electron.WebContents,
   beforeUrl: string,
@@ -2057,7 +2149,8 @@ function registerTools(
     "vessel_create_folder",
     {
       title: "Create Bookmark Folder",
-      description: "Create a named folder for organizing bookmarks.",
+      description:
+        "Create a named folder for organizing bookmarks. If a folder with the same name already exists, return it instead of duplicating it.",
       inputSchema: {
         name: z.string().describe("Name for the new folder"),
         summary: z
@@ -2073,8 +2166,17 @@ function registerTools(
         "create_bookmark_folder",
         { name, summary },
         async () => {
+          const existing = bookmarkManager.findFolderByName(name);
+          if (existing) {
+            return composeFolderAwareResponse(
+              `Folder "${existing.name}" already exists (id=${existing.id})`,
+            );
+          }
+
           const folder = bookmarkManager.createFolderWithSummary(name, summary);
-          return `Created folder "${folder.name}" (id=${folder.id})`;
+          return composeFolderAwareResponse(
+            `Created folder "${folder.name}" (id=${folder.id})`,
+          );
         },
       );
     },
@@ -2085,7 +2187,7 @@ function registerTools(
     {
       title: "Save Bookmark",
       description:
-        "Save a URL to a bookmark folder. Omit folder_id to save to Unsorted.",
+        "Save a URL to a bookmark folder. You can provide folder_id or folder_name; missing folder names can be created automatically.",
       inputSchema: {
         url: z.string().describe("URL to bookmark"),
         title: z.string().describe("Human-readable title for the bookmark"),
@@ -2093,33 +2195,65 @@ function registerTools(
           .string()
           .optional()
           .describe("Folder ID to save into (omit for Unsorted)"),
+        folder_name: z
+          .string()
+          .optional()
+          .describe("Folder name to save into. Created automatically if missing"),
+        folder_summary: z
+          .string()
+          .optional()
+          .describe("Optional one-sentence summary if a new folder is created"),
+        create_folder_if_missing: z
+          .boolean()
+          .optional()
+          .describe("Create folder_name automatically when it does not exist"),
         note: z
           .string()
           .optional()
           .describe("Optional note about why this was bookmarked"),
       },
     },
-    async ({ url, title, folder_id, note }) => {
+    async ({
+      url,
+      title,
+      folder_id,
+      folder_name,
+      folder_summary,
+      create_folder_if_missing,
+      note,
+    }) => {
       return withAction(
         runtime,
         tabManager,
         "save_bookmark",
-        { url, title, folder_id, note },
+        {
+          url,
+          title,
+          folder_id,
+          folder_name,
+          folder_summary,
+          create_folder_if_missing,
+          note,
+        },
         async () => {
+          const target = resolveBookmarkFolderTarget({
+            folder_id,
+            folder_name,
+            folder_summary,
+            create_folder_if_missing,
+          });
+          if (target.error) return target.error;
+
           const bookmark = bookmarkManager.saveBookmark(
             url,
             title,
-            folder_id,
+            target.folderId,
             note,
           );
-          const folderLabel =
-            bookmark.folderId === "unsorted"
-              ? "Unsorted"
-              : (bookmarkManager
-                  .getState()
-                  .folders.find((f) => f.id === bookmark.folderId)?.name ??
-                bookmark.folderId);
-          return `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`;
+          return composeFolderAwareResponse(
+            `Saved "${bookmark.title}" (${bookmark.url}) to "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            target.createdFolder,
+          );
         },
       );
     },
@@ -2136,23 +2270,36 @@ function registerTools(
           .string()
           .optional()
           .describe("Filter to a specific folder ID (omit for all)"),
+        folder_name: z
+          .string()
+          .optional()
+          .describe("Filter to a specific folder name (omit for all)"),
       },
     },
-    async ({ folder_id }) => {
+    async ({ folder_id, folder_name }) => {
       return withAction(
         runtime,
         tabManager,
         "list_bookmarks",
-        { folder_id },
+        { folder_id, folder_name },
         async () => {
           const state = bookmarkManager.getState();
+          const resolvedFolderId =
+            folder_id ||
+            (typeof folder_name === "string" && folder_name.trim()
+              ? (bookmarkManager.findFolderByName(folder_name)?.id ?? "")
+              : "");
+          if (folder_name && !resolvedFolderId) {
+            return `Folder "${folder_name}" not found`;
+          }
+
           const folders = [
             { id: "unsorted", name: "Unsorted" },
             ...state.folders,
           ];
           const lines: string[] = [];
           for (const folder of folders) {
-            if (folder_id && folder.id !== folder_id) continue;
+            if (resolvedFolderId && folder.id !== resolvedFolderId) continue;
             const items = state.bookmarks.filter(
               (b) => b.folderId === folder.id,
             );
@@ -2171,6 +2318,121 @@ function registerTools(
           return lines.length
             ? lines.join("\n").trim()
             : "No bookmarks saved yet.";
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_organize",
+    {
+      title: "Organize Bookmark",
+      description:
+        "Organize a bookmark by intent: save or move a bookmark into a folder, creating the folder if needed. Works with bookmark_id, url, or the current page.",
+      inputSchema: {
+        bookmark_id: z
+          .string()
+          .optional()
+          .describe("Existing bookmark ID to move or update"),
+        url: z
+          .string()
+          .optional()
+          .describe("URL to organize. Omit to use the current page"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional title when saving a new bookmark"),
+        folder_id: z
+          .string()
+          .optional()
+          .describe("Folder ID to organize into"),
+        folder_name: z
+          .string()
+          .optional()
+          .describe("Folder name to organize into"),
+        folder_summary: z
+          .string()
+          .optional()
+          .describe("Optional summary used if a new folder is created"),
+        create_folder_if_missing: z
+          .boolean()
+          .optional()
+          .describe("Create folder_name automatically when it does not exist"),
+        note: z
+          .string()
+          .optional()
+          .describe("Optional note to attach or update on the bookmark"),
+        archive: z
+          .boolean()
+          .optional()
+          .describe('If true, organize into the default "Archive" folder'),
+      },
+    },
+    async (args) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "organize_bookmark",
+        args,
+        async () => {
+          const target = resolveBookmarkFolderTarget(args);
+          if (target.error) return target.error;
+
+          const bookmarkId =
+            typeof args.bookmark_id === "string" ? args.bookmark_id.trim() : "";
+          const currentTab = tabManager.getActiveTab();
+          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
+          const resolvedUrl =
+            typeof args.url === "string" && args.url.trim()
+              ? args.url.trim()
+              : currentUrl;
+          const currentTitle =
+            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
+          const explicitTitle =
+            typeof args.title === "string" && args.title.trim()
+              ? args.title.trim()
+              : undefined;
+          const note =
+            typeof args.note === "string" && args.note.trim()
+              ? args.note.trim()
+              : undefined;
+
+          const existing = bookmarkId
+            ? bookmarkManager.getBookmark(bookmarkId)
+            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+          if (bookmarkId && !existing) {
+            return `Bookmark ${bookmarkId} not found`;
+          }
+
+          if (existing) {
+            const updated = bookmarkManager.updateBookmark(existing.id, {
+              folderId: target.folderId,
+              title: explicitTitle,
+              note,
+            });
+            if (!updated) {
+              return `Bookmark ${existing.id} not found`;
+            }
+            return composeFolderAwareResponse(
+              `Organized existing bookmark "${updated.title}" into "${describeFolder(updated.folderId)}" (id=${updated.id})`,
+              target.createdFolder,
+            );
+          }
+
+          if (!resolvedUrl) {
+            return "Error: No bookmark_id provided and no URL available to organize";
+          }
+
+          const bookmark = bookmarkManager.saveBookmark(
+            resolvedUrl,
+            explicitTitle || currentTitle || resolvedUrl,
+            target.folderId,
+            note,
+          );
+          return composeFolderAwareResponse(
+            `Saved and organized "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            target.createdFolder,
+          );
         },
       );
     },
@@ -2233,6 +2495,94 @@ function registerTools(
           return removed
             ? `Removed bookmark ${bookmark_id}`
             : `Bookmark ${bookmark_id} not found`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_archive",
+    {
+      title: "Archive Bookmark",
+      description:
+        'Archive the current page, a URL, or an existing bookmark into the default "Archive" folder.',
+      inputSchema: {
+        bookmark_id: z
+          .string()
+          .optional()
+          .describe("Existing bookmark ID to archive"),
+        url: z
+          .string()
+          .optional()
+          .describe("URL to archive. Omit to use the current page"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional title when saving a new archived bookmark"),
+        note: z
+          .string()
+          .optional()
+          .describe("Optional note to store with the archived bookmark"),
+      },
+    },
+    async ({ bookmark_id, url, title, note }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "archive_bookmark",
+        { bookmark_id, url, title, note },
+        async () => {
+          const currentTab = tabManager.getActiveTab();
+          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
+          const resolvedUrl =
+            typeof url === "string" && url.trim() ? url.trim() : currentUrl;
+          const currentTitle =
+            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
+          const explicitTitle =
+            typeof title === "string" && title.trim() ? title.trim() : undefined;
+          const trimmedBookmarkId =
+            typeof bookmark_id === "string" ? bookmark_id.trim() : "";
+          const trimmedNote =
+            typeof note === "string" && note.trim() ? note.trim() : undefined;
+          const target = resolveBookmarkFolderTarget({ archive: true });
+          if (target.error) return target.error;
+
+          const existing = trimmedBookmarkId
+            ? bookmarkManager.getBookmark(trimmedBookmarkId)
+            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+          if (trimmedBookmarkId && !existing) {
+            return `Bookmark ${trimmedBookmarkId} not found`;
+          }
+
+          if (existing) {
+            const updated = bookmarkManager.updateBookmark(existing.id, {
+              folderId: target.folderId,
+              title: explicitTitle,
+              note: trimmedNote,
+            });
+            if (!updated) {
+              return `Bookmark ${existing.id} not found`;
+            }
+            return composeFolderAwareResponse(
+              `Archived bookmark "${updated.title}" into "${describeFolder(updated.folderId)}" (id=${updated.id})`,
+              target.createdFolder,
+            );
+          }
+
+          if (!resolvedUrl) {
+            return "Error: No bookmark_id provided and no URL available to archive";
+          }
+
+          const bookmark = bookmarkManager.saveBookmark(
+            resolvedUrl,
+            explicitTitle || currentTitle || resolvedUrl,
+            target.folderId,
+            trimmedNote,
+          );
+          return composeFolderAwareResponse(
+            `Saved and archived "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            target.createdFolder,
+          );
         },
       );
     },
@@ -2303,7 +2653,9 @@ function registerTools(
         async () => {
           const removed = bookmarkManager.removeFolder(folder_id);
           return removed
-            ? `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`
+            ? composeFolderAwareResponse(
+                `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`,
+              )
             : `Folder ${folder_id} not found`;
         },
       );
@@ -2331,13 +2683,16 @@ function registerTools(
         "rename_bookmark_folder",
         { folder_id, new_name, summary },
         async () => {
-          const folder = bookmarkManager.renameFolder(
-            folder_id,
-            new_name,
-            summary,
-          );
+          const existing = bookmarkManager.findFolderByName(new_name);
+          if (existing && existing.id !== folder_id) {
+            return composeFolderAwareResponse(
+              `Folder "${existing.name}" already exists (id=${existing.id})`,
+            );
+          }
+
+          const folder = bookmarkManager.renameFolder(folder_id, new_name, summary);
           return folder
-            ? `Renamed folder to "${folder.name}"`
+            ? composeFolderAwareResponse(`Renamed folder to "${folder.name}"`)
             : `Folder ${folder_id} not found`;
         },
       );

@@ -8,7 +8,15 @@ import type {
   BookmarksState,
 } from "../../shared/types";
 
-const UNSORTED_ID = "unsorted";
+export const UNSORTED_ID = "unsorted";
+export const ARCHIVE_FOLDER_NAME = "Archive";
+
+export interface BookmarkFolderOverview {
+  id: string;
+  name: string;
+  summary?: string;
+  count: number;
+}
 
 let state: BookmarksState | null = null;
 const listeners = new Set<(state: BookmarksState) => void>();
@@ -75,6 +83,55 @@ export function getBookmark(id: string): Bookmark | null {
   load();
   const bookmark = state!.bookmarks.find((item) => item.id === id);
   return bookmark ? { ...bookmark } : null;
+}
+
+export function getBookmarkByUrl(url: string): Bookmark | null {
+  load();
+  const normalized = url.trim();
+  if (!normalized) return null;
+  const bookmark = [...state!.bookmarks]
+    .reverse()
+    .find((item) => item.url === normalized);
+  return bookmark ? { ...bookmark } : null;
+}
+
+export function getFolder(id: string): BookmarkFolder | null {
+  load();
+  if (!id || id === UNSORTED_ID) return null;
+  const folder = state!.folders.find((item) => item.id === id);
+  return folder ? { ...folder } : null;
+}
+
+export function findFolderByName(name: string): BookmarkFolder | null {
+  load();
+  const normalized = name.trim().toLowerCase();
+  if (!normalized || normalized === "unsorted") return null;
+  const folder = state!.folders.find(
+    (item) => item.name.trim().toLowerCase() === normalized,
+  );
+  return folder ? { ...folder } : null;
+}
+
+export function listFolderOverviews(): BookmarkFolderOverview[] {
+  load();
+  const counts = new Map<string, number>();
+  for (const bookmark of state!.bookmarks) {
+    counts.set(bookmark.folderId, (counts.get(bookmark.folderId) ?? 0) + 1);
+  }
+
+  return [
+    {
+      id: UNSORTED_ID,
+      name: "Unsorted",
+      count: counts.get(UNSORTED_ID) ?? 0,
+    },
+    ...state!.folders.map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      summary: folder.summary,
+      count: counts.get(folder.id) ?? 0,
+    })),
+  ];
 }
 
 export function searchBookmarks(query: string): Array<{
@@ -144,6 +201,21 @@ export function createFolderWithSummary(
   return folder;
 }
 
+export function ensureFolder(
+  name: string,
+  summary?: string,
+): { folder: BookmarkFolder; created: boolean } {
+  const existing = findFolderByName(name);
+  if (existing) {
+    return { folder: existing, created: false };
+  }
+
+  return {
+    folder: createFolderWithSummary(name, summary),
+    created: true,
+  };
+}
+
 export function saveBookmark(
   url: string,
   title: string,
@@ -151,6 +223,8 @@ export function saveBookmark(
   note?: string,
 ): Bookmark {
   load();
+  const normalizedUrl = url.trim();
+  const normalizedTitle = title.trim() || normalizedUrl;
   const targetId =
     folderId && folderId !== UNSORTED_ID
       ? (state!.folders.find((f) => f.id === folderId)?.id ?? UNSORTED_ID)
@@ -158,8 +232,8 @@ export function saveBookmark(
 
   const bookmark: Bookmark = {
     id: randomUUID(),
-    url,
-    title: title.trim(),
+    url: normalizedUrl,
+    title: normalizedTitle,
     note: note?.trim() || undefined,
     folderId: targetId,
     savedAt: new Date().toISOString(),
@@ -180,6 +254,41 @@ export function removeBookmark(id: string): boolean {
     return true;
   }
   return false;
+}
+
+export function updateBookmark(
+  id: string,
+  updates: {
+    title?: string;
+    note?: string;
+    folderId?: string;
+  },
+): Bookmark | null {
+  load();
+  const bookmark = state!.bookmarks.find((item) => item.id === id);
+  if (!bookmark) return null;
+
+  if (typeof updates.title === "string") {
+    const trimmed = updates.title.trim();
+    bookmark.title = trimmed || bookmark.url;
+  }
+
+  if (typeof updates.note === "string") {
+    const trimmed = updates.note.trim();
+    bookmark.note = trimmed || undefined;
+  }
+
+  if (typeof updates.folderId === "string") {
+    bookmark.folderId =
+      updates.folderId && updates.folderId !== UNSORTED_ID
+        ? (state!.folders.find((item) => item.id === updates.folderId)?.id ??
+          UNSORTED_ID)
+        : UNSORTED_ID;
+  }
+
+  save();
+  emit();
+  return { ...bookmark };
 }
 
 export function removeFolder(id: string): boolean {

@@ -375,7 +375,8 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "create_bookmark_folder",
-    description: "Create a bookmark folder for organizing saved pages.",
+    description:
+      "Create a bookmark folder for organizing saved pages. If the same folder already exists, return it instead of creating a duplicate.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -395,7 +396,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "save_bookmark",
     description:
-      "Save the current page or a specified URL as a bookmark. If folderName is provided and missing, create it.",
+      "Save the current page or a specified URL as a bookmark. If folderName is provided and missing, create it automatically.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -417,9 +418,93 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
           description:
             "Folder name to save into. Created automatically if missing.",
         },
+        folderSummary: {
+          type: "string",
+          description: "Optional summary used if a new folder is created",
+        },
+        createFolderIfMissing: {
+          type: "boolean",
+          description:
+            "Create folderName automatically when it does not exist",
+        },
         note: {
           type: "string",
           description: "Optional note about why the page was saved",
+        },
+      },
+    },
+  },
+  {
+    name: "organize_bookmark",
+    description:
+      'Organize a bookmark by intent: move an existing bookmark or save the current page/URL into a folder, creating the folder if needed. If archive is true, use the default "Archive" folder.',
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        bookmarkId: {
+          type: "string",
+          description: "Existing bookmark ID to move or update",
+        },
+        url: {
+          type: "string",
+          description: "URL to organize. Omit to use the current page",
+        },
+        title: {
+          type: "string",
+          description:
+            "Optional title when saving a new bookmark or retitling an existing one",
+        },
+        folderId: {
+          type: "string",
+          description: "Exact bookmark folder ID target",
+        },
+        folderName: {
+          type: "string",
+          description: "Folder name target. Created automatically if missing",
+        },
+        folderSummary: {
+          type: "string",
+          description: "Optional summary used if a new folder is created",
+        },
+        createFolderIfMissing: {
+          type: "boolean",
+          description:
+            "Create folderName automatically when it does not exist",
+        },
+        note: {
+          type: "string",
+          description: "Optional note to attach or update on the bookmark",
+        },
+        archive: {
+          type: "boolean",
+          description:
+            'If true, organize into the default "Archive" folder',
+        },
+      },
+    },
+  },
+  {
+    name: "archive_bookmark",
+    description:
+      'Archive the current page, a URL, or an existing bookmark into the default "Archive" folder.',
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        bookmarkId: {
+          type: "string",
+          description: "Existing bookmark ID to archive",
+        },
+        url: {
+          type: "string",
+          description: "URL to archive. Omit to use the current page",
+        },
+        title: {
+          type: "string",
+          description: "Optional title when saving a new archived bookmark",
+        },
+        note: {
+          type: "string",
+          description: "Optional note about why the page was archived",
         },
       },
     },
