@@ -281,7 +281,7 @@ const Settings: Component = () => {
           background: var(--bg-elevated);
           border: 1px solid var(--border-visible);
           border-radius: var(--radius-lg);
-          padding: 24px;
+          padding: 30px 24px 24px;
           overflow-y: auto;
           overscroll-behavior: contain;
           scrollbar-gutter: stable;
