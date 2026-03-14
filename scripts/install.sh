@@ -60,6 +60,7 @@ npm --prefix "$INSTALL_DIR" run build
 
 LAUNCHER_PATH="$BIN_DIR/vessel-browser"
 MCP_HELPER_PATH="$BIN_DIR/vessel-browser-mcp"
+UPDATE_HELPER_PATH="$BIN_DIR/vessel-browser-update"
 DESKTOP_ENTRY_PATH="$DESKTOP_DIR/vessel-browser.desktop"
 
 info "Creating launcher at $LAUNCHER_PATH"
@@ -70,6 +71,16 @@ cd "$INSTALL_DIR"
 exec "$INSTALL_DIR/node_modules/electron/dist/electron" "$INSTALL_DIR" "\$@"
 EOF
 chmod +x "$LAUNCHER_PATH"
+
+info "Creating update helper at $UPDATE_HELPER_PATH"
+cat >"$UPDATE_HELPER_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export VESSEL_INSTALL_DIR="$INSTALL_DIR"
+export VESSEL_BRANCH="$BRANCH"
+exec "$INSTALL_DIR/scripts/update-installation.sh" "\$@"
+EOF
+chmod +x "$UPDATE_HELPER_PATH"
 
 info "Creating MCP helper at $MCP_HELPER_PATH"
 cat >"$MCP_HELPER_PATH" <<EOF
@@ -267,6 +278,12 @@ $(cat "$HERMES_SNIPPET_PATH")
 You can print the snippet any time with:
   $MCP_HELPER_PATH
   $MCP_HELPER_PATH --format hermes
+
+To check for source-install updates:
+  $UPDATE_HELPER_PATH --check
+
+To update Vessel from source:
+  $UPDATE_HELPER_PATH
 
 Notes:
   - Vessel must be running before your harness connects.
