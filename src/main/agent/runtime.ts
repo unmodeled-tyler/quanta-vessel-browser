@@ -6,6 +6,8 @@ import type {
   ActionSource,
   AgentActionEntry,
   AgentCheckpoint,
+  AgentTranscriptEntry,
+  AgentTranscriptKind,
   AgentRuntimeState,
   ApprovalMode,
   PendingApproval,
@@ -15,6 +17,8 @@ import type { TabManager } from "../tabs/tab-manager";
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
+const MAX_TRANSCRIPT_ENTRIES = 40;
+const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
 
 interface RuntimePersistenceShape {
   session: SessionSnapshot | null;
@@ -77,6 +81,7 @@ function sanitizePersistence(
     checkpoints: Array.isArray(persisted?.checkpoints)
       ? persisted!.checkpoints.slice(-MAX_CHECKPOINTS)
       : [],
+    transcript: [],
   };
 }
 
@@ -163,6 +168,62 @@ export class AgentRuntime {
     }
     this.tabManager.restoreSession(target);
     return this.captureSession(target.note || "Restored saved session");
+  }
+
+  publishTranscript(input: {
+    source: ActionSource;
+    kind?: AgentTranscriptKind;
+    title?: string;
+    text: string;
+    streamId?: string;
+    mode?: "append" | "replace" | "final";
+  }): AgentTranscriptEntry {
+    const now = new Date().toISOString();
+    const kind = input.kind ?? "thinking";
+    const mode = input.mode ?? "append";
+    const incomingText = input.text.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH);
+
+    if (input.streamId) {
+      const existing = this.state.transcript.find(
+        (entry) => entry.streamId === input.streamId,
+      );
+      if (existing) {
+        existing.source = input.source;
+        existing.kind = kind;
+        existing.title = input.title?.trim() || existing.title;
+        existing.text =
+          mode === "replace"
+            ? incomingText
+            : `${existing.text}${incomingText}`.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH);
+        existing.updatedAt = now;
+        existing.status = mode === "final" ? "final" : "streaming";
+        this.emit();
+        return clone(existing);
+      }
+    }
+
+    const entry: AgentTranscriptEntry = {
+      id: randomUUID(),
+      source: input.source,
+      kind,
+      title: input.title?.trim() || undefined,
+      text: incomingText,
+      startedAt: now,
+      updatedAt: now,
+      status: mode === "final" ? "final" : "streaming",
+      streamId: input.streamId?.trim() || undefined,
+    };
+    this.state.transcript = [...this.state.transcript, entry].slice(
+      -MAX_TRANSCRIPT_ENTRIES,
+    );
+    this.emit();
+    return clone(entry);
+  }
+
+  clearTranscript(): AgentRuntimeState {
+    this.state.transcript = [];
+    this.emit();
+    return this.getState();
   }
 
   async runControlledAction({

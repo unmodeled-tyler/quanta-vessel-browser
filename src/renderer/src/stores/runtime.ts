@@ -10,6 +10,7 @@ const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   },
   actions: [],
   checkpoints: [],
+  transcript: [],
 };
 
 const [runtimeState, setRuntimeState] = createSignal<AgentRuntimeState>(

@@ -1286,6 +1286,69 @@ function registerTools(
     }),
   );
 
+  server.registerTool(
+    "vessel_publish_transcript",
+    {
+      title: "Publish Agent Transcript",
+      description:
+        "Publish or stream agent reasoning/status text into Vessel's in-browser transcript monitor. Intended for external harnesses that want to mirror live thinking into the browser UI.",
+      inputSchema: {
+        text: z.string().describe("Transcript text chunk to publish"),
+        stream_id: z
+          .string()
+          .optional()
+          .describe("Stable stream ID for incremental updates to the same entry"),
+        mode: z
+          .enum(["append", "replace", "final"])
+          .optional()
+          .describe("append (default), replace current stream text, or mark the stream final"),
+        kind: z
+          .enum(["thinking", "message", "status"])
+          .optional()
+          .describe("Visual style for the transcript entry"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional short label such as Plan, Search, or Summary"),
+      },
+    },
+    async ({ text, stream_id, mode, kind, title }) => {
+      const entry = runtime.publishTranscript({
+        source: "mcp",
+        text,
+        streamId: stream_id,
+        mode,
+        kind,
+        title,
+      });
+      return asTextResponse(
+        JSON.stringify(
+          {
+            ok: true,
+            entry_id: entry.id,
+            stream_id: entry.streamId ?? entry.id,
+            status: entry.status,
+            updated_at: entry.updatedAt,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_clear_transcript",
+    {
+      title: "Clear Agent Transcript",
+      description: "Clear the in-browser transcript monitor state.",
+    },
+    async () => {
+      runtime.clearTranscript();
+      return asTextResponse("Cleared browser transcript monitor.");
+    },
+  );
+
   const EXTRACT_MODES: ExtractMode[] = [
     "full",
     "summary",

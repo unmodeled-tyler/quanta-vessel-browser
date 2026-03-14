@@ -39,6 +39,7 @@ export const Channels = {
   // Settings
   SETTINGS_GET: "settings:get",
   SETTINGS_SET: "settings:set",
+  SETTINGS_UPDATE: "settings:update",
   SETTINGS_HEALTH_GET: "settings:health:get",
 
   // Bookmarks

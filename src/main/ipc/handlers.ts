@@ -147,6 +147,7 @@ export function registerIpcHandlers(
       await stopMcpServer();
       await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
     }
+    sendToRendererViews(Channels.SETTINGS_UPDATE, updatedSettings);
     return updatedSettings;
   });
 

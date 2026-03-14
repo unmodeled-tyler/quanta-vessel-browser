@@ -220,11 +220,28 @@ export interface SupervisorState {
   lastError?: string;
 }
 
+export type AgentTranscriptKind = "message" | "thinking" | "status";
+
+export interface AgentTranscriptEntry {
+  id: string;
+  source: ActionSource;
+  kind: AgentTranscriptKind;
+  title?: string;
+  text: string;
+  startedAt: string;
+  updatedAt: string;
+  status: "streaming" | "final";
+  streamId?: string;
+}
+
+export type AgentTranscriptDisplayMode = "off" | "summary" | "full";
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
   actions: AgentActionEntry[];
   checkpoints: AgentCheckpoint[];
+  transcript: AgentTranscriptEntry[];
 }
 
 export interface UIState {
@@ -284,6 +301,7 @@ export interface VesselSettings {
   clearBookmarksOnLaunch: boolean;
   obsidianVaultPath: string;
   approvalMode: ApprovalMode;
+  agentTranscriptMode: AgentTranscriptDisplayMode;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

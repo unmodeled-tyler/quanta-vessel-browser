@@ -9,6 +9,7 @@ import type {
   BookmarksState,
   RuntimeHealthState,
   SessionSnapshot,
+  VesselSettings,
 } from "../shared/types";
 
 const api = {
@@ -104,6 +105,11 @@ const api = {
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
     set: (key: string, value: any) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
+    onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {
+      const handler = (_: unknown, settings: VesselSettings) => cb(settings);
+      ipcRenderer.on(Channels.SETTINGS_UPDATE, handler);
+      return () => ipcRenderer.removeListener(Channels.SETTINGS_UPDATE, handler);
+    },
   },
   bookmarks: {
     get: (): Promise<BookmarksState> =>
