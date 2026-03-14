@@ -49,6 +49,7 @@ async function runScenario(name: string, scenario: () => Promise<void>): Promise
 
 async function main(): Promise<void> {
   const harness = await createNavigationHarnessServer();
+  const completedScenarios: string[] = [];
   await app.whenReady();
 
   try {
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
         assert.equal(wc.getURL(), `${harness.baseUrl}/anchor-dest`);
       });
     });
+    completedScenarios.push("anchor clicks create stable back/forward history");
 
     await runScenario("offscreen anchors auto-scroll before click", async () => {
       await withTab(`${harness.baseUrl}/offscreen-anchor-source`, async (tab) => {
@@ -83,6 +85,7 @@ async function main(): Promise<void> {
         assert.equal(tab.canGoBack(), true);
       });
     });
+    completedScenarios.push("offscreen anchors auto-scroll before click");
 
     await runScenario("JS-driven button navigations survive back/forward", async () => {
       await withTab(`${harness.baseUrl}/js-source`, async (tab) => {
@@ -104,6 +107,7 @@ async function main(): Promise<void> {
         assert.equal(wc.getURL(), `${harness.baseUrl}/js-dest`);
       });
     });
+    completedScenarios.push("JS-driven button navigations survive back/forward");
 
     await runScenario("GET form submissions preserve custom history", async () => {
       await withTab(`${harness.baseUrl}/get-form`, async (tab) => {
@@ -124,6 +128,7 @@ async function main(): Promise<void> {
         assert.equal(wc.getURL(), `${harness.baseUrl}/get-result?q=alpha`);
       });
     });
+    completedScenarios.push("GET form submissions preserve custom history");
 
     await runScenario("POST form submissions preserve custom history", async () => {
       await withTab(`${harness.baseUrl}/post-form`, async (tab) => {
@@ -144,6 +149,7 @@ async function main(): Promise<void> {
         assert.equal(wc.getURL(), `${harness.baseUrl}/post-result?q=beta`);
       });
     });
+    completedScenarios.push("POST form submissions preserve custom history");
 
     await runScenario("external form-associated submit buttons preserve custom history", async () => {
       await withTab(`${harness.baseUrl}/external-submit`, async (tab) => {
@@ -167,17 +173,27 @@ async function main(): Promise<void> {
         assert.equal(wc.getURL(), `${harness.baseUrl}/external-result?topic=gamma`);
       });
     });
+    completedScenarios.push(
+      "external form-associated submit buttons preserve custom history",
+    );
 
-    console.log(`\nNavigation regression suite passed against ${harness.baseUrl}`);
+    console.log(
+      `\nNavigation regression suite passed against ${harness.baseUrl}\nScenarios: ${completedScenarios.join("; ")}`,
+    );
   } finally {
     await harness.close();
   }
 }
 
 main()
-  .then(() => app.exit(0))
+  .then(async () => {
+    process.exitCode = 0;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    app.quit();
+  })
   .catch((error) => {
     console.error("\nNavigation regression suite failed.");
     console.error(error);
-    app.exit(1);
+    process.exitCode = 1;
+    app.quit();
   });

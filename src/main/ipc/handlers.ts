@@ -4,6 +4,7 @@ import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
 import { layoutViews, type WindowState } from "../window";
+import { getRuntimeHealth } from "../health/runtime-health";
 import type {
   ApprovalMode,
   AgentRuntimeState,
@@ -11,6 +12,7 @@ import type {
 } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
+import { startMcpServer, stopMcpServer } from "../mcp/server";
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -134,11 +136,18 @@ export function registerIpcHandlers(
     return loadSettings();
   });
 
-  ipcMain.handle(Channels.SETTINGS_SET, (_, key: string, value: any) => {
-    setSetting(key as any, value);
+  ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
+
+  ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: any) => {
+    const updatedSettings = setSetting(key as any, value);
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
     }
+    if (key === "mcpPort") {
+      await stopMcpServer();
+      await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
+    }
+    return updatedSettings;
   });
 
   // --- Agent runtime handlers ---

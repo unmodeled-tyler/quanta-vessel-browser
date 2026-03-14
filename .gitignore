@@ -4,3 +4,7 @@ dist/
 .venv/
 *.log
 .env
+scripts/*.cjs
+docs/release-checklist.md
+scripts/run-navigation-regression.mjs
+scripts/smoke-test.mjs

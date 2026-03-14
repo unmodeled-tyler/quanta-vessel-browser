@@ -9,7 +9,9 @@
     "dist": "npm run build && electron-builder --linux",
     "dist:dir": "npm run build && electron-builder --linux dir",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:navigation-regression": "electron scripts/run-navigation-regression.mjs",
+    "smoke:test": "node scripts/smoke-test.mjs"
   },
   "keywords": [
     "agent-browser",

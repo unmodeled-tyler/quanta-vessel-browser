@@ -260,6 +260,29 @@ export interface VesselSettings {
   approvalMode: ApprovalMode;
 }
 
+export type RuntimeHealthSeverity = "warning" | "error";
+
+export interface RuntimeHealthIssue {
+  code: string;
+  severity: RuntimeHealthSeverity;
+  title: string;
+  detail: string;
+  action?: string;
+}
+
+export interface RuntimeHealthState {
+  userDataPath: string;
+  settingsPath: string;
+  startupIssues: RuntimeHealthIssue[];
+  mcp: {
+    configuredPort: number;
+    activePort: number | null;
+    endpoint: string | null;
+    status: "starting" | "ready" | "error" | "stopped";
+    message: string;
+  };
+}
+
 // --- Bookmarks ---
 
 export interface Bookmark {

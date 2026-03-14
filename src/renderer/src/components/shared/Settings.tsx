@@ -1,5 +1,12 @@
-import { createSignal, Show, onMount, type Component } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  Show,
+  onMount,
+  type Component,
+} from "solid-js";
 import { useUI } from "../../stores/ui";
+import type { RuntimeHealthState } from "../../../shared/types";
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
@@ -7,29 +14,66 @@ const Settings: Component = () => {
   const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
     createSignal(false);
   const [obsidianVaultPath, setObsidianVaultPath] = createSignal("");
+  const [mcpPort, setMcpPort] = createSignal("3100");
+  const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
   } | null>(null);
 
-  onMount(async () => {
+  const loadState = async () => {
     const settings = await window.vessel.settings.get();
+    const runtimeHealth = await window.vessel.settings.getHealth();
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
+    setMcpPort(String(settings.mcpPort ?? 3100));
+    setHealth(runtimeHealth);
+  };
+
+  onMount(() => {
+    void loadState();
+  });
+
+  createEffect(() => {
+    if (settingsOpen()) {
+      void loadState();
+    }
   });
 
   const handleSave = async () => {
     try {
-      await Promise.all([
-        window.vessel.settings.set("autoRestoreSession", autoRestoreSession()),
-        window.vessel.settings.set(
-          "clearBookmarksOnLaunch",
-          clearBookmarksOnLaunch(),
-        ),
-        window.vessel.settings.set("obsidianVaultPath", obsidianVaultPath()),
-      ]);
-      setStatus({ kind: "success", text: "Saved." });
+      const parsedPort = Number(mcpPort().trim());
+      if (
+        !Number.isInteger(parsedPort) ||
+        parsedPort < 1 ||
+        parsedPort > 65535
+      ) {
+        setStatus({
+          kind: "error",
+          text: "MCP port must be an integer between 1 and 65535.",
+        });
+        return;
+      }
+
+      await window.vessel.settings.set(
+        "autoRestoreSession",
+        autoRestoreSession(),
+      );
+      await window.vessel.settings.set(
+        "clearBookmarksOnLaunch",
+        clearBookmarksOnLaunch(),
+      );
+      await window.vessel.settings.set(
+        "obsidianVaultPath",
+        obsidianVaultPath(),
+      );
+      await window.vessel.settings.set("mcpPort", parsedPort);
+      await loadState();
+      setStatus({
+        kind: "success",
+        text: "Saved. MCP server settings are applied immediately.",
+      });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -61,6 +105,66 @@ const Settings: Component = () => {
               configured inside Vessel.
             </p>
           </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="mcp-port">
+              MCP Port
+            </label>
+            <input
+              id="mcp-port"
+              class="settings-input"
+              value={mcpPort()}
+              onInput={(e) => setMcpPort(e.currentTarget.value)}
+              placeholder="3100"
+              spellcheck={false}
+            />
+            <p class="settings-hint">
+              External harnesses connect to Vessel at
+              {" "}
+              <code>http://127.0.0.1:&lt;port&gt;/mcp</code>. Changing this
+              value restarts the MCP server immediately.
+            </p>
+          </div>
+
+          <Show when={health()}>
+            {(currentHealth) => (
+              <div class="settings-health">
+                <div class="settings-callout-title">Runtime Health</div>
+                <p class="settings-hint">
+                  MCP status:{" "}
+                  <strong>{currentHealth().mcp.status}</strong>
+                  {" "}
+                  {currentHealth().mcp.message}
+                </p>
+                <Show when={currentHealth().mcp.endpoint}>
+                  {(endpoint) => (
+                    <p class="settings-hint">
+                      Active endpoint: <code>{endpoint()}</code>
+                    </p>
+                  )}
+                </Show>
+                <Show when={currentHealth().startupIssues.length > 0}>
+                  <div class="settings-health-issues">
+                    {currentHealth().startupIssues.map((issue) => (
+                      <div
+                        class="settings-health-issue"
+                        classList={{
+                          warning: issue.severity === "warning",
+                          error: issue.severity === "error",
+                        }}
+                      >
+                        <strong>{issue.title}</strong>
+                        <div>{issue.detail}</div>
+                        <Show when={issue.action}>
+                          {(action) => <div>{action()}</div>}
+                        </Show>
+                      </div>
+                    ))}
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
 
           <div class="settings-field">
             <label class="settings-label" for="obsidian-vault-path">
@@ -169,6 +273,35 @@ const Settings: Component = () => {
         }
         .settings-field {
           margin-bottom: 16px;
+        }
+        .settings-health {
+          margin-bottom: 18px;
+          padding: 12px;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-visible);
+          background: rgba(255, 255, 255, 0.02);
+        }
+        .settings-health-issues {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .settings-health-issue {
+          font-size: 12px;
+          line-height: 1.5;
+          padding: 10px;
+          border-radius: var(--radius-sm);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          color: var(--text-secondary);
+        }
+        .settings-health-issue.warning {
+          border-color: rgba(240, 198, 54, 0.35);
+          background: rgba(240, 198, 54, 0.08);
+        }
+        .settings-health-issue.error {
+          border-color: rgba(255, 108, 91, 0.4);
+          background: rgba(255, 108, 91, 0.08);
         }
         .settings-label {
           display: block;

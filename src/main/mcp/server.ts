@@ -25,8 +25,17 @@ import {
   searchMemoryNotes,
   writeMemoryNote,
 } from "../memory/obsidian";
+import { setMcpHealth } from "../health/runtime-health";
 
 let httpServer: http.Server | null = null;
+
+export interface McpServerStartResult {
+  ok: boolean;
+  configuredPort: number;
+  activePort: number | null;
+  endpoint: string | null;
+  error?: string;
+}
 
 function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -249,7 +258,21 @@ async function clickElement(
         el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       }
 
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve(undefined);
+        };
+        if (
+          typeof requestAnimationFrame === "function" &&
+          document.visibilityState === "visible"
+        ) {
+          requestAnimationFrame(() => finish());
+        }
+        setTimeout(finish, 32);
+      });
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
@@ -265,6 +288,7 @@ async function clickElement(
         x: Math.round(chosen.x),
         y: Math.round(chosen.y),
         obstructed: !matchesTarget(top, el),
+        hiddenWindow: document.visibilityState !== "visible",
       };
     })()
   `);
@@ -278,8 +302,35 @@ async function clickElement(
 
   const x = typeof target.x === "number" ? target.x : null;
   const y = typeof target.y === "number" ? target.y : null;
+  const hiddenWindow = target.hiddenWindow === true;
   if (x == null || y == null) {
     return "Error: Could not resolve click coordinates";
+  }
+
+  if (hiddenWindow) {
+    const activated = await wc.executeJavaScript(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return { error: "Element not found" };
+        if (el instanceof HTMLElement) {
+          el.focus({ preventScroll: true });
+        }
+        if (typeof el.click === "function") {
+          el.click();
+          return { ok: true };
+        }
+        return { error: "Element is not clickable" };
+      })()
+    `);
+
+    if (!activated || typeof activated !== "object") {
+      return "Error: Could not activate element";
+    }
+    if ("error" in activated && typeof activated.error === "string") {
+      return `Error: ${activated.error}`;
+    }
+    await sleep(80);
+    return "Clicked via DOM activation";
   }
 
   wc.sendInputEvent({ type: "mouseMove", x, y });
@@ -725,6 +776,7 @@ async function submitForm(
   index?: number,
   selector?: string,
 ): Promise<string> {
+  const beforeUrl = wc.getURL();
   let resolvedSelector = await resolveSelector(wc, index, selector);
 
   // If no index/selector provided, find the first visible form on the page
@@ -814,16 +866,26 @@ async function submitForm(
       if (method === 'GET') {
         return { action, method, params: params.toString(), found: true };
       }
-      // For POST forms, submit via JS and let navigation happen
-      if (submitter instanceof HTMLElement) {
+      if (typeof form.requestSubmit === 'function') {
+        try {
+          if (
+            submitter instanceof HTMLButtonElement ||
+            submitter instanceof HTMLInputElement
+          ) {
+            form.requestSubmit(submitter);
+          } else {
+            form.requestSubmit();
+          }
+        } catch {
+          form.requestSubmit();
+        }
+        return { submitted: true, method: 'POST' };
+      }
+      if (submitter instanceof HTMLElement && typeof submitter.click === 'function') {
         submitter.click();
         return { submitted: true, method: 'POST' };
       }
-      if (typeof form.requestSubmit === 'function') {
-        form.requestSubmit();
-      } else {
-        form.submit();
-      }
+      form.submit();
       return { submitted: true, method: 'POST' };
     })()
   `);
@@ -837,11 +899,22 @@ async function submitForm(
       url.search = formInfo.params;
     }
     wc.loadURL(url.toString());
-    return "Submitted form via GET";
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl
+      ? `Submitted form via GET -> ${afterUrl}`
+      : "Submitted form via GET";
   }
 
-  // POST forms were already submitted via JS above
-  return formInfo.submitted ? "Submitted form via POST" : "Submitted form";
+  if (formInfo.submitted) {
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl
+      ? `Submitted form via POST -> ${afterUrl}`
+      : "Submitted form via POST";
+  }
+
+  return "Submitted form";
 }
 
 async function pressKey(
@@ -3176,70 +3249,141 @@ export function startMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
   port: number,
-): void {
-  httpServer = http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${port}`);
+): Promise<McpServerStartResult> {
+  setMcpHealth({
+    configuredPort: port,
+    activePort: null,
+    endpoint: null,
+    status: "starting",
+    message: `Starting MCP server on port ${port}.`,
+  });
 
-    if (url.pathname !== "/mcp") {
-      res.writeHead(404);
-      res.end("Not found");
-      return;
-    }
+  return new Promise((resolve) => {
+    const server = http.createServer(async (req, res) => {
+      const url = new URL(req.url || "/", `http://localhost:${port}`);
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, mcp-session-id",
-    );
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    try {
-      const mcpServer = createMcpServer(tabManager, runtime);
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      await mcpServer.connect(transport);
-      await transport.handleRequest(req, res);
-    } catch (error) {
-      console.error("[Vessel MCP] Error handling request:", error);
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: error instanceof Error ? error.message : "Unknown error",
-          }),
-        );
+      if (url.pathname !== "/mcp") {
+        res.writeHead(404);
+        res.end("Not found");
+        return;
       }
-    }
-  });
 
-  httpServer.listen(port, "127.0.0.1", () => {
-    console.log(
-      `[Vessel MCP] Server listening on http://127.0.0.1:${port}/mcp`,
-    );
-  });
-
-  httpServer.on("error", (error: any) => {
-    if (error.code === "EADDRINUSE") {
-      console.error(
-        `[Vessel MCP] Port ${port} is already in use. MCP server not started.`,
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "POST, GET, DELETE, OPTIONS",
       );
-    } else {
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, mcp-session-id",
+      );
+
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      try {
+        const mcpServer = createMcpServer(tabManager, runtime);
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+        });
+        await mcpServer.connect(transport);
+        await transport.handleRequest(req, res);
+      } catch (error) {
+        console.error("[Vessel MCP] Error handling request:", error);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: error instanceof Error ? error.message : "Unknown error",
+            }),
+          );
+        }
+      }
+    });
+
+    let settled = false;
+    const finish = (result: McpServerStartResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      const message =
+        error.code === "EADDRINUSE"
+          ? `Port ${port} is already in use. MCP server not started.`
+          : error.message;
       console.error("[Vessel MCP] Server error:", error);
-    }
+      setMcpHealth({
+        configuredPort: port,
+        activePort: null,
+        endpoint: null,
+        status: "error",
+        message,
+      });
+      if (httpServer === server) {
+        httpServer = null;
+      }
+      finish({
+        ok: false,
+        configuredPort: port,
+        activePort: null,
+        endpoint: null,
+        error: message,
+      });
+    });
+
+    server.listen(port, "127.0.0.1", () => {
+      httpServer = server;
+      const address = server.address();
+      const actualPort =
+        address && typeof address === "object" ? address.port : port;
+      const endpoint = `http://127.0.0.1:${actualPort}/mcp`;
+      setMcpHealth({
+        configuredPort: port,
+        activePort: actualPort,
+        endpoint,
+        status: "ready",
+        message: `MCP server listening on ${endpoint}.`,
+      });
+      console.log(`[Vessel MCP] Server listening on ${endpoint}`);
+      finish({
+        ok: true,
+        configuredPort: port,
+        activePort: actualPort,
+        endpoint,
+      });
+    });
   });
 }
 
-export function stopMcpServer(): void {
-  if (httpServer) {
-    httpServer.close();
+export function stopMcpServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!httpServer) {
+      setMcpHealth({
+        activePort: null,
+        endpoint: null,
+        status: "stopped",
+        message: "MCP server is stopped.",
+      });
+      resolve();
+      return;
+    }
+
+    const server = httpServer;
     httpServer = null;
-    console.log("[Vessel MCP] Server stopped");
-  }
+    server.close(() => {
+      setMcpHealth({
+        activePort: null,
+        endpoint: null,
+        status: "stopped",
+        message: "MCP server is stopped.",
+      });
+      console.log("[Vessel MCP] Server stopped");
+      resolve();
+    });
+  });
 }

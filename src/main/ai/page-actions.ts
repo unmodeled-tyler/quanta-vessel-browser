@@ -15,15 +15,38 @@ export interface ActionContext {
 
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   return new Promise((resolve) => {
-    if (!wc.isLoading()) {
+    let finished = false;
+
+    const cleanup = () => {
+      wc.removeListener("did-finish-load", onLoadEvent);
+      wc.removeListener("did-stop-loading", onLoadEvent);
+      wc.removeListener("did-fail-load", onLoadEvent);
+    };
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      cleanup();
       resolve();
+    };
+
+    const onLoadEvent = () => {
+      if (!wc.isLoading()) {
+        finish();
+      }
+    };
+
+    const timer = setTimeout(finish, timeout);
+
+    if (!wc.isLoading()) {
+      finish();
       return;
     }
-    const timer = setTimeout(resolve, timeout);
-    wc.once("did-finish-load", () => {
-      clearTimeout(timer);
-      resolve();
-    });
+
+    wc.on("did-finish-load", onLoadEvent);
+    wc.on("did-stop-loading", onLoadEvent);
+    wc.on("did-fail-load", onLoadEvent);
   });
 }
 
@@ -141,7 +164,21 @@ async function clickElement(
         el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       }
 
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve(undefined);
+        };
+        if (
+          typeof requestAnimationFrame === "function" &&
+          document.visibilityState === "visible"
+        ) {
+          requestAnimationFrame(() => finish());
+        }
+        setTimeout(finish, 32);
+      });
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
@@ -157,6 +194,7 @@ async function clickElement(
         x: Math.round(chosen.x),
         y: Math.round(chosen.y),
         obstructed: !matchesTarget(top, el),
+        hiddenWindow: document.visibilityState !== "visible",
       };
     })()
   `);
@@ -170,8 +208,35 @@ async function clickElement(
 
   const x = typeof target.x === "number" ? target.x : null;
   const y = typeof target.y === "number" ? target.y : null;
+  const hiddenWindow = target.hiddenWindow === true;
   if (x == null || y == null) {
     return "Error: Could not resolve click coordinates";
+  }
+
+  if (hiddenWindow) {
+    const activated = await wc.executeJavaScript(`
+      (function() {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return { error: "Element not found" };
+        if (el instanceof HTMLElement) {
+          el.focus({ preventScroll: true });
+        }
+        if (typeof el.click === "function") {
+          el.click();
+          return { ok: true };
+        }
+        return { error: "Element is not clickable" };
+      })()
+    `);
+
+    if (!activated || typeof activated !== "object") {
+      return "Error: Could not activate element";
+    }
+    if ("error" in activated && typeof activated.error === "string") {
+      return `Error: ${activated.error}`;
+    }
+    await sleep(80);
+    return "Clicked via DOM activation";
   }
 
   wc.sendInputEvent({ type: "mouseMove", x, y });
@@ -978,6 +1043,7 @@ async function submitForm(
   wc: WebContents,
   args: Record<string, any>,
 ): Promise<string> {
+  const beforeUrl = wc.getURL();
   let selector = await resolveSelector(wc, args.index, args.selector);
 
   // If no index/selector provided, find the first visible form on the page
@@ -1067,16 +1133,26 @@ async function submitForm(
       if (method === 'GET') {
         return { action, method, params: params.toString(), found: true };
       }
-      // POST: submit via JS
-      if (submitter instanceof HTMLElement) {
+      if (typeof form.requestSubmit === 'function') {
+        try {
+          if (
+            submitter instanceof HTMLButtonElement ||
+            submitter instanceof HTMLInputElement
+          ) {
+            form.requestSubmit(submitter);
+          } else {
+            form.requestSubmit();
+          }
+        } catch {
+          form.requestSubmit();
+        }
+        return { submitted: true, method: 'POST' };
+      }
+      if (submitter instanceof HTMLElement && typeof submitter.click === 'function') {
         submitter.click();
         return { submitted: true, method: 'POST' };
       }
-      if (typeof form.requestSubmit === 'function') {
-        form.requestSubmit();
-      } else {
-        form.submit();
-      }
+      form.submit();
       return { submitted: true, method: 'POST' };
     })()
   `);
@@ -1090,10 +1166,22 @@ async function submitForm(
       url.search = formInfo.params;
     }
     wc.loadURL(url.toString());
-    return "Submitted form via GET";
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl
+      ? `Submitted form via GET -> ${afterUrl}`
+      : "Submitted form via GET";
   }
 
-  return formInfo.submitted ? "Submitted form via POST" : "Submitted form";
+  if (formInfo.submitted) {
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl
+      ? `Submitted form via POST -> ${afterUrl}`
+      : "Submitted form via POST";
+  }
+
+  return "Submitted form";
 }
 
 export { waitForLoad, setElementValue };

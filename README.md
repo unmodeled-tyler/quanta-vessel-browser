@@ -14,13 +14,22 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 ## Quick Start
 
-### Quick Fire Install
+### Fastest Install Today
+
+The preferred MVP install path is the Linux AppImage from GitHub Releases:
+
+1. Download the latest `Vessel-<version>-x64.AppImage`
+2. Mark it executable: `chmod +x Vessel-*.AppImage`
+3. Launch it: `./Vessel-*.AppImage`
+4. Open Settings (`Ctrl+,`) and confirm the MCP endpoint shown there
+
+### Source Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
 ```
 
-### From Source
+### Development From Source
 
 ```bash
 npm install
@@ -51,6 +60,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
 - **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
+- **Runtime Health Checks** — startup warnings for MCP port conflicts, unreadable settings, and user-data write failures
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
@@ -103,6 +113,12 @@ The installer:
 - writes `~/.config/vessel/mcp-http-snippet.json`
 - prints the exact HTTP MCP snippet to paste into your harness config
 
+The packaged AppImage path:
+
+- does not require a local Node/Electron toolchain
+- uses the packaged Vessel app icon and metadata
+- is the recommended path for early adopters who just want to run Vessel
+
 After install:
 
 ```bash
@@ -122,6 +138,9 @@ npm run dev
 # Production build
 npm run build
 
+# Smoke-test the MVP release path
+npm run smoke:test
+
 # Package an unpacked Linux app
 npm run dist:dir
 
@@ -133,14 +152,16 @@ Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` / `npm run dist:dir` use the Vessel app icon
+- the tracked smoke test runs typecheck, build, and the Electron navigation regression harness
+- for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 
 ### Setting up Vessel for Hermes Agent or OpenClaw
 
 Vessel is designed to act as the browser runtime that your external agent harness drives.
 
 1. Launch Vessel
-2. Optional: open Settings (`Ctrl+,`) to set an Obsidian vault path or session preferences
-3. If your harness expects a custom port, confirm the MCP port in `~/.config/vessel/vessel-settings.json`
+2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
+3. Optional: set an Obsidian vault path or session preferences
 4. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
 6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
@@ -152,6 +173,7 @@ Notes:
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel does not expose local model or provider configuration in-app
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
+- Settings now show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
@@ -218,6 +240,23 @@ Generic HTTP MCP config:
   }
 }
 ```
+
+## Packaging And Releases
+
+For the current MVP, the supported packaged target is:
+
+- Linux x64 AppImage
+
+Repo commands:
+
+- `npm run smoke:test` — typecheck, production build, and Electron navigation regression
+- `npm run dist` — package the Linux AppImage
+- `npm run dist:dir` — package an unpacked Linux build
+
+Release automation lives in:
+
+- [release.yml](./.github/workflows/release.yml)
+- [release-checklist.md](./docs/release-checklist.md)
 
 The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
 

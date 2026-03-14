@@ -7,6 +7,7 @@ import type {
   Bookmark,
   BookmarkFolder,
   BookmarksState,
+  RuntimeHealthState,
   SessionSnapshot,
 } from "../shared/types";
 
@@ -99,6 +100,8 @@ const api = {
   },
   settings: {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
+    getHealth: (): Promise<RuntimeHealthState> =>
+      ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
     set: (key: string, value: any) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
   },
