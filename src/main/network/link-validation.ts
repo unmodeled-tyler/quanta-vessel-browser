@@ -7,7 +7,7 @@ export interface LinkValidationResult {
 }
 
 const DEAD_STATUS_CODES = new Set([404, 410, 451]);
-const HEAD_FALLBACK_STATUS_CODES = new Set([400, 403, 405, 406, 500, 501]);
+const HEAD_FALLBACK_STATUS_CODES = new Set([400, 403, 404, 405, 406, 500, 501]);
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -92,13 +92,8 @@ export async function validateLinkDestination(
 
   try {
     const headResponse = await requestUrl(url, "HEAD", timeoutMs);
-    const headResult = classifyResponse(url, headResponse);
-
-    if (
-      headResult.status !== "unknown" ||
-      !HEAD_FALLBACK_STATUS_CODES.has(headResponse.status)
-    ) {
-      return headResult;
+    if (!HEAD_FALLBACK_STATUS_CODES.has(headResponse.status)) {
+      return classifyResponse(url, headResponse);
     }
 
     const getResponse = await requestUrl(url, "GET", timeoutMs);

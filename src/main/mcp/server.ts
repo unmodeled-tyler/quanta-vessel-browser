@@ -322,26 +322,9 @@ async function clickElement(
   }
 
   if (hiddenWindow) {
-    const activated = await wc.executeJavaScript(`
-      (function() {
-        const el = document.querySelector(${JSON.stringify(selector)});
-        if (!el) return { error: "Element not found" };
-        if (el instanceof HTMLElement) {
-          el.focus({ preventScroll: true });
-        }
-        if (typeof el.click === "function") {
-          el.click();
-          return { ok: true };
-        }
-        return { error: "Element is not clickable" };
-      })()
-    `);
-
-    if (!activated || typeof activated !== "object") {
-      return "Error: Could not activate element";
-    }
-    if ("error" in activated && typeof activated.error === "string") {
-      return `Error: ${activated.error}`;
+    const activationResult = await activateElement(wc, selector);
+    if (activationResult.startsWith("Error:")) {
+      return activationResult;
     }
     await sleep(80);
     return "Clicked via DOM activation";
@@ -357,6 +340,35 @@ async function clickElement(
   return target.obstructed
     ? "Clicked via pointer events (target may be partially obstructed)"
     : "Clicked via pointer events";
+}
+
+async function activateElement(
+  wc: Electron.WebContents,
+  selector: string,
+): Promise<string> {
+  const activated = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: "Element not found" };
+      if (el instanceof HTMLElement) {
+        el.focus({ preventScroll: true });
+      }
+      if (typeof el.click === "function") {
+        el.click();
+        return { ok: true };
+      }
+      return { error: "Element is not clickable" };
+    })()
+  `);
+
+  if (!activated || typeof activated !== "object") {
+    return "Error: Could not activate element";
+  }
+  if ("error" in activated && typeof activated.error === "string") {
+    return `Error: ${activated.error}`;
+  }
+
+  return "Activated element via DOM click";
 }
 
 async function describeElementForClick(
@@ -416,9 +428,20 @@ async function clickResolvedSelector(
 
   await waitForPotentialNavigation(wc, beforeUrl);
   const afterUrl = wc.getURL();
-  return afterUrl !== beforeUrl
-    ? `${clickText} -> ${afterUrl}`
-    : `${clickText} (${clickResult})`;
+  if (afterUrl !== beforeUrl) {
+    return `${clickText} -> ${afterUrl}`;
+  }
+
+  const activationResult = await activateElement(wc, selector);
+  if (!activationResult.startsWith("Error:")) {
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const fallbackUrl = wc.getURL();
+    if (fallbackUrl !== beforeUrl) {
+      return `${clickText} -> ${fallbackUrl} (recovered via DOM activation)`;
+    }
+  }
+
+  return `${clickText} (${clickResult})`;
 }
 
 async function dismissPopup(wc: Electron.WebContents): Promise<string> {

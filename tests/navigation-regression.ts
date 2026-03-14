@@ -15,7 +15,11 @@ import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 
 async function withTab(
   url: string,
-  run: (tab: Tab, window: BaseWindow) => Promise<void>,
+  run: (
+    tab: Tab,
+    window: BaseWindow,
+    openedUrls: Array<{ url: string; background: boolean }>,
+  ) => Promise<void>,
 ): Promise<void> {
   const window = new BaseWindow({
     show: false,
@@ -23,13 +27,18 @@ async function withTab(
     height: 900,
     backgroundColor: "#1a1a1e",
   });
-  const tab = new Tab(randomUUID(), url, () => {});
+  const openedUrls: Array<{ url: string; background: boolean }> = [];
+  const tab = new Tab(randomUUID(), url, () => {}, {
+    onOpenUrl: ({ url, background }) => {
+      openedUrls.push({ url, background });
+    },
+  });
   window.contentView.addChildView(tab.view);
   tab.view.setBounds({ x: 0, y: 0, width: 1280, height: 900 });
 
   try {
     await waitForLoad(tab.view.webContents, 8000);
-    await run(tab, window);
+    await run(tab, window, openedUrls);
   } finally {
     try {
       window.contentView.removeChildView(tab.view);
@@ -108,6 +117,52 @@ async function main(): Promise<void> {
       });
     });
     completedScenarios.push("JS-driven button navigations survive back/forward");
+
+    await runScenario("obstructed links recover via DOM activation fallback", async () => {
+      await withTab(`${harness.baseUrl}/obstructed-anchor-source`, async (tab) => {
+        const wc = tab.view.webContents;
+
+        const result = await clickElementBySelector(wc, "#go-obstructed-anchor");
+        assert.match(result, /recovered via DOM activation/);
+        assert.equal(wc.getURL(), `${harness.baseUrl}/anchor-dest`);
+        assert.equal(tab.canGoBack(), true);
+      });
+    });
+    completedScenarios.push("obstructed links recover via DOM activation fallback");
+
+    await runScenario("target blank anchors are surfaced as new tab requests", async () => {
+      await withTab(
+        `${harness.baseUrl}/blank-anchor-source`,
+        async (tab, _window, openedUrls) => {
+          const wc = tab.view.webContents;
+
+          const result = await clickElementBySelector(wc, "#go-blank-anchor");
+          assert.match(result, /Clicked: Open Anchor Dest In New Tab/);
+          assert.equal(wc.getURL(), `${harness.baseUrl}/blank-anchor-source`);
+          assert.deepEqual(openedUrls, [
+            { url: `${harness.baseUrl}/anchor-dest`, background: false },
+          ]);
+        },
+      );
+    });
+    completedScenarios.push("target blank anchors are surfaced as new tab requests");
+
+    await runScenario("window.open navigations are surfaced as new tab requests", async () => {
+      await withTab(
+        `${harness.baseUrl}/window-open-source`,
+        async (tab, _window, openedUrls) => {
+          const wc = tab.view.webContents;
+
+          const result = await clickElementBySelector(wc, "#go-window-open");
+          assert.match(result, /Clicked: Open JS Dest In New Tab/);
+          assert.equal(wc.getURL(), `${harness.baseUrl}/window-open-source`);
+          assert.deepEqual(openedUrls, [
+            { url: `${harness.baseUrl}/js-dest`, background: false },
+          ]);
+        },
+      );
+    });
+    completedScenarios.push("window.open navigations are surfaced as new tab requests");
 
     await runScenario("GET form submissions preserve custom history", async () => {
       await withTab(`${harness.baseUrl}/get-form`, async (tab) => {
