@@ -5,6 +5,7 @@ on:
   push:
     branches-ignore:
       - main
+      - dev
     tags-ignore:
       - "v*"
   workflow_dispatch:

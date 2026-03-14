@@ -3,7 +3,7 @@ name: Preview Build
 on:
   push:
     branches:
-      - main
+      - dev
   workflow_dispatch:
 
 concurrency:
@@ -41,27 +41,27 @@ jobs:
       - name: Upload preview artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vessel-preview-main
+          name: vessel-preview-dev
           retention-days: 14
           path: |
             dist/*.AppImage
             dist/SHASUMS256.txt
 
       - name: Publish rolling preview release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/dev'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: edge
           target_commitish: ${{ github.sha }}
-          name: Vessel Preview (main)
+          name: Vessel Preview (dev)
           prerelease: true
           make_latest: false
           body: |
-            Rolling preview build from `main`.
+            Rolling preview build from `dev`.
 
             Commit: `${{ github.sha }}`
 
-            This prerelease is updated automatically on every push to `main`.
+            This prerelease is updated automatically on every push to `dev`.
           files: |
             dist/*.AppImage
             dist/SHASUMS256.txt

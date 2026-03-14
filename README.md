@@ -255,8 +255,26 @@ Repo commands:
 
 Release automation lives in:
 
+- [ci.yml](./.github/workflows/ci.yml)
+- [preview-build.yml](./.github/workflows/preview-build.yml)
+- [promote-dev-to-main.yml](./.github/workflows/promote-dev-to-main.yml)
 - [release.yml](./.github/workflows/release.yml)
 - [release-checklist.md](./docs/release-checklist.md)
+
+Recommended branch flow:
+
+- `dev` is the day-to-day branch for active work
+- every push to `dev` runs the preview AppImage workflow and updates the rolling `edge` prerelease
+- `main` stays stable for users
+- a scheduled workflow on `main` opens or refreshes a `dev -> main` PR once per day and enables auto-merge
+- `v*` tags on `main` still produce official stable releases
+
+One-time GitHub settings:
+
+- create the `dev` branch in the remote repository
+- enable branch protection on `main`
+- require the relevant status checks on `main` before merge
+- enable repository auto-merge so the scheduled promotion PR can merge itself after checks pass
 
 The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
 
