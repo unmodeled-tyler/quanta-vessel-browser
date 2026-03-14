@@ -7,6 +7,10 @@ import type {
   BookmarkFolder,
   BookmarksState,
 } from "../../shared/types";
+import {
+  getBookmarkSearchMatch,
+  type BookmarkSearchField,
+} from "../../shared/bookmark-search";
 
 export const UNSORTED_ID = "unsorted";
 export const ARCHIVE_FOLDER_NAME = "Archive";
@@ -169,34 +173,43 @@ export function listFolderOverviews(): BookmarkFolderOverview[] {
 export function searchBookmarks(query: string): Array<{
   bookmark: Bookmark;
   folder: BookmarkFolder | null;
+  matchedFields: BookmarkSearchField[];
+  score: number;
 }> {
   load();
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
+  if (!query.trim()) return [];
 
   return state!.bookmarks
-    .filter((bookmark) => {
+    .map((bookmark) => {
       const folder = state!.folders.find(
         (item) => item.id === bookmark.folderId,
       );
-      const haystacks = [
-        bookmark.title,
-        bookmark.url,
-        bookmark.note,
-        folder?.name,
-        folder?.summary,
-      ];
-      return haystacks.some(
-        (value) =>
-          typeof value === "string" && value.toLowerCase().includes(normalized),
-      );
+      const { matchedFields, score } = getBookmarkSearchMatch({
+        query,
+        title: bookmark.title,
+        url: bookmark.url,
+        note: bookmark.note,
+        folder: folder?.name,
+        folderSummary: folder?.summary,
+      });
+      return {
+        bookmark,
+        folder: folder ?? null,
+        matchedFields,
+        score,
+      };
     })
-    .map((bookmark) => ({
-      bookmark: { ...bookmark },
-      folder:
-        state!.folders.find((item) => item.id === bookmark.folderId) ?? null,
+    .filter((result) => result.matchedFields.length > 0)
+    .map((result) => ({
+      bookmark: { ...result.bookmark },
+      folder: result.folder ? { ...result.folder } : null,
+      matchedFields: [...result.matchedFields],
+      score: result.score,
     }))
-    .sort((a, b) => b.bookmark.savedAt.localeCompare(a.bookmark.savedAt));
+    .sort(
+      (a, b) =>
+        b.score - a.score || b.bookmark.savedAt.localeCompare(a.bookmark.savedAt),
+    );
 }
 
 export function createFolder(name: string): BookmarkFolder {

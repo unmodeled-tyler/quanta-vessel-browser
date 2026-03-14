@@ -1625,12 +1625,12 @@ export async function executeAction(
             return `No bookmarks matched "${query}"`;
           }
 
-          const lines = matches.map(({ bookmark, folder }) => {
+          const lines = matches.map(({ bookmark, folder, matchedFields }) => {
             const folderLabel =
               bookmark.folderId === "unsorted"
                 ? "Unsorted"
                 : (folder?.name ?? bookmark.folderId);
-            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
+            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | matched=${matchedFields.join(",")} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
           });
           return [`Matches for "${query}" (${matches.length})`, ...lines].join(
             "\n",
