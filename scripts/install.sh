@@ -61,6 +61,7 @@ npm --prefix "$INSTALL_DIR" run build
 LAUNCHER_PATH="$BIN_DIR/vessel-browser"
 MCP_HELPER_PATH="$BIN_DIR/vessel-browser-mcp"
 UPDATE_HELPER_PATH="$BIN_DIR/vessel-browser-update"
+STATUS_HELPER_PATH="$BIN_DIR/vessel-browser-status"
 DESKTOP_ENTRY_PATH="$DESKTOP_DIR/vessel-browser.desktop"
 
 info "Creating launcher at $LAUNCHER_PATH"
@@ -78,9 +79,21 @@ cat >"$UPDATE_HELPER_PATH" <<EOF
 set -euo pipefail
 export VESSEL_INSTALL_DIR="$INSTALL_DIR"
 export VESSEL_BRANCH="$BRANCH"
-exec "$INSTALL_DIR/scripts/update-installation.sh" "\$@"
+exec bash "$INSTALL_DIR/scripts/update-installation.sh" "\$@"
 EOF
 chmod +x "$UPDATE_HELPER_PATH"
+
+info "Creating status helper at $STATUS_HELPER_PATH"
+cat >"$STATUS_HELPER_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export VESSEL_INSTALL_DIR="$INSTALL_DIR"
+export VESSEL_BIN_DIR="$BIN_DIR"
+export VESSEL_CONFIG_DIR="$CONFIG_DIR"
+export VESSEL_MCP_PORT="$MCP_PORT"
+exec bash "$INSTALL_DIR/scripts/status-installation.sh" "\$@"
+EOF
+chmod +x "$STATUS_HELPER_PATH"
 
 info "Creating MCP helper at $MCP_HELPER_PATH"
 cat >"$MCP_HELPER_PATH" <<EOF
@@ -284,6 +297,10 @@ To check for source-install updates:
 
 To update Vessel from source:
   $UPDATE_HELPER_PATH
+
+To inspect Vessel install and MCP status:
+  $STATUS_HELPER_PATH
+  $STATUS_HELPER_PATH --json
 
 Notes:
   - Vessel must be running before your harness connects.

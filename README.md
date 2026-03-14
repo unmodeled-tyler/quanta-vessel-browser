@@ -109,6 +109,7 @@ The installer:
 - installs dependencies and builds the app
 - creates a `vessel-browser` launcher in `~/.local/bin`
 - creates a `vessel-browser-update` helper in `~/.local/bin`
+- creates a `vessel-browser-status` helper in `~/.local/bin`
 - creates a desktop entry for Linux app launchers
 - writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
 - writes `~/.config/vessel/mcp-http-snippet.json`
@@ -317,6 +318,16 @@ vessel-browser-update --check
 
 # Fetch, rebuild, and update the local source install
 vessel-browser-update
+```
+
+Status helper:
+
+```bash
+# Human-readable local install + MCP status
+vessel-browser-status
+
+# Machine-readable status for harnesses
+vessel-browser-status --json
 ```
 
 ## Keyboard Shortcuts
