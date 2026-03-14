@@ -29,6 +29,40 @@ function isAgentTranscriptActive(
   return currentTime - updatedAt < AGENT_ACTIVITY_WINDOW_MS;
 }
 
+function summarizeTranscriptText(entry: AgentTranscriptEntry): string {
+  const raw = `${entry.title ? `${entry.title}: ` : ""}${entry.text}`.trim();
+  const singleLine = raw.replace(/\s+/g, " ").trim();
+  return singleLine.length > 96
+    ? `${singleLine.slice(0, 93).trimEnd()}...`
+    : singleLine;
+}
+
+function summarizeActionText(action: AgentActionEntry): string {
+  const name = action.name
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  if (action.status === "running") {
+    return `${name} in progress`;
+  }
+  if (action.status === "waiting-approval") {
+    return `${name} waiting for approval`;
+  }
+  if (action.status === "completed" && action.resultSummary) {
+    const singleLine = action.resultSummary.replace(/\s+/g, " ").trim();
+    return singleLine.length > 96
+      ? `${singleLine.slice(0, 93).trimEnd()}...`
+      : singleLine;
+  }
+  if (action.status === "failed" && action.error) {
+    const singleLine = action.error.replace(/\s+/g, " ").trim();
+    return `${name} failed: ${singleLine.length > 72 ? `${singleLine.slice(0, 69).trimEnd()}...` : singleLine}`;
+  }
+  return name;
+}
+
 function isAgentActionActive(
   action: AgentActionEntry,
   currentTime: number,
@@ -74,4 +108,35 @@ export function getAgentActiveTabIds(
   }
 
   return activeTabIds;
+}
+
+export function getLatestAgentStatusMessage(
+  state: AgentRuntimeState,
+  currentTime = Date.now(),
+): string | null {
+  const recentTranscript = [...state.transcript]
+    .filter((entry) => isAgentTranscriptActive(entry, currentTime))
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    )[0];
+
+  if (recentTranscript) {
+    const summary = summarizeTranscriptText(recentTranscript);
+    if (summary) return summary;
+  }
+
+  const recentAction = [...state.actions]
+    .filter((action) => isAgentActionActive(action, currentTime))
+    .sort((left, right) => {
+      const leftTime = new Date(
+        left.finishedAt || left.startedAt,
+      ).getTime();
+      const rightTime = new Date(
+        right.finishedAt || right.startedAt,
+      ).getTime();
+      return rightTime - leftTime;
+    })[0];
+
+  return recentAction ? summarizeActionText(recentAction) : null;
 }

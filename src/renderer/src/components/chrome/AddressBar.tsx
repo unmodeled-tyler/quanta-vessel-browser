@@ -8,7 +8,10 @@ import {
 import { useTabs } from "../../stores/tabs";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
-import { hasRecentAgentActivity } from "../../lib/agentActivity";
+import {
+  getLatestAgentStatusMessage,
+  hasRecentAgentActivity,
+} from "../../lib/agentActivity";
 import "./chrome.css";
 
 const AddressBar: Component = () => {
@@ -24,6 +27,9 @@ const AddressBar: Component = () => {
 
   const agentIsActive = createMemo(() =>
     hasRecentAgentActivity(runtimeState(), now()),
+  );
+  const agentStatusMessage = createMemo(() =>
+    getLatestAgentStatusMessage(runtimeState(), now()),
   );
 
   // Sync URL from active tab
@@ -117,13 +123,17 @@ const AddressBar: Component = () => {
       <div
         class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
         title={
-          agentIsActive()
+          agentStatusMessage() ||
+          (agentIsActive()
             ? "Agent activity detected in the browser"
-            : "No recent agent activity detected"
+            : "No recent agent activity detected")
         }
       >
         <span class="agent-status-dot" aria-hidden="true" />
-        <span>{agentIsActive() ? "Agent Active" : "Agent Inactive"}</span>
+        <span class="agent-status-text">
+          {agentStatusMessage() ||
+            (agentIsActive() ? "Agent Active" : "Agent Inactive")}
+        </span>
       </div>
 
       <div class="toolbar-actions">

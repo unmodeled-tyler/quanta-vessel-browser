@@ -291,6 +291,8 @@
     gap: 7px;
     height: 28px;
     padding: 0 10px;
+    min-width: 0;
+    max-width: min(340px, 32vw);
     border: 1px solid var(--border-subtle);
     border-radius: 999px;
     background: rgba(42, 42, 46, 0.88);
@@ -304,6 +306,12 @@
         border-color 150ms,
         background 150ms,
         color 150ms;
+}
+
+.agent-status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .agent-status-badge.active {
