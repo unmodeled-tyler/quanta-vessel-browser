@@ -10,7 +10,7 @@ on:
 
 jobs:
   create-release-tag:
-    if: github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore: release v')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,6 +24,11 @@ jobs:
       - name: Create next release tag
         run: |
           git fetch --tags --force
+
+          if git tag --points-at HEAD | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Current commit already has a release tag; skipping tag creation."
+            exit 0
+          fi
 
           package_version=$(node -p "require('./package.json').version")
           next_version=$(node scripts/release-version.mjs "$package_version" $(git tag --list 'v*'))

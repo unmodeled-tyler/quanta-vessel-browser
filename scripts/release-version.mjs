@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 export function parseVersion(value) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
   if (!match) {
@@ -42,7 +44,7 @@ export function nextReleaseVersion(packageVersion, tags = []) {
   return incrementPatch(latestVersion);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [packageVersion, ...tags] = process.argv.slice(2);
 
   if (!packageVersion) {
