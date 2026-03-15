@@ -4,11 +4,18 @@ import type { TabState } from "../../shared/types";
 
 const MAX_CUSTOM_HISTORY = 50;
 
+interface OpenUrlRequest {
+  url: string;
+  background: boolean;
+  adBlockingEnabled: boolean;
+}
+
 export class Tab {
   readonly id: string;
   readonly view: WebContentsView;
   private _state: TabState;
   private onChange: () => void;
+  private onOpenUrl?: (request: OpenUrlRequest) => void;
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -22,10 +29,14 @@ export class Tab {
     id: string,
     url: string,
     onChange: () => void,
-    options?: { adBlockingEnabled?: boolean },
+    options?: {
+      adBlockingEnabled?: boolean;
+      onOpenUrl?: (request: OpenUrlRequest) => void;
+    },
   ) {
     this.id = id;
     this.onChange = onChange;
+    this.onOpenUrl = options?.onOpenUrl;
 
     this.view = new WebContentsView({
       webPreferences: {
@@ -57,6 +68,15 @@ export class Tab {
 
   private setupListeners(): void {
     const wc = this.view.webContents;
+
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      this.onOpenUrl?.({
+        url,
+        background: disposition === "background-tab",
+        adBlockingEnabled: this._state.adBlockingEnabled,
+      });
+      return { action: "deny" };
+    });
 
     const syncNavigationState = () => {
       this._state.title = wc.getTitle() || this._state.title || "New Tab";

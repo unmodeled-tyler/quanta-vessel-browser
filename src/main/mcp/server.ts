@@ -12,7 +12,13 @@ import {
   buildScopedContext,
   type ExtractMode,
 } from "../ai/context-builder";
+import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import { extractContent } from "../content/extractor";
+import { getRecoverableAccessIssue } from "../content/page-access-issues";
+import {
+  formatDeadLinkMessage,
+  validateLinkDestination,
+} from "../network/link-validation";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -145,6 +151,14 @@ function composeFolderAwareResponse(
 ): string {
   const prefix = createdFolder ? `Created folder "${createdFolder}".\n` : "";
   return `${prefix}${message}\n${formatFolderStatus()}`;
+}
+
+function composeDuplicateBookmarkResponse(args: {
+  url: string;
+  folderName: string;
+  bookmarkId: string;
+}): string {
+  return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with on_duplicate="update" to refresh the existing bookmark or on_duplicate="duplicate" to keep both entries.`;
 }
 
 function waitForPotentialNavigation(
@@ -308,26 +322,9 @@ async function clickElement(
   }
 
   if (hiddenWindow) {
-    const activated = await wc.executeJavaScript(`
-      (function() {
-        const el = document.querySelector(${JSON.stringify(selector)});
-        if (!el) return { error: "Element not found" };
-        if (el instanceof HTMLElement) {
-          el.focus({ preventScroll: true });
-        }
-        if (typeof el.click === "function") {
-          el.click();
-          return { ok: true };
-        }
-        return { error: "Element is not clickable" };
-      })()
-    `);
-
-    if (!activated || typeof activated !== "object") {
-      return "Error: Could not activate element";
-    }
-    if ("error" in activated && typeof activated.error === "string") {
-      return `Error: ${activated.error}`;
+    const activationResult = await activateElement(wc, selector);
+    if (activationResult.startsWith("Error:")) {
+      return activationResult;
     }
     await sleep(80);
     return "Clicked via DOM activation";
@@ -345,16 +342,49 @@ async function clickElement(
     : "Clicked via pointer events";
 }
 
+async function activateElement(
+  wc: Electron.WebContents,
+  selector: string,
+): Promise<string> {
+  const activated = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: "Element not found" };
+      if (el instanceof HTMLElement) {
+        el.focus({ preventScroll: true });
+      }
+      if (typeof el.click === "function") {
+        el.click();
+        return { ok: true };
+      }
+      return { error: "Element is not clickable" };
+    })()
+  `);
+
+  if (!activated || typeof activated !== "object") {
+    return "Error: Could not activate element";
+  }
+  if ("error" in activated && typeof activated.error === "string") {
+    return `Error: ${activated.error}`;
+  }
+
+  return "Activated element via DOM click";
+}
+
 async function describeElementForClick(
   wc: Electron.WebContents,
   selector: string,
-): Promise<{ text: string } | { error: string }> {
+): Promise<{ text: string; href?: string } | { error: string }> {
   const result = await wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
+      const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
-      return { text: text || "Element" };
+      return {
+        text: text || "Element",
+        href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+      };
     })()
   `);
 
@@ -370,6 +400,10 @@ async function describeElementForClick(
       "text" in result && typeof result.text === "string"
         ? result.text
         : "Element",
+    href:
+      "href" in result && typeof result.href === "string"
+        ? result.href
+        : undefined,
   };
 }
 
@@ -381,15 +415,33 @@ async function clickResolvedSelector(
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  if (elInfo.href) {
+    const validation = await validateLinkDestination(elInfo.href);
+    if (validation.status === "dead") {
+      return formatDeadLinkMessage(elInfo.text, validation);
+    }
+  }
+
   const clickText = `Clicked: ${elInfo.text}`;
   const clickResult = await clickElement(wc, selector);
   if (clickResult.startsWith("Error:")) return clickResult;
 
   await waitForPotentialNavigation(wc, beforeUrl);
   const afterUrl = wc.getURL();
-  return afterUrl !== beforeUrl
-    ? `${clickText} -> ${afterUrl}`
-    : `${clickText} (${clickResult})`;
+  if (afterUrl !== beforeUrl) {
+    return `${clickText} -> ${afterUrl}`;
+  }
+
+  const activationResult = await activateElement(wc, selector);
+  if (!activationResult.startsWith("Error:")) {
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const fallbackUrl = wc.getURL();
+    if (fallbackUrl !== beforeUrl) {
+      return `${clickText} -> ${fallbackUrl} (recovered via DOM activation)`;
+    }
+  }
+
+  return `${clickText} (${clickResult})`;
 }
 
 async function dismissPopup(wc: Electron.WebContents): Promise<string> {
@@ -637,7 +689,10 @@ function getTabByMatch(tabManager: TabManager, match: string) {
   );
 }
 
-function getPostActionState(tabManager: TabManager, name: string): string {
+async function getPostActionState(
+  tabManager: TabManager,
+  name: string,
+): Promise<string> {
   // Append state context for navigation/interaction actions
   const tab = tabManager.getActiveTab();
   if (!tab) return "";
@@ -650,12 +705,41 @@ function getPostActionState(tabManager: TabManager, name: string): string {
     "click",
     "submit_form",
     "reload",
+    "press_key",
   ];
-  const interactActions = ["type", "type_text", "select_option", "press_key"];
+  const interactActions = ["type", "type_text", "select_option"];
   const tabActions = ["create_tab", "switch_tab", "close_tab"];
 
   if (navActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    let warning = "";
+
+    try {
+      const page = await extractContent(wc);
+      const issue = getRecoverableAccessIssue(page);
+      if (issue) {
+        const blockedUrl = wc.getURL();
+        const canRecover =
+          [
+            "navigate",
+            "open_bookmark",
+            "click",
+            "submit_form",
+            "reload",
+            "press_key",
+          ].includes(name) && tab.canGoBack();
+
+        if (canRecover && tab.goBack()) {
+          await waitForLoad(wc);
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
+        } else {
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
+        }
+      }
+    } catch {
+      // Best-effort post-action warning only
+    }
+
+    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -687,7 +771,7 @@ async function withAction(
       dangerous: isDangerousAction(name),
       executor,
     });
-    const stateInfo = getPostActionState(tabManager, name);
+    const stateInfo = await getPostActionState(tabManager, name);
     return asTextResponse(result + stateInfo);
   } catch (error) {
     return asTextResponse(
@@ -1278,6 +1362,69 @@ function registerTools(
     }),
   );
 
+  server.registerTool(
+    "vessel_publish_transcript",
+    {
+      title: "Publish Agent Transcript",
+      description:
+        "Publish or stream agent reasoning/status text into Vessel's in-browser transcript monitor. Intended for external harnesses that want to mirror live thinking into the browser UI.",
+      inputSchema: {
+        text: z.string().describe("Transcript text chunk to publish"),
+        stream_id: z
+          .string()
+          .optional()
+          .describe("Stable stream ID for incremental updates to the same entry"),
+        mode: z
+          .enum(["append", "replace", "final"])
+          .optional()
+          .describe("append (default), replace current stream text, or mark the stream final"),
+        kind: z
+          .enum(["thinking", "message", "status"])
+          .optional()
+          .describe("Visual style for the transcript entry"),
+        title: z
+          .string()
+          .optional()
+          .describe("Optional short label such as Plan, Search, or Summary"),
+      },
+    },
+    async ({ text, stream_id, mode, kind, title }) => {
+      const entry = runtime.publishTranscript({
+        source: "mcp",
+        text,
+        streamId: stream_id,
+        mode,
+        kind,
+        title,
+      });
+      return asTextResponse(
+        JSON.stringify(
+          {
+            ok: true,
+            entry_id: entry.id,
+            stream_id: entry.streamId ?? entry.id,
+            status: entry.status,
+            updated_at: entry.updatedAt,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_clear_transcript",
+    {
+      title: "Clear Agent Transcript",
+      description: "Clear the in-browser transcript monitor state.",
+    },
+    async () => {
+      runtime.clearTranscript();
+      return asTextResponse("Cleared browser transcript monitor.");
+    },
+  );
+
   const EXTRACT_MODES: ExtractMode[] = [
     "full",
     "summary",
@@ -1490,6 +1637,74 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_extract_structured_data",
+    {
+      title: "Extract Structured Data",
+      description:
+        "Return normalized structured data derived from page JSON-LD, microdata, RDFa, and high-signal meta tags. Useful for recipes, products, articles, events, FAQs, and other schema-rich pages.",
+      inputSchema: {
+        type: z
+          .string()
+          .optional()
+          .describe(
+            "Optional schema type filter, for example Recipe, Product, Article, Event, or FAQPage",
+          ),
+      },
+    },
+    async ({ type }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+
+      try {
+        const pageContent = await extractContent(tab.view.webContents);
+        const requestedType =
+          typeof type === "string" && type.trim() ? type.trim().toLowerCase() : "";
+        const entities = (pageContent.structuredData ?? []).filter((entity) =>
+          requestedType
+            ? entity.types.some((entry) => entry.toLowerCase() === requestedType)
+            : true,
+        );
+        const sourceCounts = {
+          json_ld: pageContent.jsonLd?.length ?? 0,
+          microdata: pageContent.microdata?.length ?? 0,
+          rdfa: pageContent.rdfa?.length ?? 0,
+          meta_tags: Object.keys(pageContent.metaTags ?? {}).length,
+        };
+        const usedPageFallback =
+          entities.length > 0 && entities.every((entity) => entity.source === "page");
+        const message =
+          entities.length > 0
+            ? usedPageFallback
+              ? "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
+              : undefined
+            : requestedType
+              ? `No structured data entities matched type "${type}".`
+              : "No structured data entities detected. This page may not expose usable JSON-LD, microdata, RDFa, or high-signal metadata.";
+
+        return asTextResponse(
+          JSON.stringify(
+            {
+              url: pageContent.url,
+              title: pageContent.title,
+              count: entities.length,
+              sources_checked: sourceCounts,
+              used_page_fallback: usedPageFallback,
+              message,
+              entities,
+            },
+            null,
+            2,
+          ),
+        );
+      } catch (error) {
+        return asTextResponse(
+          `Error extracting structured data: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
     "vessel_go_back",
     {
       title: "Go Back",
@@ -1612,20 +1827,66 @@ function registerTools(
       }
       const result = await wc.executeJavaScript(`
         (function() {
-          const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-          if (!el) return { error: 'Element not found' };
-          const tag = el.tagName.toLowerCase();
-          const text = el.innerText || el.textContent || '';
-          const value = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ? el.value : null;
-          const attr = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt') || null;
-          return { tag, text: text.trim(), value, attr };
+          try {
+            const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+            if (!el) return { error: 'Element not found' };
+
+            const tag =
+              typeof el.tagName === 'string' ? el.tagName.toLowerCase() : 'unknown';
+            const text =
+              el instanceof HTMLElement
+                ? (el.innerText || el.textContent || '')
+                : (el.textContent || '');
+            const value =
+              el instanceof HTMLInputElement ||
+              el instanceof HTMLTextAreaElement ||
+              el instanceof HTMLSelectElement
+                ? el.value
+                : null;
+            const attr =
+              el.getAttribute('aria-label') ||
+              el.getAttribute('title') ||
+              el.getAttribute('alt') ||
+              null;
+            const role = el.getAttribute('role') || null;
+
+            return {
+              tag,
+              role,
+              text: String(text || '').trim(),
+              value: value == null ? null : String(value),
+              attr: attr == null ? null : String(attr),
+            };
+          } catch (error) {
+            return {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Element text extraction failed',
+            };
+          }
         })()
       `);
-      if (result.error) return asTextResponse(`Error: ${result.error}`);
+      if (!result || typeof result !== "object") {
+        return asTextResponse("Error: Element text extraction returned no result");
+      }
+      if ("error" in result && typeof result.error === "string") {
+        return asTextResponse(`Error: ${result.error}`);
+      }
       const parts: string[] = [`<${result.tag}>`];
+      if (
+        "role" in result &&
+        typeof result.role === "string" &&
+        result.role.trim()
+      ) {
+        parts.push(`role: ${result.role}`);
+      }
       if (result.value !== null) parts.push(`value: ${result.value}`);
       if (result.text) parts.push(`text: ${result.text}`);
       if (result.attr) parts.push(`label: ${result.attr}`);
+      if (parts.length === 1) {
+        parts.push("No readable text, value, or label found on this element.");
+      }
       return asTextResponse(parts.join('\n'));
     },
   );
@@ -2309,10 +2570,24 @@ function registerTools(
     {
       title: "Save Bookmark",
       description:
-        "Save a URL to a bookmark folder. You can provide folder_id or folder_name; missing folder names can be created automatically.",
+        "Save the current page, a specific URL, or a link target from the current page into a bookmark folder. You can provide folder_id or folder_name; missing folder names can be created automatically.",
       inputSchema: {
-        url: z.string().describe("URL to bookmark"),
-        title: z.string().describe("Human-readable title for the bookmark"),
+        url: z
+          .string()
+          .optional()
+          .describe("URL to bookmark. Omit to use the current page or provide index/selector to bookmark a link target from the page"),
+        title: z
+          .string()
+          .optional()
+          .describe("Human-readable title for the bookmark. Omit to use the page or link text"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to bookmark without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to bookmark without opening it"),
         folder_id: z
           .string()
           .optional()
@@ -2333,16 +2608,25 @@ function registerTools(
           .string()
           .optional()
           .describe("Optional note about why this was bookmarked"),
+        on_duplicate: z
+          .enum(["ask", "update", "duplicate"])
+          .optional()
+          .describe(
+            'How to handle an existing bookmark with the same URL in the same folder: "ask" (default), "update", or "duplicate"',
+          ),
       },
     },
     async ({
       url,
       title,
+      index,
+      selector,
       folder_id,
       folder_name,
       folder_summary,
       create_folder_if_missing,
       note,
+      on_duplicate,
     }) => {
       return withAction(
         runtime,
@@ -2351,6 +2635,8 @@ function registerTools(
         {
           url,
           title,
+          index,
+          selector,
           folder_id,
           folder_name,
           folder_summary,
@@ -2358,6 +2644,26 @@ function registerTools(
           note,
         },
         async () => {
+          const currentTab = tabManager.getActiveTab();
+          const resolvedSelector =
+            currentTab &&
+            (typeof index === "number" || typeof selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  index,
+                  selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: url,
+              explicitTitle: title,
+              resolvedSelector,
+            },
+          );
+          if ("error" in source) return `Error: ${source.error}`;
+
           const target = resolveBookmarkFolderTarget({
             folder_id,
             folder_name,
@@ -2366,14 +2672,32 @@ function registerTools(
           });
           if (target.error) return target.error;
 
-          const bookmark = bookmarkManager.saveBookmark(
-            url,
-            title,
+          const result = bookmarkManager.saveBookmarkWithPolicy(
+            source.url,
+            source.title,
             target.folderId,
             note,
+            { onDuplicate: on_duplicate ?? "ask" },
           );
+          if (result.status === "conflict" && result.existing) {
+            return composeFolderAwareResponse(
+              composeDuplicateBookmarkResponse({
+                url: source.url,
+                folderName: describeFolder(target.folderId),
+                bookmarkId: result.existing.id,
+              }),
+              target.createdFolder,
+            );
+          }
+
+          const bookmark = result.bookmark;
+          if (!bookmark) {
+            return "Error: Bookmark save failed";
+          }
+
+          const verb = result.status === "updated" ? "Updated" : "Saved";
           return composeFolderAwareResponse(
-            `Saved "${bookmark.title}" (${bookmark.url}) to "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            `${verb} "${bookmark.title}" (${bookmark.url}) in "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,
           );
         },
@@ -2450,7 +2774,7 @@ function registerTools(
     {
       title: "Organize Bookmark",
       description:
-        "Organize a bookmark by intent: save or move a bookmark into a folder, creating the folder if needed. Works with bookmark_id, url, or the current page.",
+        "Organize a bookmark by intent: save or move a bookmark into a folder, creating the folder if needed. Works with bookmark_id, url, a link target from the current page, or the current page itself.",
       inputSchema: {
         bookmark_id: z
           .string()
@@ -2459,11 +2783,19 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to organize. Omit to use the current page"),
+          .describe("URL to organize. Omit to use the current page or provide index/selector to target a link"),
         title: z
           .string()
           .optional()
           .describe("Optional title when saving a new bookmark"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to organize without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to organize without opening it"),
         folder_id: z
           .string()
           .optional()
@@ -2503,25 +2835,34 @@ function registerTools(
           const bookmarkId =
             typeof args.bookmark_id === "string" ? args.bookmark_id.trim() : "";
           const currentTab = tabManager.getActiveTab();
-          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
-          const resolvedUrl =
-            typeof args.url === "string" && args.url.trim()
-              ? args.url.trim()
-              : currentUrl;
-          const currentTitle =
-            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
-          const explicitTitle =
-            typeof args.title === "string" && args.title.trim()
-              ? args.title.trim()
-              : undefined;
           const note =
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
+          const resolvedSelector =
+            currentTab &&
+            (typeof args.index === "number" ||
+              typeof args.selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  args.index,
+                  args.selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: args.url,
+              explicitTitle: args.title,
+              resolvedSelector,
+            },
+          );
 
           const existing = bookmarkId
             ? bookmarkManager.getBookmark(bookmarkId)
-            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (bookmarkId && !existing) {
             return `Bookmark ${bookmarkId} not found`;
           }
@@ -2529,7 +2870,10 @@ function registerTools(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof args.title === "string" && args.title.trim()
+                  ? args.title.trim()
+                  : undefined,
               note,
             });
             if (!updated) {
@@ -2541,13 +2885,11 @@ function registerTools(
             );
           }
 
-          if (!resolvedUrl) {
-            return "Error: No bookmark_id provided and no URL available to organize";
-          }
+          if ("error" in source) return `Error: ${source.error}`;
 
           const bookmark = bookmarkManager.saveBookmark(
-            resolvedUrl,
-            explicitTitle || currentTitle || resolvedUrl,
+            source.url,
+            source.title,
             target.folderId,
             note,
           );
@@ -2582,12 +2924,12 @@ function registerTools(
             return `No bookmarks matched "${query}"`;
           }
 
-          const lines = matches.map(({ bookmark, folder }) => {
+          const lines = matches.map(({ bookmark, folder, matchedFields }) => {
             const folderLabel =
               bookmark.folderId === "unsorted"
                 ? "Unsorted"
                 : (folder?.name ?? bookmark.folderId);
-            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
+            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | matched=${matchedFields.join(",")} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
           });
           return [`Matches for "${query}" (${matches.length})`, ...lines].join(
             "\n",
@@ -2627,7 +2969,7 @@ function registerTools(
     {
       title: "Archive Bookmark",
       description:
-        'Archive the current page, a URL, or an existing bookmark into the default "Archive" folder.',
+        'Archive the current page, a URL, a link target from the current page, or an existing bookmark into the default "Archive" folder.',
       inputSchema: {
         bookmark_id: z
           .string()
@@ -2636,42 +2978,62 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to archive. Omit to use the current page"),
+          .describe("URL to archive. Omit to use the current page or provide index/selector to target a link"),
         title: z
           .string()
           .optional()
           .describe("Optional title when saving a new archived bookmark"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to archive without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to archive without opening it"),
         note: z
           .string()
           .optional()
           .describe("Optional note to store with the archived bookmark"),
       },
     },
-    async ({ bookmark_id, url, title, note }) => {
+    async ({ bookmark_id, url, title, index, selector, note }) => {
       return withAction(
         runtime,
         tabManager,
         "archive_bookmark",
-        { bookmark_id, url, title, note },
+        { bookmark_id, url, title, index, selector, note },
         async () => {
           const currentTab = tabManager.getActiveTab();
-          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
-          const resolvedUrl =
-            typeof url === "string" && url.trim() ? url.trim() : currentUrl;
-          const currentTitle =
-            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
-          const explicitTitle =
-            typeof title === "string" && title.trim() ? title.trim() : undefined;
           const trimmedBookmarkId =
             typeof bookmark_id === "string" ? bookmark_id.trim() : "";
           const trimmedNote =
             typeof note === "string" && note.trim() ? note.trim() : undefined;
           const target = resolveBookmarkFolderTarget({ archive: true });
           if (target.error) return target.error;
+          const resolvedSelector =
+            currentTab &&
+            (typeof index === "number" || typeof selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  index,
+                  selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: url,
+              explicitTitle: title,
+              resolvedSelector,
+            },
+          );
 
           const existing = trimmedBookmarkId
             ? bookmarkManager.getBookmark(trimmedBookmarkId)
-            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (trimmedBookmarkId && !existing) {
             return `Bookmark ${trimmedBookmarkId} not found`;
           }
@@ -2679,7 +3041,10 @@ function registerTools(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof title === "string" && title.trim()
+                  ? title.trim()
+                  : undefined,
               note: trimmedNote,
             });
             if (!updated) {
@@ -2691,13 +3056,13 @@ function registerTools(
             );
           }
 
-          if (!resolvedUrl) {
-            return "Error: No bookmark_id provided and no URL available to archive";
+          if ("error" in source) {
+            return `Error: ${source.error}`;
           }
 
           const bookmark = bookmarkManager.saveBookmark(
-            resolvedUrl,
-            explicitTitle || currentTitle || resolvedUrl,
+            source.url,
+            source.title,
             target.folderId,
             trimmedNote,
           );
@@ -2734,6 +3099,11 @@ function registerTools(
           const bookmark = bookmarkManager.getBookmark(bookmark_id);
           if (!bookmark) {
             return `Bookmark ${bookmark_id} not found`;
+          }
+
+          const validation = await validateLinkDestination(bookmark.url);
+          if (validation.status === "dead") {
+            return formatDeadLinkMessage(bookmark.title, validation);
           }
 
           if (new_tab || !tabManager.getActiveTabId()) {

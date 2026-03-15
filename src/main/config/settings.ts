@@ -12,6 +12,7 @@ const defaults: VesselSettings = {
   clearBookmarksOnLaunch: false,
   obsidianVaultPath: "",
   approvalMode: "confirm-dangerous",
+  agentTranscriptMode: "summary",
 };
 
 let settings: VesselSettings | null = null;
@@ -48,6 +49,8 @@ export function loadSettings(): VesselSettings {
     const parsed = JSON.parse(raw) as Partial<VesselSettings> & {
       apiKey?: string;
       provider?: unknown;
+      showAgentTranscript?: unknown;
+      agentTranscriptMode?: unknown;
     };
     delete parsed.apiKey;
     delete parsed.provider;
@@ -55,6 +58,14 @@ export function loadSettings(): VesselSettings {
       ...defaults,
       ...parsed,
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
+      agentTranscriptMode:
+        parsed.agentTranscriptMode === "off" ||
+        parsed.agentTranscriptMode === "summary" ||
+        parsed.agentTranscriptMode === "full"
+          ? parsed.agentTranscriptMode
+          : parsed.showAgentTranscript === false
+            ? "off"
+            : defaults.agentTranscriptMode,
     };
   } catch (error) {
     if (fs.existsSync(getSettingsPath())) {

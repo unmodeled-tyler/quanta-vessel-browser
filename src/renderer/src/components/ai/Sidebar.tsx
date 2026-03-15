@@ -13,6 +13,10 @@ import { useUI } from "../../stores/ui";
 import { useTabs } from "../../stores/tabs";
 import { useBookmarks } from "../../stores/bookmarks";
 import { renderMarkdown } from "../../lib/markdown";
+import {
+  getBookmarkSearchMatch,
+  normalizeBookmarkSearchText,
+} from "../../../../shared/bookmark-search";
 import type { BookmarkFolder } from "../../../../shared/types";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
@@ -229,29 +233,35 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     })),
   );
   const normalizedBookmarkSearch = createMemo(() =>
-    bookmarkSearchQuery().trim().toLowerCase(),
+    normalizeBookmarkSearchText(bookmarkSearchQuery()),
   );
   const filteredGroupedBookmarks = createMemo(() => {
-    const query = normalizedBookmarkSearch();
-    if (!query) return groupedBookmarks();
+    const query = bookmarkSearchQuery().trim();
+    if (!normalizedBookmarkSearch()) return groupedBookmarks();
 
     return groupedBookmarks()
       .map((folder) => {
-        const folderMatches = [folder.name, folder.summary].some(
-          (value) =>
-            typeof value === "string" && value.toLowerCase().includes(query),
-        );
+        const folderMatches =
+          getBookmarkSearchMatch({
+            query,
+            folder: folder.name,
+            folderSummary: folder.summary,
+          }).matchedFields.length > 0;
 
         return {
           ...folder,
           items: folderMatches
             ? folder.items
-            : folder.items.filter((bookmark) =>
-                [bookmark.title, bookmark.url, bookmark.note].some(
-                  (value) =>
-                    typeof value === "string" &&
-                    value.toLowerCase().includes(query),
-                ),
+            : folder.items.filter(
+                (bookmark) =>
+                  getBookmarkSearchMatch({
+                    query,
+                    title: bookmark.title,
+                    url: bookmark.url,
+                    note: bookmark.note,
+                    folder: folder.name,
+                    folderSummary: folder.summary,
+                  }).matchedFields.length > 0,
               ),
         };
       })

@@ -1,13 +1,36 @@
-import { createSignal, createEffect, type Component } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  createMemo,
+  onCleanup,
+  type Component,
+} from "solid-js";
 import { useTabs } from "../../stores/tabs";
+import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
+import {
+  getLatestAgentStatusMessage,
+  hasRecentAgentActivity,
+} from "../../lib/agentActivity";
 import "./chrome.css";
 
 const AddressBar: Component = () => {
   const { activeTab, navigate, goBack, goForward, reload } = useTabs();
+  const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings } = useUI();
   const [inputValue, setInputValue] = createSignal("");
+  const [now, setNow] = createSignal(Date.now());
   let inputRef: HTMLInputElement | undefined;
+
+  const ticker = setInterval(() => setNow(Date.now()), 1000);
+  onCleanup(() => clearInterval(ticker));
+
+  const agentIsActive = createMemo(() =>
+    hasRecentAgentActivity(runtimeState(), now()),
+  );
+  const agentStatusMessage = createMemo(() =>
+    getLatestAgentStatusMessage(runtimeState(), now()),
+  );
 
   // Sync URL from active tab
   createEffect(() => {
@@ -84,18 +107,36 @@ const AddressBar: Component = () => {
         </button>
       </div>
 
-      <form class="url-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          class="url-input"
-          type="text"
-          value={inputValue()}
-          onInput={(e) => setInputValue(e.currentTarget.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          placeholder="Search or enter URL"
-          spellcheck={false}
-        />
-      </form>
+      <div class="url-shell">
+        <form class="url-form" onSubmit={handleSubmit}>
+          <input
+            ref={inputRef}
+            class="url-input"
+            type="text"
+            value={inputValue()}
+            onInput={(e) => setInputValue(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder="Search or enter URL"
+            spellcheck={false}
+          />
+        </form>
+
+        <div
+          class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
+          title={
+            agentStatusMessage() ||
+            (agentIsActive()
+              ? "Agent activity detected in the browser"
+              : "No recent agent activity detected")
+          }
+        >
+          <span class="agent-status-dot" aria-hidden="true" />
+          <span class="agent-status-text">
+            {agentStatusMessage() ||
+              (agentIsActive() ? "Agent Active" : "Agent Inactive")}
+          </span>
+        </div>
+      </div>
 
       <div class="toolbar-actions">
         <button

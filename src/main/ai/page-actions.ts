@@ -1,9 +1,15 @@
 import type { WebContents } from "electron";
 import type { AgentCheckpoint } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
+import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
+import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
+import {
+  formatDeadLinkMessage,
+  validateLinkDestination,
+} from "../network/link-validation";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import { buildStructuredContext } from "./context-builder";
@@ -214,26 +220,9 @@ async function clickElement(
   }
 
   if (hiddenWindow) {
-    const activated = await wc.executeJavaScript(`
-      (function() {
-        const el = document.querySelector(${JSON.stringify(selector)});
-        if (!el) return { error: "Element not found" };
-        if (el instanceof HTMLElement) {
-          el.focus({ preventScroll: true });
-        }
-        if (typeof el.click === "function") {
-          el.click();
-          return { ok: true };
-        }
-        return { error: "Element is not clickable" };
-      })()
-    `);
-
-    if (!activated || typeof activated !== "object") {
-      return "Error: Could not activate element";
-    }
-    if ("error" in activated && typeof activated.error === "string") {
-      return `Error: ${activated.error}`;
+    const activationResult = await activateElement(wc, selector);
+    if (activationResult.startsWith("Error:")) {
+      return activationResult;
     }
     await sleep(80);
     return "Clicked via DOM activation";
@@ -251,16 +240,49 @@ async function clickElement(
     : "Clicked via pointer events";
 }
 
+async function activateElement(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  const activated = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: "Element not found" };
+      if (el instanceof HTMLElement) {
+        el.focus({ preventScroll: true });
+      }
+      if (typeof el.click === "function") {
+        el.click();
+        return { ok: true };
+      }
+      return { error: "Element is not clickable" };
+    })()
+  `);
+
+  if (!activated || typeof activated !== "object") {
+    return "Error: Could not activate element";
+  }
+  if ("error" in activated && typeof activated.error === "string") {
+    return `Error: ${activated.error}`;
+  }
+
+  return "Activated element via DOM click";
+}
+
 async function describeElementForClick(
   wc: WebContents,
   selector: string,
-): Promise<{ text: string } | { error: string }> {
+): Promise<{ text: string; href?: string } | { error: string }> {
   const result = await wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
+      const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
-      return { text: text || "Element" };
+      return {
+        text: text || "Element",
+        href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+      };
     })()
   `);
 
@@ -276,6 +298,7 @@ async function describeElementForClick(
       "text" in result && typeof result.text === "string"
         ? result.text
         : "Element",
+    href: "href" in result && typeof result.href === "string" ? result.href : undefined,
   };
 }
 
@@ -287,15 +310,33 @@ async function clickResolvedSelector(
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  if (elInfo.href) {
+    const validation = await validateLinkDestination(elInfo.href);
+    if (validation.status === "dead") {
+      return formatDeadLinkMessage(elInfo.text, validation);
+    }
+  }
+
   const clickText = `Clicked: ${elInfo.text}`;
   const clickResult = await clickElement(wc, selector);
   if (clickResult.startsWith("Error:")) return clickResult;
 
   await waitForPotentialNavigation(wc, beforeUrl);
   const afterUrl = wc.getURL();
-  return afterUrl !== beforeUrl
-    ? `${clickText} -> ${afterUrl}`
-    : `${clickText} (${clickResult})`;
+  if (afterUrl !== beforeUrl) {
+    return `${clickText} -> ${afterUrl}`;
+  }
+
+  const activationResult = await activateElement(wc, selector);
+  if (!activationResult.startsWith("Error:")) {
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const fallbackUrl = wc.getURL();
+    if (fallbackUrl !== beforeUrl) {
+      return `${clickText} -> ${fallbackUrl} (recovered via DOM activation)`;
+    }
+  }
+
+  return `${clickText} (${clickResult})`;
 }
 
 async function dismissPopup(wc: WebContents): Promise<string> {
@@ -997,6 +1038,14 @@ function describeFolder(folderId?: string): string {
   return bookmarkManager.getFolder(folderId)?.name ?? folderId;
 }
 
+function composeDuplicateBookmarkResponse(args: {
+  url: string;
+  folderName: string;
+  bookmarkId: string;
+}): string {
+  return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with onDuplicate="update" to refresh the existing bookmark or onDuplicate="duplicate" to keep both entries.`;
+}
+
 function composeFolderAwareResponse(
   message: string,
   createdFolder?: string,
@@ -1235,7 +1284,10 @@ async function pressKey(
   `);
 }
 
-function getPostActionState(ctx: ActionContext, name: string): string {
+async function getPostActionState(
+  ctx: ActionContext,
+  name: string,
+): Promise<string> {
   const tab = ctx.tabManager.getActiveTab();
   if (!tab) return "";
 
@@ -1248,8 +1300,9 @@ function getPostActionState(ctx: ActionContext, name: string): string {
     "click",
     "submit_form",
     "reload",
+    "press_key",
   ];
-  const interactActions = ["type_text", "select_option", "press_key"];
+  const interactActions = ["type_text", "select_option"];
   const tabActions = [
     "create_tab",
     "switch_tab",
@@ -1258,7 +1311,35 @@ function getPostActionState(ctx: ActionContext, name: string): string {
   ];
 
   if (navActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    let warning = "";
+
+    try {
+      const page = await extractContent(wc);
+      const issue = getRecoverableAccessIssue(page);
+      if (issue) {
+        const blockedUrl = wc.getURL();
+        const canRecover =
+          [
+            "navigate",
+            "open_bookmark",
+            "click",
+            "submit_form",
+            "reload",
+            "press_key",
+          ].includes(name) && tab.canGoBack();
+
+        if (canRecover && tab.goBack()) {
+          await waitForLoad(wc);
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
+        } else {
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
+        }
+      }
+    } catch {
+      // Best-effort post-action warning only
+    }
+
+    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -1617,12 +1698,12 @@ export async function executeAction(
             return `No bookmarks matched "${query}"`;
           }
 
-          const lines = matches.map(({ bookmark, folder }) => {
+          const lines = matches.map(({ bookmark, folder, matchedFields }) => {
             const folderLabel =
               bookmark.folderId === "unsorted"
                 ? "Unsorted"
                 : (folder?.name ?? bookmark.folderId);
-            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
+            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | matched=${matchedFields.join(",")} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
           });
           return [`Matches for "${query}" (${matches.length})`, ...lines].join(
             "\n",
@@ -1653,32 +1734,50 @@ export async function executeAction(
         }
 
         case "save_bookmark": {
-          const currentUrl = wc?.getURL().trim() || "";
-          const url =
-            typeof args.url === "string" && args.url.trim()
-              ? args.url.trim()
-              : currentUrl;
-          if (!url) return "Error: No URL provided and no active page to save";
+          const resolvedSelector =
+            wc && (typeof args.index === "number" || typeof args.selector === "string")
+              ? await resolveSelector(wc, args.index, args.selector)
+              : null;
+          const source = await resolveBookmarkSourceDraft(wc, {
+            explicitUrl: args.url,
+            explicitTitle: args.title,
+            resolvedSelector,
+          });
+          if ("error" in source) return `Error: ${source.error}`;
 
-          const currentTitle = wc?.getTitle().trim() || url;
-          const title =
-            typeof args.title === "string" && args.title.trim()
-              ? args.title.trim()
-              : currentTitle;
           const target = resolveBookmarkFolderTarget(args);
           if (target.error) return target.error;
           const note =
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
-          const bookmark = bookmarkManager.saveBookmark(
-            url,
-            title,
+          const onDuplicate =
+            typeof args.onDuplicate === "string" &&
+            ["ask", "update", "duplicate"].includes(args.onDuplicate)
+              ? (args.onDuplicate as bookmarkManager.DuplicateBookmarkPolicy)
+              : "ask";
+          const result = bookmarkManager.saveBookmarkWithPolicy(
+            source.url,
+            source.title,
             target.folderId,
             note,
+            { onDuplicate },
           );
+          if (result.status === "conflict" && result.existing) {
+            return composeFolderAwareResponse(
+              composeDuplicateBookmarkResponse({
+                url: source.url,
+                folderName: describeFolder(target.folderId),
+                bookmarkId: result.existing.id,
+              }),
+              target.createdFolder,
+            );
+          }
+          const bookmark = result.bookmark;
+          if (!bookmark) return "Error: Bookmark save failed";
+          const verb = result.status === "updated" ? "Updated" : "Saved";
           return composeFolderAwareResponse(
-            `Saved "${bookmark.title}" (${bookmark.url}) to "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            `${verb} "${bookmark.title}" (${bookmark.url}) in "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,
           );
         }
@@ -1689,24 +1788,25 @@ export async function executeAction(
 
           const bookmarkId =
             typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
-          const currentUrl = wc?.getURL().trim() || "";
-          const url =
-            typeof args.url === "string" && args.url.trim()
-              ? args.url.trim()
-              : currentUrl;
-          const currentTitle = wc?.getTitle().trim() || url;
-          const explicitTitle =
-            typeof args.title === "string" && args.title.trim()
-              ? args.title.trim()
-              : undefined;
           const note =
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
+          const resolvedSelector =
+            wc && (typeof args.index === "number" || typeof args.selector === "string")
+              ? await resolveSelector(wc, args.index, args.selector)
+              : null;
+          const source = await resolveBookmarkSourceDraft(wc, {
+            explicitUrl: args.url,
+            explicitTitle: args.title,
+            resolvedSelector,
+          });
 
           const existing = bookmarkId
             ? bookmarkManager.getBookmark(bookmarkId)
-            : bookmarkManager.getBookmarkByUrl(url);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (bookmarkId && !existing) {
             return `Bookmark ${bookmarkId} not found`;
           }
@@ -1714,7 +1814,10 @@ export async function executeAction(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof args.title === "string" && args.title.trim()
+                  ? args.title.trim()
+                  : undefined,
               note,
             });
             if (!updated) {
@@ -1726,13 +1829,11 @@ export async function executeAction(
             );
           }
 
-          if (!url) {
-            return "Error: No bookmarkId provided and no URL available to organize";
-          }
+          if ("error" in source) return `Error: ${source.error}`;
 
           const bookmark = bookmarkManager.saveBookmark(
-            url,
-            explicitTitle || currentTitle || url,
+            source.url,
+            source.title,
             target.folderId,
             note,
           );
@@ -1748,24 +1849,25 @@ export async function executeAction(
 
           const bookmarkId =
             typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
-          const currentUrl = wc?.getURL().trim() || "";
-          const url =
-            typeof args.url === "string" && args.url.trim()
-              ? args.url.trim()
-              : currentUrl;
-          const currentTitle = wc?.getTitle().trim() || url;
-          const explicitTitle =
-            typeof args.title === "string" && args.title.trim()
-              ? args.title.trim()
-              : undefined;
           const note =
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
+          const resolvedSelector =
+            wc && (typeof args.index === "number" || typeof args.selector === "string")
+              ? await resolveSelector(wc, args.index, args.selector)
+              : null;
+          const source = await resolveBookmarkSourceDraft(wc, {
+            explicitUrl: args.url,
+            explicitTitle: args.title,
+            resolvedSelector,
+          });
 
           const existing = bookmarkId
             ? bookmarkManager.getBookmark(bookmarkId)
-            : bookmarkManager.getBookmarkByUrl(url);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (bookmarkId && !existing) {
             return `Bookmark ${bookmarkId} not found`;
           }
@@ -1773,7 +1875,10 @@ export async function executeAction(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof args.title === "string" && args.title.trim()
+                  ? args.title.trim()
+                  : undefined,
               note,
             });
             if (!updated) {
@@ -1785,13 +1890,15 @@ export async function executeAction(
             );
           }
 
-          if (!url) {
-            return "Error: No bookmarkId provided and no URL available to archive";
+          if ("error" in source) {
+            return bookmarkId
+              ? `Bookmark ${bookmarkId} not found`
+              : `Error: ${source.error}`;
           }
 
           const bookmark = bookmarkManager.saveBookmark(
-            url,
-            explicitTitle || currentTitle || url,
+            source.url,
+            source.title,
             target.folderId,
             note,
           );
@@ -1809,6 +1916,11 @@ export async function executeAction(
           const bookmark = bookmarkManager.getBookmark(bookmarkId);
           if (!bookmark) {
             return `Bookmark ${bookmarkId} not found`;
+          }
+
+          const validation = await validateLinkDestination(bookmark.url);
+          if (validation.status === "dead") {
+            return formatDeadLinkMessage(bookmark.title, validation);
           }
 
           const openInNewTab = Boolean(args.newTab);
@@ -1849,5 +1961,5 @@ export async function executeAction(
     },
   });
 
-  return result + getPostActionState(ctx, name);
+  return result + (await getPostActionState(ctx, name));
 }

@@ -2,10 +2,14 @@ import type {
   PageContent,
   InteractiveElement,
   HeadingStructure,
+  StructuredDataEntity,
+  StructuredDataValue,
+  PageIssue,
 } from "../../shared/types";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
+const LARGE_PAGE_HINT_THRESHOLD = 12000;
 
 function truncateContent(content: string): string {
   if (content.length <= MAX_CONTENT_LENGTH) return content;
@@ -255,6 +259,87 @@ function formatDormantOverlays(
     .join("\n");
 }
 
+function formatPageIssues(issues: PageIssue[]): string {
+  if (issues.length === 0) return "None detected";
+
+  return limitItems(issues, 3)
+    .map((issue) => {
+      const lines = [`- ${issue.summary}`];
+      if (issue.detail) {
+        lines.push(`  detail: ${issue.detail}`);
+      }
+      if (issue.recommendation) {
+        lines.push(`  recommendation: ${issue.recommendation}`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n");
+}
+
+function formatStructuredValue(
+  value: StructuredDataValue,
+  depth = 0,
+): string {
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const rendered = value
+      .map((item) => formatStructuredValue(item, depth + 1))
+      .filter(Boolean)
+      .slice(0, depth === 0 ? 8 : 5);
+    return rendered.join(depth === 0 ? ", " : " | ");
+  }
+  const entries = Object.entries(value)
+    .slice(0, 6)
+    .map(([key, entry]) => `${key}: ${formatStructuredValue(entry, depth + 1)}`)
+    .filter((entry) => !entry.endsWith(": "));
+  return entries.join(", ");
+}
+
+function formatStructuredEntities(entities: StructuredDataEntity[]): string {
+  if (entities.length === 0) return "None detected";
+
+  return limitItems(entities, 12)
+    .map((entity) => {
+      const lines: string[] = [];
+      const label = entity.name || entity.url || "Unnamed entity";
+      lines.push(`- [${entity.types.join(", ")}] ${label}`);
+      if (entity.description) {
+        lines.push(`  description: ${entity.description.slice(0, 180)}`);
+      }
+      if (entity.url && entity.url !== entity.name) {
+        lines.push(`  url: ${entity.url}`);
+      }
+      for (const [key, value] of Object.entries(entity.attributes).slice(0, 8)) {
+        const rendered = formatStructuredValue(value);
+        if (rendered) {
+          lines.push(`  ${key}: ${rendered}`);
+        }
+      }
+      return lines.join("\n");
+    })
+    .join("\n");
+}
+
+function hasOnlyFallbackStructuredData(page: PageContent): boolean {
+  return (
+    (page.structuredData?.length ?? 0) > 0 &&
+    (page.structuredData ?? []).every((entity) => entity.source === "page")
+  );
+}
+
+function formatLargePageHint(page: PageContent): string | null {
+  if (page.content.length < LARGE_PAGE_HINT_THRESHOLD) return null;
+
+  return `Large page detected: ${page.content.length} chars across ${page.headings.length} headings. Prefer summary, results_only, forms_only, or interactives_only before reading raw page text.`;
+}
+
 function formatJsonLd(items: Record<string, unknown>[]): string {
   if (!items || items.length === 0) return "";
 
@@ -355,6 +440,37 @@ function normalizeUrlForMatch(value?: string): string | null {
   }
 }
 
+function getUrlPathSegments(value?: string): string[] {
+  if (!value) return [];
+
+  try {
+    return new URL(value).pathname.split("/").filter(Boolean);
+  } catch {
+    return value
+      .split("?")[0]
+      .split("#")[0]
+      .split("/")
+      .filter(Boolean);
+  }
+}
+
+function isSearchOrListingPage(page: PageContent): boolean {
+  const haystack = normalizeComparable(
+    [
+      page.url,
+      page.title,
+      page.excerpt,
+      page.headings.map((heading) => heading.text).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return /\b(search|results|find|discover|browse|repositories|repository|issues|pull requests|prs|users|events|listings)\b/.test(
+    haystack,
+  );
+}
+
 function collectJsonLdEntityItems(
   input: unknown,
   results: Record<string, unknown>[] = [],
@@ -408,6 +524,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
   );
 
   const pageHost = normalizeUrlForMatch(page.url);
+  const searchOrListingPage = isSearchOrListingPage(page);
 
   const scored = page.interactiveElements
     .filter(
@@ -447,7 +564,23 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
         }
       }
 
+      const hrefSegments = getUrlPathSegments(element.href);
+      if (hrefSegments.length >= 2) score += 1;
+      if (text.includes("/")) score += 1;
+
+      if (
+        searchOrListingPage &&
+        (element.context === "article" ||
+          element.context === "main" ||
+          element.context === "content")
+      ) {
+        score += 2;
+      }
+
       if (/\b(card|tile|result|rating|review)\b/.test(haystack)) score += 1;
+      if (/\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(haystack)) {
+        score += 1;
+      }
       if (text.length >= 12 && text.split(/\s+/).length >= 2) score += 1;
 
       if (
@@ -461,7 +594,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
 
       if (
-        /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print)\b/.test(
+        /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print|next|previous|prev|sort|filter|star|sponsor)\b/.test(
           comparableText,
         )
       ) {
@@ -472,6 +605,15 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
     })
     .filter(({ score, element }) => {
       if (entityItems.length > 0) return score >= 4;
+      if (searchOrListingPage) {
+        return (
+          score >= 4 ||
+          (score >= 3 &&
+            (element.context === "article" ||
+              element.context === "main" ||
+              element.context === "content"))
+        );
+      }
       return score >= 4 || (score >= 3 && element.context === "article");
     })
     .sort((a, b) => b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0));
@@ -499,13 +641,29 @@ export function buildScopedContext(
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       if (page.byline) sections.push(`**Author:** ${page.byline}`);
       if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
+      const largePageHint = formatLargePageHint(page);
+      if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       sections.push("### Document Outline");
       sections.push(formatHeadings(page.headings));
       sections.push("");
       sections.push(
-        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.content.length} chars`,
+        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
       );
+      if ((page.structuredData?.length ?? 0) > 0) {
+        if (hasOnlyFallbackStructuredData(page)) {
+          sections.push("Structured data: generic page metadata only");
+        } else {
+          sections.push(
+            `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
+          );
+        }
+      }
       if (page.overlays.length > 0) {
         sections.push(
           `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
@@ -525,6 +683,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -555,6 +718,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -580,6 +748,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       const truncated =
         page.content.length > 60000
           ? page.content.slice(0, 60000) + "\n[Content truncated...]"
@@ -602,6 +775,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -642,6 +820,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (resultElements.length > 0) {
         sections.push(`### Likely Search Results (${resultElements.length})`);
         sections.push(formatInteractiveElements(resultElements));
@@ -670,10 +853,31 @@ export function buildStructuredContext(page: PageContent): string {
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
 
-  // Structured data (JSON-LD)
-  if (page.jsonLd && page.jsonLd.length > 0) {
-    sections.push("### Structured Data (JSON-LD)");
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+
+  const largePageHint = formatLargePageHint(page);
+  if (largePageHint) {
+    sections.push("### Reading Hint");
+    sections.push(largePageHint);
+    sections.push("");
+  }
+
+  if (page.structuredData && page.structuredData.length > 0) {
+    sections.push(
+      hasOnlyFallbackStructuredData(page)
+        ? "### Page Metadata"
+        : "### Structured Data",
+    );
+    sections.push(formatStructuredEntities(page.structuredData));
+    sections.push("");
+  } else if (page.jsonLd && page.jsonLd.length > 0) {
+    sections.push("### Structured Data (Raw JSON-LD)");
     sections.push(formatJsonLd(page.jsonLd));
+    sections.push("");
   }
 
   // Headings

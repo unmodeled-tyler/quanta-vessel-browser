@@ -6,6 +6,8 @@ import type {
   ActionSource,
   AgentActionEntry,
   AgentCheckpoint,
+  AgentTranscriptEntry,
+  AgentTranscriptKind,
   AgentRuntimeState,
   ApprovalMode,
   PendingApproval,
@@ -15,6 +17,8 @@ import type { TabManager } from "../tabs/tab-manager";
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
+const MAX_TRANSCRIPT_ENTRIES = 40;
+const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
 
 interface RuntimePersistenceShape {
   session: SessionSnapshot | null;
@@ -56,6 +60,14 @@ function summarizeText(value: string): string {
   return value.length > 240 ? `${value.slice(0, 237)}...` : value;
 }
 
+function humanizeActionName(name: string): string {
+  return name
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function getRuntimeStatePath(): string {
   return path.join(app.getPath("userData"), "vessel-agent-runtime.json");
 }
@@ -77,6 +89,7 @@ function sanitizePersistence(
     checkpoints: Array.isArray(persisted?.checkpoints)
       ? persisted!.checkpoints.slice(-MAX_CHECKPOINTS)
       : [],
+    transcript: [],
   };
 }
 
@@ -165,6 +178,62 @@ export class AgentRuntime {
     return this.captureSession(target.note || "Restored saved session");
   }
 
+  publishTranscript(input: {
+    source: ActionSource;
+    kind?: AgentTranscriptKind;
+    title?: string;
+    text: string;
+    streamId?: string;
+    mode?: "append" | "replace" | "final";
+  }): AgentTranscriptEntry {
+    const now = new Date().toISOString();
+    const kind = input.kind ?? "thinking";
+    const mode = input.mode ?? "append";
+    const incomingText = input.text.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH);
+
+    if (input.streamId) {
+      const existing = this.state.transcript.find(
+        (entry) => entry.streamId === input.streamId,
+      );
+      if (existing) {
+        existing.source = input.source;
+        existing.kind = kind;
+        existing.title = input.title?.trim() || existing.title;
+        existing.text =
+          mode === "replace"
+            ? incomingText
+            : `${existing.text}${incomingText}`.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH);
+        existing.updatedAt = now;
+        existing.status = mode === "final" ? "final" : "streaming";
+        this.emit();
+        return clone(existing);
+      }
+    }
+
+    const entry: AgentTranscriptEntry = {
+      id: randomUUID(),
+      source: input.source,
+      kind,
+      title: input.title?.trim() || undefined,
+      text: incomingText,
+      startedAt: now,
+      updatedAt: now,
+      status: mode === "final" ? "final" : "streaming",
+      streamId: input.streamId?.trim() || undefined,
+    };
+    this.state.transcript = [...this.state.transcript, entry].slice(
+      -MAX_TRANSCRIPT_ENTRIES,
+    );
+    this.emit();
+    return clone(entry);
+  }
+
+  clearTranscript(): AgentRuntimeState {
+    this.state.transcript = [];
+    this.emit();
+    return this.getState();
+  }
+
   async runControlledAction({
     source,
     name,
@@ -179,11 +248,38 @@ export class AgentRuntime {
       args,
       tabId,
     });
+    const transcriptStreamId = `action:${action.id}`;
+    const transcriptTitle = humanizeActionName(name);
+
+    this.publishTranscript({
+      source,
+      kind: "status",
+      title: transcriptTitle,
+      text: `Starting ${transcriptTitle.toLowerCase()}.`,
+      streamId: transcriptStreamId,
+      mode: "replace",
+    });
 
     const approvalReason = this.getApprovalReason(dangerous);
     if (approvalReason) {
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: `Waiting for approval: ${approvalReason}.`,
+        streamId: transcriptStreamId,
+        mode: "replace",
+      });
       const approved = await this.awaitApproval(action, approvalReason);
       if (!approved) {
+        this.publishTranscript({
+          source,
+          kind: "status",
+          title: transcriptTitle,
+          text: `Rejected: ${approvalReason}.`,
+          streamId: transcriptStreamId,
+          mode: "final",
+        });
         return `Action rejected: ${name}`;
       }
     }
@@ -192,10 +288,26 @@ export class AgentRuntime {
       status: "running",
       error: undefined,
     });
+    this.publishTranscript({
+      source,
+      kind: "status",
+      title: transcriptTitle,
+      text: `Running ${transcriptTitle.toLowerCase()}.`,
+      streamId: transcriptStreamId,
+      mode: "replace",
+    });
 
     try {
       const result = await executor();
       this.finishAction(action.id, "completed", summarizeText(result));
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: summarizeText(result),
+        streamId: transcriptStreamId,
+        mode: "final",
+      });
       this.captureSession();
       return result;
     } catch (error) {
@@ -203,6 +315,14 @@ export class AgentRuntime {
         error instanceof Error ? error.message : "Unknown action failure";
       this.state.supervisor.lastError = message;
       this.finishAction(action.id, "failed", undefined, message);
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: `Failed: ${summarizeText(message)}`,
+        streamId: transcriptStreamId,
+        mode: "final",
+      });
       throw error;
     }
   }

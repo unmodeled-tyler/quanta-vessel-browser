@@ -6,7 +6,10 @@ import {
   type Component,
 } from "solid-js";
 import { useUI } from "../../stores/ui";
-import type { RuntimeHealthState } from "../../../shared/types";
+import type {
+  AgentTranscriptDisplayMode,
+  RuntimeHealthState,
+} from "../../../shared/types";
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
@@ -15,6 +18,8 @@ const Settings: Component = () => {
     createSignal(false);
   const [obsidianVaultPath, setObsidianVaultPath] = createSignal("");
   const [mcpPort, setMcpPort] = createSignal("3100");
+  const [agentTranscriptMode, setAgentTranscriptMode] =
+    createSignal<AgentTranscriptDisplayMode>("summary");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
@@ -28,6 +33,7 @@ const Settings: Component = () => {
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
     setMcpPort(String(settings.mcpPort ?? 3100));
+    setAgentTranscriptMode(settings.agentTranscriptMode ?? "summary");
     setHealth(runtimeHealth);
   };
 
@@ -69,6 +75,10 @@ const Settings: Component = () => {
         obsidianVaultPath(),
       );
       await window.vessel.settings.set("mcpPort", parsedPort);
+      await window.vessel.settings.set(
+        "agentTranscriptMode",
+        agentTranscriptMode(),
+      );
       await loadState();
       setStatus({
         kind: "success",
@@ -185,6 +195,33 @@ const Settings: Component = () => {
           </div>
 
           <div class="settings-field">
+            <label class="settings-label" for="agent-transcript-mode">
+              Agent Transcript Monitor
+            </label>
+            <select
+              id="agent-transcript-mode"
+              class="settings-input settings-select"
+              value={agentTranscriptMode()}
+              onChange={(e) =>
+                setAgentTranscriptMode(
+                  e.currentTarget.value as AgentTranscriptDisplayMode,
+                )
+              }
+            >
+              <option value="off">Off</option>
+              <option value="summary">Summary HUD</option>
+              <option value="full">Full transcript</option>
+            </select>
+            <p class="settings-hint">
+              Controls the in-browser transcript monitor when an external
+              harness publishes reasoning or status updates into Vessel via the
+              <code>vessel_publish_transcript</code> MCP tool. Summary HUD shows
+              a compact 2-line status surface; Full transcript shows the recent
+              entry list.
+            </p>
+          </div>
+
+          <div class="settings-field">
             <label class="settings-toggle">
               <input
                 type="checkbox"
@@ -239,11 +276,15 @@ const Settings: Component = () => {
 
       <style>{`
         .settings-panel {
-          width: 420px;
+          width: min(420px, calc(100vw - 32px));
+          max-height: calc(100vh - 48px);
           background: var(--bg-elevated);
           border: 1px solid var(--border-visible);
           border-radius: var(--radius-lg);
-          padding: 24px;
+          padding: 30px 24px 24px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-gutter: stable;
           box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
         }
         .settings-title {

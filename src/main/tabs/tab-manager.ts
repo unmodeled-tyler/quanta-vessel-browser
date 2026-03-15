@@ -26,6 +26,9 @@ export class TabManager {
     const id = randomUUID();
     const tab = new Tab(id, url, () => this.broadcastState(), {
       adBlockingEnabled: options?.adBlockingEnabled,
+      onOpenUrl: ({ url: requestedUrl, background, adBlockingEnabled }) => {
+        this.createTab(requestedUrl, { background, adBlockingEnabled });
+      },
     });
     this.tabs.set(id, tab);
     this.order.push(id);

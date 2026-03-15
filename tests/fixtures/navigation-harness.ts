@@ -20,6 +20,9 @@ function renderPage(title: string, body: string): string {
       <a href="/anchor-source">Anchor test</a>
       <a href="/offscreen-anchor-source">Offscreen anchor</a>
       <a href="/js-source">JS test</a>
+      <a href="/obstructed-anchor-source">Obstructed anchor</a>
+      <a href="/blank-anchor-source">Target blank</a>
+      <a href="/window-open-source">Window open</a>
       <a href="/get-form">GET form</a>
       <a href="/post-form">POST form</a>
       <a href="/external-submit">External submit</a>
@@ -134,6 +137,69 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>JS Dest</h1>
             <p>Reached the JS destination.</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/obstructed-anchor-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "obstructed-anchor-source",
+          `
+            <h1>Obstructed Anchor Source</h1>
+            <p>The visible link is covered by a transparent overlay that steals pointer clicks.</p>
+            <div style="position: relative; width: 320px; height: 72px;">
+              <a
+                id="go-obstructed-anchor"
+                href="/anchor-dest"
+                style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 16px; background: #eef3ff; color: #17325c; text-decoration: none;"
+              >
+                Go to Anchor Dest Through Overlay
+              </a>
+              <div
+                aria-hidden="true"
+                style="position: absolute; inset: 0; background: rgba(255, 255, 255, 0.01); z-index: 2;"
+              ></div>
+            </div>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/blank-anchor-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "blank-anchor-source",
+          `
+            <h1>Target Blank Source</h1>
+            <a id="go-blank-anchor" href="/anchor-dest" target="_blank" rel="noopener noreferrer">
+              Open Anchor Dest In New Tab
+            </a>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/window-open-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "window-open-source",
+          `
+            <h1>Window Open Source</h1>
+            <button
+              id="go-window-open"
+              type="button"
+              onclick="window.open('/js-dest', '_blank', 'noopener')"
+            >
+              Open JS Dest In New Tab
+            </button>
           `,
         ),
       );

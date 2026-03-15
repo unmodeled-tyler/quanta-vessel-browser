@@ -7,6 +7,10 @@ import type {
   BookmarkFolder,
   BookmarksState,
 } from "../../shared/types";
+import {
+  getBookmarkSearchMatch,
+  type BookmarkSearchField,
+} from "../../shared/bookmark-search";
 
 export const UNSORTED_ID = "unsorted";
 export const ARCHIVE_FOLDER_NAME = "Archive";
@@ -16,6 +20,18 @@ export interface BookmarkFolderOverview {
   name: string;
   summary?: string;
   count: number;
+}
+
+export type DuplicateBookmarkPolicy = "ask" | "update" | "duplicate";
+
+export interface SaveBookmarkOptions {
+  onDuplicate?: DuplicateBookmarkPolicy;
+}
+
+export interface SaveBookmarkResult {
+  status: "created" | "updated" | "conflict";
+  bookmark?: Bookmark;
+  existing?: Bookmark;
 }
 
 let state: BookmarksState | null = null;
@@ -95,6 +111,26 @@ export function getBookmarkByUrl(url: string): Bookmark | null {
   return bookmark ? { ...bookmark } : null;
 }
 
+export function getBookmarkByUrlInFolder(
+  url: string,
+  folderId?: string,
+): Bookmark | null {
+  load();
+  const normalizedUrl = url.trim();
+  if (!normalizedUrl) return null;
+  const targetFolderId =
+    folderId && folderId !== UNSORTED_ID
+      ? (state!.folders.find((f) => f.id === folderId)?.id ?? UNSORTED_ID)
+      : UNSORTED_ID;
+
+  const bookmark = [...state!.bookmarks]
+    .reverse()
+    .find(
+      (item) => item.url === normalizedUrl && item.folderId === targetFolderId,
+    );
+  return bookmark ? { ...bookmark } : null;
+}
+
 export function getFolder(id: string): BookmarkFolder | null {
   load();
   if (!id || id === UNSORTED_ID) return null;
@@ -137,34 +173,43 @@ export function listFolderOverviews(): BookmarkFolderOverview[] {
 export function searchBookmarks(query: string): Array<{
   bookmark: Bookmark;
   folder: BookmarkFolder | null;
+  matchedFields: BookmarkSearchField[];
+  score: number;
 }> {
   load();
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
+  if (!query.trim()) return [];
 
   return state!.bookmarks
-    .filter((bookmark) => {
+    .map((bookmark) => {
       const folder = state!.folders.find(
         (item) => item.id === bookmark.folderId,
       );
-      const haystacks = [
-        bookmark.title,
-        bookmark.url,
-        bookmark.note,
-        folder?.name,
-        folder?.summary,
-      ];
-      return haystacks.some(
-        (value) =>
-          typeof value === "string" && value.toLowerCase().includes(normalized),
-      );
+      const { matchedFields, score } = getBookmarkSearchMatch({
+        query,
+        title: bookmark.title,
+        url: bookmark.url,
+        note: bookmark.note,
+        folder: folder?.name,
+        folderSummary: folder?.summary,
+      });
+      return {
+        bookmark,
+        folder: folder ?? null,
+        matchedFields,
+        score,
+      };
     })
-    .map((bookmark) => ({
-      bookmark: { ...bookmark },
-      folder:
-        state!.folders.find((item) => item.id === bookmark.folderId) ?? null,
+    .filter((result) => result.matchedFields.length > 0)
+    .map((result) => ({
+      bookmark: { ...result.bookmark },
+      folder: result.folder ? { ...result.folder } : null,
+      matchedFields: [...result.matchedFields],
+      score: result.score,
     }))
-    .sort((a, b) => b.bookmark.savedAt.localeCompare(a.bookmark.savedAt));
+    .sort(
+      (a, b) =>
+        b.score - a.score || b.bookmark.savedAt.localeCompare(a.bookmark.savedAt),
+    );
 }
 
 export function createFolder(name: string): BookmarkFolder {
@@ -222,13 +267,65 @@ export function saveBookmark(
   folderId?: string,
   note?: string,
 ): Bookmark {
+  const result = saveBookmarkWithPolicy(url, title, folderId, note, {
+    onDuplicate: "update",
+  });
+  if (!result.bookmark) {
+    throw new Error("Bookmark save failed");
+  }
+  return result.bookmark;
+}
+
+export function saveBookmarkWithPolicy(
+  url: string,
+  title: string,
+  folderId?: string,
+  note?: string,
+  options?: SaveBookmarkOptions,
+): SaveBookmarkResult {
   load();
   const normalizedUrl = url.trim();
+  if (!normalizedUrl) {
+    throw new Error("Bookmark URL cannot be empty");
+  }
   const normalizedTitle = title.trim() || normalizedUrl;
   const targetId =
     folderId && folderId !== UNSORTED_ID
       ? (state!.folders.find((f) => f.id === folderId)?.id ?? UNSORTED_ID)
       : UNSORTED_ID;
+  const duplicatePolicy = options?.onDuplicate ?? "ask";
+  const existing = getBookmarkByUrlInFolder(normalizedUrl, targetId);
+
+  if (existing) {
+    if (duplicatePolicy === "ask") {
+      return {
+        status: "conflict",
+        existing,
+      };
+    }
+
+    if (duplicatePolicy === "update") {
+      const bookmark = state!.bookmarks.find((item) => item.id === existing.id);
+      if (!bookmark) {
+        return {
+          status: "conflict",
+          existing,
+        };
+      }
+
+      bookmark.title = normalizedTitle;
+      if (note !== undefined) {
+        bookmark.note = note.trim() || undefined;
+      }
+      bookmark.savedAt = new Date().toISOString();
+      save();
+      emit();
+      return {
+        status: "updated",
+        bookmark: { ...bookmark },
+      };
+    }
+  }
 
   const bookmark: Bookmark = {
     id: randomUUID(),
@@ -241,7 +338,10 @@ export function saveBookmark(
   state!.bookmarks.push(bookmark);
   save();
   emit();
-  return bookmark;
+  return {
+    status: "created",
+    bookmark,
+  };
 }
 
 export function removeBookmark(id: string): boolean {

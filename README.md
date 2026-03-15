@@ -108,6 +108,9 @@ The installer:
 - clones or updates Vessel into `~/.local/share/vessel-browser`
 - installs dependencies and builds the app
 - creates a `vessel-browser` launcher in `~/.local/bin`
+- creates a `vessel-browser-launch` helper in `~/.local/bin`
+- creates a `vessel-browser-update` helper in `~/.local/bin`
+- creates a `vessel-browser-status` helper in `~/.local/bin`
 - creates a desktop entry for Linux app launchers
 - writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
 - writes `~/.config/vessel/mcp-http-snippet.json`
@@ -241,6 +244,16 @@ Generic HTTP MCP config:
 }
 ```
 
+Hermes Agent `config.yaml` MCP config:
+
+```yaml
+mcp_servers:
+  vessel:
+    url: "http://127.0.0.1:3100/mcp"
+    timeout: 180
+    connect_timeout: 30
+```
+
 ## Packaging And Releases
 
 For the current MVP, the supported packaged target is:
@@ -274,11 +287,61 @@ Recommended GitHub settings:
 - create the `dev` branch in the remote repository
 - enable branch protection on `main` if you want extra safety against manual direct pushes
 
-The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
+The installer writes both snippets to:
+
+- `~/.config/vessel/mcp-http-snippet.json`
+- `~/.config/vessel/mcp-hermes-snippet.yaml`
+
+It also installs a helper command:
 
 ```bash
 vessel-browser-mcp
 ```
+
+Helper examples:
+
+```bash
+# Generic JSON snippet
+vessel-browser-mcp
+
+# Hermes-ready YAML snippet
+vessel-browser-mcp --format hermes
+
+# Raw MCP endpoint URL
+vessel-browser-mcp --format url
+```
+
+Source install update helpers:
+
+```bash
+# Check whether a source-install update is available
+vessel-browser-update --check
+
+# Fetch, rebuild, and update the local source install
+vessel-browser-update
+```
+
+Status helper:
+
+```bash
+# Human-readable local install + MCP status
+vessel-browser-status
+
+# Machine-readable status for harnesses
+vessel-browser-status --json
+```
+
+Smart launch helper:
+
+```bash
+# Launch Vessel using the best available local install
+vessel-browser-launch
+
+# Show the chosen launch path without starting anything
+vessel-browser-launch --dry-run
+```
+
+`vessel-browser-launch` prefers a healthy source install and falls back to the newest local AppImage when the source install is likely blocked by Electron sandbox permissions.
 
 ## Keyboard Shortcuts
 
