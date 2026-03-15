@@ -19,14 +19,14 @@ jobs:
     steps:
       - name: Verify branch setup
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/${{ github.repository }}/branches/dev > /dev/null
 
       - name: Check whether dev is ahead of main
         id: compare
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ahead_by=$(gh api repos/${{ github.repository }}/compare/main...dev --jq '.ahead_by')
           echo "ahead_by=$ahead_by" >> "$GITHUB_OUTPUT"
@@ -39,7 +39,7 @@ jobs:
         if: steps.compare.outputs.ahead_by != '0'
         id: promotion_pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pr_number=$(gh pr list --state open --base main --head dev --json number --jq '.[0].number // empty')
 
@@ -60,7 +60,7 @@ jobs:
       - name: Wait for PR checks to pass
         if: steps.compare.outputs.ahead_by != '0'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
           gh pr checks "$PR_NUMBER" --watch --fail-fast
@@ -68,7 +68,7 @@ jobs:
       - name: Merge promotion PR
         if: steps.compare.outputs.ahead_by != '0'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
           pr_head_sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')

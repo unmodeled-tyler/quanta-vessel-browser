@@ -26,6 +26,7 @@ import {
   writeMemoryNote,
 } from "../memory/obsidian";
 import { setMcpHealth } from "../health/runtime-health";
+import packageJson from "../../../package.json";
 
 let httpServer: http.Server | null = null;
 
@@ -3239,7 +3240,7 @@ function createMcpServer(
 ): McpServer {
   const server = new McpServer({
     name: "vessel-browser",
-    version: "0.1.0",
+    version: packageJson.version,
   });
   registerTools(server, tabManager, runtime);
   return server;

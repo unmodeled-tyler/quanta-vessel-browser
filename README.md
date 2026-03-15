@@ -267,7 +267,8 @@ Recommended branch flow:
 - every push to `dev` runs the preview AppImage workflow and updates the rolling `edge` prerelease
 - `main` stays stable for users
 - a scheduled workflow on `main` opens or refreshes a `dev -> main` PR once per day, waits for PR checks, and merges only if they pass
-- `v*` tags on `main` still produce official stable releases
+- every successful push to `main` creates the next `v*` release tag automatically so promoted builds publish a stable release without a manual tag push
+- `v*` tags on `main` produce official stable releases
 
 Recommended GitHub settings:
 
