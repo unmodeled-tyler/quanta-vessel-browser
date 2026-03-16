@@ -9,7 +9,7 @@ const TitleBar: Component = () => {
         <button
           class="window-btn"
           onClick={() => window.vessel.window.minimize()}
-          title="Minimize"
+          data-tooltip="Minimize"
         >
           <svg width="10" height="10" viewBox="0 0 10 10">
             <rect x="1" y="5" width="8" height="1" fill="currentColor" />
@@ -18,7 +18,7 @@ const TitleBar: Component = () => {
         <button
           class="window-btn"
           onClick={() => window.vessel.window.maximize()}
-          title="Maximize"
+          data-tooltip="Maximize"
         >
           <svg width="10" height="10" viewBox="0 0 10 10">
             <rect
@@ -35,7 +35,7 @@ const TitleBar: Component = () => {
         <button
           class="window-btn window-btn-close"
           onClick={() => window.vessel.window.close()}
-          title="Close"
+          data-tooltip="Close"
         >
           <svg width="10" height="10" viewBox="0 0 10 10">
             <line

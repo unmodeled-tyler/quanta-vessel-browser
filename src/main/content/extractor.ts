@@ -380,8 +380,29 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return indexCounter;
     }
 
+    function ariaBoolean(el, attr) {
+      var val = el.getAttribute(attr);
+      if (val === "true") return true;
+      if (val === "false") return false;
+      return undefined;
+    }
+
+    function fieldMeta(el) {
+      var meta = {};
+      if (el.name) meta.name = el.name;
+      var ac = el.getAttribute("autocomplete");
+      if (ac) meta.autocomplete = ac;
+      var elType = (el.type || "").toLowerCase();
+      if (elType === "checkbox" || elType === "radio") meta.checked = !!el.checked;
+      if (el.maxLength >= 0) meta.maxLength = el.maxLength;
+      var min = el.getAttribute("min"); if (min) meta.min = min;
+      var max = el.getAttribute("max"); if (max) meta.max = max;
+      var pattern = el.getAttribute("pattern"); if (pattern) meta.pattern = pattern;
+      return meta;
+    }
+
     function serializeInteractive(el, kind) {
-      const base = {
+      var base = {
         type: kind,
         context: contextOf(el),
         selector: selectorFor(el),
@@ -390,6 +411,9 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         description: descriptionFor(el),
         ...visibilityState(el),
         disabled: disabled(el),
+        ariaExpanded: ariaBoolean(el, "aria-expanded"),
+        ariaPressed: ariaBoolean(el, "aria-pressed"),
+        ariaSelected: ariaBoolean(el, "aria-selected"),
       };
 
       if (kind === "link") {
@@ -412,8 +436,9 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
           ...base,
           label: labelFor(el)?.slice(0, 100),
           value: text(el.value),
-          options: Array.from(el.options || []).map((option) => text(option.textContent || option.value)).filter(Boolean).slice(0, 25),
+          options: Array.from(el.options || []).map(function(option) { return { label: text(option.textContent || option.value) || option.value, value: option.value }; }).filter(function(o) { return o.label || o.value; }).slice(0, 25),
           required: el.hasAttribute("required") || undefined,
+          ...fieldMeta(el),
         };
       }
 
@@ -424,16 +449,19 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
           placeholder: text(el.getAttribute("placeholder")),
           value: text(el.value),
           required: el.hasAttribute("required") || undefined,
+          ...fieldMeta(el),
         };
       }
 
+      var elType = (el.type || "").toLowerCase();
       return {
         ...base,
         label: labelFor(el)?.slice(0, 100),
         inputType: text(el.getAttribute("type")),
         placeholder: text(el.getAttribute("placeholder")),
-        value: ["password"].includes((el.type || "").toLowerCase()) ? undefined : text(el.value),
+        value: (elType === "password" || elType === "checkbox" || elType === "radio") ? undefined : text(el.value),
         required: el.hasAttribute("required") || undefined,
+        ...fieldMeta(el),
       };
     }
 
@@ -628,19 +656,23 @@ const SAFE_EXTRACTION_SCRIPT = String.raw`
     Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea"))
       .forEach((el) => {
         const tag = el.tagName.toLowerCase();
+        var elType = (el.type || "").toLowerCase();
         interactiveElements.push({
           type: tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
           label: labelFor(el)?.slice(0, 100),
           inputType: text(el.getAttribute && el.getAttribute("type")),
           placeholder: text(el.getAttribute && el.getAttribute("placeholder")),
-          value: tag === "select" ? text(el.value) : ((el.type || "").toLowerCase() === "password" ? undefined : text(el.value)),
+          value: tag === "select" ? text(el.value) : (elType === "password" || elType === "checkbox" || elType === "radio") ? undefined : text(el.value),
           options: tag === "select"
-            ? Array.from(el.options || []).map((option) => text(option.textContent || option.value)).filter(Boolean).slice(0, 25)
+            ? Array.from(el.options || []).map(function(option) { return { label: text(option.textContent || option.value) || option.value, value: option.value }; }).filter(function(o) { return o.label || o.value; }).slice(0, 25)
             : undefined,
           required: !!(el.hasAttribute && el.hasAttribute("required")) || undefined,
           index: nextIndex(),
           visible: true,
           disabled: !!(el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true")),
+          name: el.name || undefined,
+          autocomplete: text(el.getAttribute && el.getAttribute("autocomplete")),
+          checked: (elType === "checkbox" || elType === "radio") ? !!el.checked : undefined,
         });
       });
 

@@ -707,7 +707,7 @@ async function getPostActionState(
     "reload",
     "press_key",
   ];
-  const interactActions = ["type", "type_text", "select_option"];
+  const interactActions = ["type", "type_text", "select_option", "hover", "focus"];
   const tabActions = ["create_tab", "switch_tab", "close_tab"];
 
   if (navActions.includes(name)) {
@@ -788,12 +788,12 @@ async function setElementValue(
   return wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return 'Element not found';
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-        return 'Element is not a text input';
+        return 'Error[not-input]: Element is not a text input';
       }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-        return 'Input is disabled';
+        return 'Error[disabled]: Input is disabled';
       }
       const prototype = el instanceof HTMLTextAreaElement
         ? HTMLTextAreaElement.prototype
@@ -815,6 +815,104 @@ async function setElementValue(
       return 'Typed into: ' +
         (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
         ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
+}
+
+async function typeKeystroke(
+  wc: Electron.WebContents,
+  selector: string,
+  value: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (async function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        return 'Error[not-input]: Element is not a text input';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Error[disabled]: Input is disabled';
+      }
+      el.focus();
+      const prototype = el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(el, '');
+      } else {
+        el.value = '';
+      }
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: '', inputType: 'deleteContentBackward' }));
+      const chars = ${JSON.stringify(value)}.split('');
+      for (const ch of chars) {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true, cancelable: true }));
+        el.dispatchEvent(new KeyboardEvent('keypress', { key: ch, bubbles: true, cancelable: true }));
+        if (descriptor && descriptor.set) {
+          descriptor.set.call(el, el.value + ch);
+        } else {
+          el.value += ch;
+        }
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true, cancelable: true }));
+      }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Typed into: ' +
+        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
+        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
+}
+
+async function hoverElement(
+  wc: Electron.WebContents,
+  selector: string,
+): Promise<string> {
+  const pos = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.' };
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return { error: 'Error[hidden]: Element has no visible area' };
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+      const label = (el.textContent || el.tagName || 'Element').trim().slice(0, 80);
+      return {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        label: label,
+      };
+    })()
+  `);
+
+  if (!pos || typeof pos !== "object") return "Error: Could not hover element";
+  if ("error" in pos && typeof pos.error === "string") return pos.error;
+  const x = typeof pos.x === "number" ? pos.x : null;
+  const y = typeof pos.y === "number" ? pos.y : null;
+  if (x == null || y == null) return "Error: Could not resolve hover coordinates";
+
+  wc.sendInputEvent({ type: "mouseMove", x, y });
+  const label = typeof pos.label === "string" ? pos.label : "element";
+  return `Hovered: ${label}`;
+}
+
+async function focusElement(
+  wc: Electron.WebContents,
+  selector: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
+      if (!(el instanceof HTMLElement)) return 'Error[not-interactive]: Element is not focusable';
+      if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') {
+        return 'Error[disabled]: Element is disabled';
+      }
+      el.focus({ preventScroll: false });
+      return 'Focused: ' + (el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
     })()
   `);
 }
@@ -1804,6 +1902,74 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_hover",
+    {
+      title: "Hover Element",
+      description:
+        "Move the mouse pointer over an element to trigger hover states, tooltips, or dropdown menus.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
+        selector: z.string().optional().describe("CSS selector as fallback"),
+      },
+    },
+    async ({ index, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "hover",
+        { index, selector },
+        async () => {
+          const wc = tab.view.webContents;
+          const resolvedSelector = await resolveSelector(wc, index, selector);
+          if (!resolvedSelector) {
+            return "Error: No index or selector provided";
+          }
+          return hoverElement(wc, resolvedSelector);
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_focus",
+    {
+      title: "Focus Element",
+      description:
+        "Focus an input, button, or interactive element. Useful before pressing keys or to trigger focus-dependent UI.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
+        selector: z.string().optional().describe("CSS selector as fallback"),
+      },
+    },
+    async ({ index, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "focus",
+        { index, selector },
+        async () => {
+          const wc = tab.view.webContents;
+          const resolvedSelector = await resolveSelector(wc, index, selector);
+          if (!resolvedSelector) {
+            return "Error: No index or selector provided";
+          }
+          return focusElement(wc, resolvedSelector);
+        },
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_extract_text",
     {
       title: "Extract Element Text",
@@ -1904,16 +2070,22 @@ function registerTools(
           .describe("Element index from the page content listing"),
         selector: z.string().optional().describe("CSS selector as fallback"),
         text: z.string().describe("The text to type"),
+        mode: z
+          .enum(["default", "keystroke"])
+          .optional()
+          .describe(
+            '"default" sets value directly and fires input+change events. "keystroke" simulates character-by-character key events for apps that validate on keypress.',
+          ),
       },
     },
-    async ({ index, selector, text }) => {
+    async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
         runtime,
         tabManager,
         "type",
-        { index, selector, text },
+        { index, selector, text, mode },
         async () => {
           const resolvedSelector = await resolveSelector(
             tab.view.webContents,
@@ -1922,6 +2094,13 @@ function registerTools(
           );
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
+          }
+          if (mode === "keystroke") {
+            return typeKeystroke(
+              tab.view.webContents,
+              resolvedSelector,
+              text,
+            );
           }
           return setElementValue(tab.view.webContents, resolvedSelector, text);
         },
@@ -1942,16 +2121,22 @@ function registerTools(
           .describe("Element index from the page content listing"),
         selector: z.string().optional().describe("CSS selector as fallback"),
         text: z.string().describe("The text to type"),
+        mode: z
+          .enum(["default", "keystroke"])
+          .optional()
+          .describe(
+            '"default" sets value directly and fires input+change events. "keystroke" simulates character-by-character key events for apps that validate on keypress.',
+          ),
       },
     },
-    async ({ index, selector, text }) => {
+    async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
         runtime,
         tabManager,
         "type_text",
-        { index, selector, text },
+        { index, selector, text, mode },
         async () => {
           const resolvedSelector = await resolveSelector(
             tab.view.webContents,
@@ -1960,6 +2145,13 @@ function registerTools(
           );
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
+          }
+          if (mode === "keystroke") {
+            return typeKeystroke(
+              tab.view.webContents,
+              resolvedSelector,
+              text,
+            );
           }
           return setElementValue(tab.view.webContents, resolvedSelector, text);
         },

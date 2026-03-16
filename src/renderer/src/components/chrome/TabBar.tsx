@@ -1,8 +1,48 @@
-import { For, createMemo, createSignal, onCleanup, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, type Component } from "solid-js";
 import { useTabs } from "../../stores/tabs";
 import { useRuntime } from "../../stores/runtime";
 import { getAgentActiveTabIds } from "../../lib/agentActivity";
 import "./chrome.css";
+
+/** Generate a stable hue from a string (URL or title) for the avatar background. */
+function stringToHue(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return ((hash % 360) + 360) % 360;
+}
+
+const TabFavicon = (props: { favicon?: string; title: string; url: string }) => {
+  const [failed, setFailed] = createSignal(false);
+  const letter = () => {
+    const t = props.title?.trim();
+    if (t && t !== "New Tab") return t[0].toUpperCase();
+    try { return new URL(props.url).hostname[0]?.toUpperCase() || "?"; } catch { return "?"; }
+  };
+  const hue = () => stringToHue(props.url || props.title || "");
+
+  return (
+    <Show
+      when={props.favicon && !failed()}
+      fallback={
+        <span
+          class="tab-favicon-fallback"
+          style={{ "--favicon-hue": `${hue()}` }}
+        >
+          {letter()}
+        </span>
+      }
+    >
+      <img
+        class="tab-favicon"
+        src={props.favicon}
+        alt=""
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  );
+};
 
 const TabBar: Component = () => {
   const { tabs, activeTabId, switchTab, closeTab, createTab } = useTabs();
@@ -37,9 +77,7 @@ const TabBar: Component = () => {
               }
               role="tab"
             >
-              {tab.favicon && (
-                <img class="tab-favicon" src={tab.favicon} alt="" />
-              )}
+              <TabFavicon favicon={tab.favicon} title={tab.title || "New Tab"} url={tab.url} />
               {modelActiveTabIds().has(tab.id) && (
                 <span
                   class="tab-agent-indicator"
@@ -62,7 +100,7 @@ const TabBar: Component = () => {
           )}
         </For>
       </div>
-      <button class="tab-new" onClick={() => createTab()} title="New Tab">
+      <button class="tab-new" onClick={() => createTab()} data-tooltip="New Tab">
         +
       </button>
     </div>

@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   onCleanup,
+  Show,
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
@@ -32,6 +33,10 @@ const AddressBar: Component = () => {
     getLatestAgentStatusMessage(runtimeState(), now()),
   );
 
+  const pendingApprovalCount = createMemo(
+    () => runtimeState().supervisor.pendingApprovals.length,
+  );
+
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
@@ -56,7 +61,7 @@ const AddressBar: Component = () => {
           class="nav-btn"
           onClick={goBack}
           disabled={!activeTab()?.canGoBack}
-          title="Back"
+          data-tooltip="Back"
         >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <path
@@ -73,7 +78,7 @@ const AddressBar: Component = () => {
           class="nav-btn"
           onClick={goForward}
           disabled={!activeTab()?.canGoForward}
-          title="Forward"
+          data-tooltip="Forward"
         >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <path
@@ -86,7 +91,7 @@ const AddressBar: Component = () => {
             />
           </svg>
         </button>
-        <button class="nav-btn" onClick={reload} title="Reload">
+        <button class="nav-btn" onClick={reload} data-tooltip="Reload">
           <svg width="14" height="14" viewBox="0 0 14 14">
             <path
               d="M2.5 7a4.5 4.5 0 1 1 1 3"
@@ -142,7 +147,7 @@ const AddressBar: Component = () => {
         <button
           class="nav-btn"
           onClick={() => window.vessel.content.toggleReader()}
-          title="Reader Mode"
+          data-tooltip="Reader Mode"
         >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
@@ -182,9 +187,14 @@ const AddressBar: Component = () => {
           </svg>
         </button>
         <button
-          class="nav-btn"
+          class="nav-btn nav-btn-sidebar"
+          classList={{ "has-approvals": pendingApprovalCount() > 0 }}
           onClick={toggleSidebar}
-          title="AI Sidebar (Ctrl+Shift+L)"
+          title={
+            pendingApprovalCount() > 0
+              ? `AI Sidebar — ${pendingApprovalCount()} pending approval${pendingApprovalCount() > 1 ? "s" : ""}`
+              : "AI Sidebar (Ctrl+Shift+L)"
+          }
         >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
@@ -206,11 +216,16 @@ const AddressBar: Component = () => {
               stroke-width="1.2"
             />
           </svg>
+          <Show when={pendingApprovalCount() > 0}>
+            <span class="nav-btn-badge" aria-label={`${pendingApprovalCount()} pending`}>
+              {pendingApprovalCount()}
+            </span>
+          </Show>
         </button>
         <button
           class="nav-btn"
           onClick={openSettings}
-          title="Settings (Ctrl+,)"
+          data-tooltip="Settings"
         >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <circle

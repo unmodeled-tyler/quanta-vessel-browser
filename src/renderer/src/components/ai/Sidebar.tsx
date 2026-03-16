@@ -18,6 +18,7 @@ import {
   normalizeBookmarkSearchText,
 } from "../../../../shared/bookmark-search";
 import type { BookmarkFolder } from "../../../../shared/types";
+import { useScrollFade } from "../../lib/useScrollFade";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
 
@@ -159,6 +160,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     removeFolder,
     renameFolder,
   } = useBookmarks();
+  const [sidebarTab, setSidebarTab] = createSignal<"supervisor" | "bookmarks" | "checkpoints">("supervisor");
   const [checkpointName, setCheckpointName] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
   const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
@@ -471,7 +473,43 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </div>
         </div>
 
-        <div class="sidebar-messages" ref={messagesContainerRef}>
+        <div class="sidebar-tabs" role="tablist">
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "supervisor" }}
+            role="tab"
+            aria-selected={sidebarTab() === "supervisor"}
+            onClick={() => setSidebarTab("supervisor")}
+          >
+            Supervisor
+            <Show when={runtimeState().supervisor.pendingApprovals.length > 0}>
+              <span class="sidebar-tab-badge">
+                {runtimeState().supervisor.pendingApprovals.length}
+              </span>
+            </Show>
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "bookmarks" }}
+            role="tab"
+            aria-selected={sidebarTab() === "bookmarks"}
+            onClick={() => setSidebarTab("bookmarks")}
+          >
+            Bookmarks
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "checkpoints" }}
+            role="tab"
+            aria-selected={sidebarTab() === "checkpoints"}
+            onClick={() => setSidebarTab("checkpoints")}
+          >
+            Checkpoints
+          </button>
+        </div>
+
+        <div class="sidebar-messages" ref={(el) => { messagesContainerRef = el; useScrollFade(el); }}>
+          <Show when={sidebarTab() === "supervisor"}>
           <section class="agent-panel">
             <div class="agent-panel-header">
               <div>
@@ -529,7 +567,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               <div class="agent-section-title">Pending approvals</div>
               <For each={runtimeState().supervisor.pendingApprovals}>
                 {(approval) => (
-                  <div class="agent-card">
+                  <div class="agent-card agent-card-approval">
+                    <div class="agent-card-approval-stripe" aria-hidden="true" />
                     <div class="agent-card-title">{approval.name}</div>
                     <div class="agent-card-copy">{approval.argsSummary}</div>
                     <div class="agent-card-copy">{approval.reason}</div>
@@ -604,7 +643,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </Show>
             </Show>
           </section>
+          </Show>
 
+          <Show when={sidebarTab() === "bookmarks"}>
           <section class="bookmark-panel">
             <div class="bookmark-panel-header">
               <div>
@@ -888,80 +929,81 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </Show>
             </div>
           </section>
+          </Show>
 
+          <Show when={sidebarTab() === "checkpoints"}>
           <section class="agent-panel checkpoint-panel">
-            <button
-              class="agent-panel-toggle"
-              type="button"
-              onClick={() => setCheckpointsExpanded((current) => !current)}
-            >
-              <span class="agent-panel-toggle-copy">
-                <span class="agent-panel-title">Checkpoints</span>
-                <span class="agent-panel-subtitle">
+            <div class="agent-panel-header">
+              <div>
+                <div class="agent-panel-title">Checkpoints</div>
+                <div class="agent-panel-subtitle">
                   {recentCheckpoints().length > 0
                     ? `${recentCheckpoints().length} saved snapshots`
                     : "Save and restore session snapshots"}
-                </span>
-              </span>
-              <span
-                class="agent-panel-toggle-caret"
-                classList={{ expanded: checkpointsExpanded() }}
-                aria-hidden="true"
-              >
-                ▾
-              </span>
-            </button>
-
-            <Show when={checkpointsExpanded()}>
-              <div class="agent-panel-body">
-                <div class="agent-checkpoint-row">
-                  <input
-                    class="agent-input"
-                    value={checkpointName()}
-                    onInput={(e) => setCheckpointName(e.currentTarget.value)}
-                    placeholder="Checkpoint name"
-                  />
-                  <button
-                    class="agent-primary-button"
-                    type="button"
-                    onClick={async () => {
-                      const name = checkpointName().trim();
-                      await createCheckpoint(name || undefined);
-                      setCheckpointName("");
-                    }}
-                  >
-                    Save checkpoint
-                  </button>
                 </div>
+              </div>
+            </div>
 
-                <div class="agent-section-title">Recent checkpoints</div>
-                <Show
-                  when={recentCheckpoints().length > 0}
-                  fallback={<div class="agent-muted">No checkpoints yet.</div>}
+            <div class="agent-panel-body">
+              <div class="agent-checkpoint-row">
+                <input
+                  class="agent-input"
+                  value={checkpointName()}
+                  onInput={(e) => setCheckpointName(e.currentTarget.value)}
+                  placeholder="Checkpoint name"
+                />
+                <button
+                  class="agent-primary-button"
+                  type="button"
+                  onClick={async () => {
+                    const name = checkpointName().trim();
+                    await createCheckpoint(name || undefined);
+                    setCheckpointName("");
+                  }}
                 >
+                  Save checkpoint
+                </button>
+              </div>
+
+              <div class="agent-section-title">Recent checkpoints</div>
+              <Show
+                when={recentCheckpoints().length > 0}
+                fallback={<div class="agent-muted">No checkpoints yet.</div>}
+              >
+                <div class="checkpoint-timeline">
                   <For each={recentCheckpoints()}>
-                    {(checkpoint) => (
-                      <div class="agent-card compact">
-                        <div>
-                          <div class="agent-card-title">{checkpoint.name}</div>
-                          <div class="agent-card-copy">
+                    {(checkpoint, i) => (
+                      <div class="checkpoint-timeline-item">
+                        <div class="checkpoint-timeline-rail">
+                          <span
+                            class="checkpoint-timeline-dot"
+                            classList={{ latest: i() === 0 }}
+                          />
+                          <Show when={i() < recentCheckpoints().length - 1}>
+                            <span class="checkpoint-timeline-line" />
+                          </Show>
+                        </div>
+                        <div class="checkpoint-timeline-content">
+                          <div class="checkpoint-timeline-name">{checkpoint.name}</div>
+                          <div class="checkpoint-timeline-time">
                             {new Date(checkpoint.createdAt).toLocaleString()}
                           </div>
+                          <button
+                            class="agent-control-button"
+                            type="button"
+                            onClick={() => void restoreCheckpoint(checkpoint.id)}
+                          >
+                            Restore
+                          </button>
                         </div>
-                        <button
-                          class="agent-control-button"
-                          type="button"
-                          onClick={() => void restoreCheckpoint(checkpoint.id)}
-                        >
-                          Restore
-                        </button>
                       </div>
                     )}
                   </For>
-                </Show>
-              </div>
-            </Show>
+                </div>
+              </Show>
+            </div>
           </section>
+          </Show>
 
           <For each={messages()}>
             {(msg) => (
@@ -1006,10 +1048,19 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <Show when={messages().length === 0 && !isStreaming()}>
             <div class="sidebar-empty">
-              <p>External harnesses drive Vessel.</p>
+              <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border-visible)" stroke-width="1.5" />
+                <circle cx="24" cy="24" r="12" fill="none" stroke="var(--accent-primary)" stroke-width="1" opacity="0.3" />
+                <circle cx="24" cy="24" r="4" fill="none" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.6" />
+                <line x1="24" y1="4" x2="24" y2="12" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                <line x1="24" y1="36" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                <line x1="4" y1="24" x2="12" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                <line x1="36" y1="24" x2="44" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+              </svg>
+              <p class="sidebar-empty-title">Vessel is ready</p>
               <p class="sidebar-empty-hint">
-                Use this panel to watch runtime state, approvals, checkpoints,
-                and bookmarks.
+                External harnesses drive this browser. Use the tabs above to
+                watch runtime state, approvals, checkpoints, and bookmarks.
               </p>
             </div>
           </Show>

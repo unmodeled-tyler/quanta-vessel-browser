@@ -18,6 +18,7 @@ body,
     font-family: var(--font-ui);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     user-select: none;
 }
 
@@ -27,7 +28,7 @@ body,
 }
 
 ::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -35,12 +36,12 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--border-visible);
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+    background: rgba(255, 255, 255, 0.14);
 }
 
 input,
@@ -52,11 +53,15 @@ textarea {
     border-radius: var(--radius-sm);
     outline: none;
     font-size: 13px;
+    transition:
+        border-color var(--duration-normal) var(--ease-in-out),
+        box-shadow var(--duration-normal) var(--ease-in-out);
 }
 
 input:focus,
 textarea:focus {
     border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(196, 160, 90, 0.12);
 }
 
 button {
@@ -66,13 +71,179 @@ button {
     background: none;
     color: var(--text-secondary);
     font-size: 13px;
+    transition:
+        color var(--duration-fast) var(--ease-in-out),
+        background var(--duration-fast) var(--ease-in-out);
 }
 
 button:hover {
     color: var(--text-primary);
 }
 
+button:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
 /* Focus mode: hide chrome */
 .app.focus-mode .chrome {
     display: none;
+}
+
+/* ═══════════════════════════════════════
+   Loading progress bar
+   ═══════════════════════════════════════ */
+
+.chrome {
+    position: relative;
+}
+
+.loading-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        var(--accent-primary) 30%,
+        var(--accent-secondary) 70%,
+        transparent
+    );
+    background-size: 300% 100%;
+    animation:
+        loading-bar-enter var(--duration-normal) var(--ease-out-expo) both,
+        loading-bar-shimmer 1.6s ease-in-out infinite;
+    z-index: 10;
+}
+
+@keyframes loading-bar-enter {
+    from {
+        opacity: 0;
+        transform: scaleX(0.3);
+        transform-origin: left;
+    }
+    to {
+        opacity: 1;
+        transform: scaleX(1);
+        transform-origin: left;
+    }
+}
+
+@keyframes loading-bar-shimmer {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: -100% 0;
+    }
+}
+
+/* ═══════════════════════════════════════
+   Scroll fade indicators
+   ═══════════════════════════════════════ */
+
+.scroll-fade {
+    position: relative;
+}
+
+.scroll-fade::before,
+.scroll-fade::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 5px;
+    height: 24px;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity var(--duration-normal) var(--ease-in-out);
+}
+
+.scroll-fade::before {
+    top: 0;
+    background: linear-gradient(
+        to bottom,
+        var(--bg-secondary),
+        transparent
+    );
+}
+
+.scroll-fade::after {
+    bottom: 0;
+    background: linear-gradient(
+        to top,
+        var(--bg-secondary),
+        transparent
+    );
+}
+
+.scroll-fade.fade-top::before {
+    opacity: 1;
+}
+
+.scroll-fade.fade-bottom::after {
+    opacity: 1;
+}
+
+/* ═══════════════════════════════════════
+   Custom tooltips — CSS-only via [data-tooltip]
+   ═══════════════════════════════════════ */
+
+[data-tooltip] {
+    position: relative;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-visible);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 450;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 9999;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    transition:
+        opacity var(--duration-normal) var(--ease-in-out),
+        transform var(--duration-normal) var(--ease-out-expo);
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    transition-delay: 400ms;
+}
+
+/* Position variant — tooltip below */
+[data-tooltip-pos="bottom"]::after {
+    bottom: auto;
+    top: calc(100% + 6px);
+    transform: translateX(-50%) translateY(-4px);
+}
+
+[data-tooltip-pos="bottom"]:hover::after {
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Position variant — tooltip to the left */
+[data-tooltip-pos="left"]::after {
+    bottom: auto;
+    left: auto;
+    right: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%) translateX(4px);
+}
+
+[data-tooltip-pos="left"]:hover::after {
+    transform: translateY(-50%) translateX(0);
 }

@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { useRuntime } from "../../stores/runtime";
+import { useScrollFade } from "../../lib/useScrollFade";
 import type { AgentTranscriptDisplayMode } from "../../../../shared/types";
 import "./chrome.css";
 
@@ -69,14 +70,14 @@ const AgentTranscriptDock: Component = () => {
             <button
               class="agent-transcript-icon"
               onClick={() => setCollapsed((value) => !value)}
-              title={collapsed() ? "Expand transcript" : "Collapse transcript"}
+              data-tooltip={collapsed() ? "Expand" : "Collapse"}
             >
               {collapsed() ? "▴" : "▾"}
             </button>
             <button
               class="agent-transcript-icon"
               onClick={() => void hideDock()}
-              title="Hide transcript monitor"
+              data-tooltip="Hide"
             >
               ×
             </button>
@@ -84,7 +85,7 @@ const AgentTranscriptDock: Component = () => {
         </div>
 
         <Show when={!collapsed()}>
-          <div class="agent-transcript-list">
+          <div class="agent-transcript-list" ref={(el) => useScrollFade(el)}>
             <For each={visibleEntries()}>
               {(entry) => (
                 <article
