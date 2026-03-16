@@ -254,38 +254,7 @@ mcp_servers:
     connect_timeout: 30
 ```
 
-## Packaging And Releases
-
-For the current MVP, the supported packaged target is:
-
-- Linux x64 AppImage
-
-Repo commands:
-
-- `npm run smoke:test` — typecheck, production build, and Electron navigation regression
-- `npm run dist` — package the Linux AppImage
-- `npm run dist:dir` — package an unpacked Linux build
-
-Release automation lives in:
-
-- [ci.yml](./.github/workflows/ci.yml)
-- [preview-build.yml](./.github/workflows/preview-build.yml)
-- [promote-dev-to-main.yml](./.github/workflows/promote-dev-to-main.yml)
-- [release.yml](./.github/workflows/release.yml)
-- [release-checklist.md](./docs/release-checklist.md)
-
-Recommended branch flow:
-
-- `dev` is the day-to-day branch for active work
-- every push to `dev` runs the preview AppImage workflow and updates the rolling `edge` prerelease
-- `main` stays stable for users
-- a scheduled workflow on `main` opens or refreshes a `dev -> main` PR once per day, waits for PR checks, and merges only if they pass
-- `v*` tags on `main` still produce official stable releases
-
-Recommended GitHub settings:
-
-- create the `dev` branch in the remote repository
-- enable branch protection on `main` if you want extra safety against manual direct pushes
+## Configuration 
 
 The installer writes both snippets to:
 
