@@ -280,12 +280,6 @@ export function registerIpcHandlers(
     }
   });
 
-  // Forward page-view Ctrl+H captures to the chrome view for toast display
-  tabManager.setHighlightCaptureListener((result) => {
-    if (!chromeView.webContents.isDestroyed()) {
-      chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
-    }
-  });
 
   // --- Window controls ---
 
