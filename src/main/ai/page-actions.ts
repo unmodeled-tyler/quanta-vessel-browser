@@ -164,7 +164,7 @@ async function clickElement(
       }
 
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { error: "Element not found" };
+      if (!el) return { error: "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh." };
 
       if (el instanceof HTMLElement) {
         el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
@@ -188,7 +188,7 @@ async function clickElement(
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
-        return { error: "Element is not visible" };
+        return { error: "Error[hidden]: Element has no visible area" };
       }
 
       const points = samplePoints(rect);
@@ -700,12 +700,12 @@ async function setElementValue(
   return wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return 'Element not found';
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-        return 'Element is not a text input';
+        return 'Error[not-input]: Element is not a text input';
       }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-        return 'Input is disabled';
+        return 'Error[disabled]: Input is disabled';
       }
 
       const prototype = el instanceof HTMLTextAreaElement
@@ -729,6 +729,104 @@ async function setElementValue(
       return 'Typed into: ' +
         (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
         ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
+}
+
+async function typeKeystroke(
+  wc: WebContents,
+  selector: string,
+  value: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (async function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+        return 'Error[not-input]: Element is not a text input';
+      }
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+        return 'Error[disabled]: Input is disabled';
+      }
+      el.focus();
+      const prototype = el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(el, '');
+      } else {
+        el.value = '';
+      }
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: '', inputType: 'deleteContentBackward' }));
+      const chars = ${JSON.stringify(value)}.split('');
+      for (const ch of chars) {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true, cancelable: true }));
+        el.dispatchEvent(new KeyboardEvent('keypress', { key: ch, bubbles: true, cancelable: true }));
+        if (descriptor && descriptor.set) {
+          descriptor.set.call(el, el.value + ch);
+        } else {
+          el.value += ch;
+        }
+        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true, cancelable: true }));
+      }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'Typed into: ' +
+        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
+        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
+    })()
+  `);
+}
+
+async function hoverElement(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  const pos = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.' };
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return { error: 'Error[hidden]: Element has no visible area' };
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+      const label = (el.textContent || el.tagName || 'Element').trim().slice(0, 80);
+      return {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        label: label,
+      };
+    })()
+  `);
+
+  if (!pos || typeof pos !== "object") return "Error: Could not hover element";
+  if ("error" in pos && typeof pos.error === "string") return pos.error;
+  const x = typeof pos.x === "number" ? pos.x : null;
+  const y = typeof pos.y === "number" ? pos.y : null;
+  if (x == null || y == null) return "Error: Could not resolve hover coordinates";
+
+  wc.sendInputEvent({ type: "mouseMove", x, y });
+  const label = typeof pos.label === "string" ? pos.label : "element";
+  return `Hovered: ${label}`;
+}
+
+async function focusElement(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  return wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
+      if (!(el instanceof HTMLElement)) return 'Error[not-interactive]: Element is not focusable';
+      if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') {
+        return 'Error[disabled]: Element is disabled';
+      }
+      el.focus({ preventScroll: false });
+      return 'Focused: ' + (el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
     })()
   `);
 }
@@ -1302,7 +1400,7 @@ async function getPostActionState(
     "reload",
     "press_key",
   ];
-  const interactActions = ["type_text", "select_option"];
+  const interactActions = ["type_text", "select_option", "hover", "focus"];
   const tabActions = [
     "create_tab",
     "switch_tab",
@@ -1486,6 +1584,11 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
+          const mode =
+            typeof args.mode === "string" ? args.mode : "default";
+          if (mode === "keystroke") {
+            return typeKeystroke(wc, selector, String(args.text || ""));
+          }
           return setElementValue(wc, selector, String(args.text || ""));
         }
 
@@ -1534,6 +1637,20 @@ export async function executeAction(
           const dir = args.direction === "up" ? -pixels : pixels;
           const result = await scrollPage(wc, dir);
           return `Scrolled ${args.direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
+        }
+
+        case "hover": {
+          if (!wc) return "Error: No active tab";
+          const selector = await resolveSelector(wc, args.index, args.selector);
+          if (!selector) return "Error: No element index or selector provided";
+          return hoverElement(wc, selector);
+        }
+
+        case "focus": {
+          if (!wc) return "Error: No active tab";
+          const selector = await resolveSelector(wc, args.index, args.selector);
+          if (!selector) return "Error: No element index or selector provided";
+          return focusElement(wc, selector);
         }
 
         case "set_ad_blocking": {

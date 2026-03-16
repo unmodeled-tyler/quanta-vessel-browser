@@ -50,6 +50,36 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.disabled) {
     meta.push("disabled");
   }
+  if (el.checked !== undefined) {
+    meta.push(el.checked ? "checked" : "unchecked");
+  }
+  if (el.ariaExpanded !== undefined) {
+    meta.push(`expanded=${el.ariaExpanded}`);
+  }
+  if (el.ariaPressed !== undefined) {
+    meta.push(`pressed=${el.ariaPressed}`);
+  }
+  if (el.ariaSelected !== undefined) {
+    meta.push(`selected=${el.ariaSelected}`);
+  }
+  if (el.name) {
+    meta.push(`name="${el.name}"`);
+  }
+  if (el.autocomplete) {
+    meta.push(`autocomplete=${el.autocomplete}`);
+  }
+  if (el.maxLength != null && el.maxLength >= 0) {
+    meta.push(`maxlength=${el.maxLength}`);
+  }
+  if (el.min != null) {
+    meta.push(`min=${el.min}`);
+  }
+  if (el.max != null) {
+    meta.push(`max=${el.max}`);
+  }
+  if (el.pattern) {
+    meta.push(`pattern="${el.pattern}"`);
+  }
   if (el.description) {
     meta.push(`desc="${el.description.slice(0, 80)}"`);
   }
@@ -102,7 +132,12 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         parts.push(`[${el.label || "Select"}]`);
         parts.push("dropdown");
         if (el.options?.length) {
-          parts.push(`options=${el.options.slice(0, 5).join("|")}`);
+          parts.push(
+            `options=${el.options
+              .slice(0, 5)
+              .map((o) => (typeof o === "string" ? o : o.label || o.value))
+              .join("|")}`,
+          );
         }
       } else if (el.type === "textarea") {
         parts.push(`[${el.label || "Text Area"}]`);
@@ -182,7 +217,12 @@ function formatForms(forms: PageContent["forms"]): string {
             fieldParts.push(`[${field.label || "Select"}]`);
             fieldParts.push("dropdown");
             if (field.options?.length) {
-              fieldParts.push(`options=${field.options.slice(0, 5).join("|")}`);
+              fieldParts.push(
+                `options=${field.options
+                  .slice(0, 5)
+                  .map((o) => (typeof o === "string" ? o : o.label || o.value))
+                  .join("|")}`,
+              );
             }
           } else if (field.type === "textarea") {
             fieldParts.push(`[${field.label || "Text"}]`);

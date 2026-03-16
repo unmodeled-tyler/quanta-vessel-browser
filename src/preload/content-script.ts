@@ -8,6 +8,12 @@ import {
   escapeSelectorValue,
 } from "../shared/dom/selectors";
 
+// Mirror of InteractiveElement in src/shared/types.ts — keep in sync
+interface SelectOption {
+  label: string;
+  value: string;
+}
+
 interface InteractiveElement {
   type: "button" | "link" | "input" | "select" | "textarea";
   text?: string;
@@ -22,13 +28,23 @@ interface InteractiveElement {
   role?: string;
   description?: string;
   value?: string;
-  options?: string[];
+  options?: SelectOption[];
   visible?: boolean;
   inViewport?: boolean;
   fullyInViewport?: boolean;
   obscured?: boolean;
   blockedByOverlay?: boolean;
   disabled?: boolean;
+  name?: string;
+  autocomplete?: string;
+  ariaExpanded?: boolean;
+  ariaPressed?: boolean;
+  ariaSelected?: boolean;
+  checked?: boolean;
+  maxLength?: number;
+  min?: string;
+  max?: string;
+  pattern?: string;
 }
 
 interface HeadingStructure {
@@ -605,19 +621,34 @@ function getElementValue(
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     if (el.type === "password") return undefined;
     if (el.type === "checkbox" || el.type === "radio") {
-      return el.checked ? "checked" : "unchecked";
+      return undefined; // checkbox/radio state exposed via dedicated checked boolean
     }
     return getTrimmedText(el.value);
   }
   return undefined;
 }
 
-function getSelectOptions(el: HTMLSelectElement): string[] | undefined {
+function getSelectOptions(
+  el: HTMLSelectElement,
+): SelectOption[] | undefined {
   const options = Array.from(el.options)
-    .map((option) => option.textContent?.trim() || option.value.trim())
-    .filter(Boolean)
+    .map((option) => ({
+      label: option.textContent?.trim() || option.value.trim(),
+      value: option.value,
+    }))
+    .filter((o) => o.label || o.value)
     .slice(0, 25);
   return options.length > 0 ? options : undefined;
+}
+
+function getAriaBoolean(
+  el: Element,
+  attr: string,
+): boolean | undefined {
+  const val = el.getAttribute(attr);
+  if (val === "true") return true;
+  if (val === "false") return false;
+  return undefined;
 }
 
 function buildBaseMetadata(
@@ -635,6 +666,9 @@ function buildBaseMetadata(
   | "obscured"
   | "blockedByOverlay"
   | "disabled"
+  | "ariaExpanded"
+  | "ariaPressed"
+  | "ariaSelected"
 > {
   return {
     context: getElementContext(el),
@@ -644,6 +678,9 @@ function buildBaseMetadata(
     description: getElementDescription(el),
     ...getVisibilityState(el),
     disabled: isElementDisabled(el),
+    ariaExpanded: getAriaBoolean(el, "aria-expanded"),
+    ariaPressed: getAriaBoolean(el, "aria-pressed"),
+    ariaSelected: getAriaBoolean(el, "aria-selected"),
   };
 }
 
@@ -689,6 +726,35 @@ function extractNavigation(): InteractiveElement[] {
     seen.add(item.href);
     return true;
   });
+}
+
+function getFieldMetadata(
+  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+): Partial<InteractiveElement> {
+  const meta: Partial<InteractiveElement> = {};
+  const name = el.name;
+  if (name) meta.name = name;
+  const autocomplete = el.getAttribute("autocomplete");
+  if (autocomplete) meta.autocomplete = autocomplete;
+  if (
+    el instanceof HTMLInputElement &&
+    (el.type === "checkbox" || el.type === "radio")
+  ) {
+    meta.checked = el.checked;
+  }
+  if (el instanceof HTMLInputElement) {
+    if (el.maxLength >= 0) meta.maxLength = el.maxLength;
+    const min = el.getAttribute("min");
+    if (min) meta.min = min;
+    const max = el.getAttribute("max");
+    if (max) meta.max = max;
+    const pattern = el.getAttribute("pattern");
+    if (pattern) meta.pattern = pattern;
+  }
+  if (el instanceof HTMLTextAreaElement) {
+    if (el.maxLength >= 0) meta.maxLength = el.maxLength;
+  }
+  return meta;
 }
 
 function extractInteractiveElements(): InteractiveElement[] {
@@ -757,6 +823,7 @@ function extractInteractiveElements(): InteractiveElement[] {
             ? getSelectOptions(element)
             : undefined,
         ...buildBaseMetadata(input),
+        ...getFieldMetadata(element),
       });
     });
 
@@ -823,6 +890,7 @@ function extractForms(): Array<{
               ? getSelectOptions(element)
               : undefined,
           ...buildBaseMetadata(input),
+          ...getFieldMetadata(element),
         });
       });
 

@@ -98,6 +98,12 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         index: { type: "number", description: "The element index number" },
         selector: { type: "string", description: "CSS selector as fallback" },
         text: { type: "string", description: "The text to type" },
+        mode: {
+          type: "string",
+          enum: ["default", "keystroke"],
+          description:
+            '"default" sets value directly and fires input+change events. "keystroke" simulates character-by-character key events for apps that validate on keypress.',
+        },
       },
       required: ["text"],
     },
@@ -181,6 +187,30 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["direction"],
+    },
+  },
+  {
+    name: "hover",
+    description:
+      "Move the mouse pointer over an element to trigger hover states, tooltips, or dropdown menus.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        index: { type: "number", description: "Element index number" },
+        selector: { type: "string", description: "CSS selector as fallback" },
+      },
+    },
+  },
+  {
+    name: "focus",
+    description:
+      "Focus an input, button, or interactive element. Useful before pressing keys or to trigger focus-dependent UI.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        index: { type: "number", description: "Element index number" },
+        selector: { type: "string", description: "CSS selector as fallback" },
+      },
     },
   },
   {

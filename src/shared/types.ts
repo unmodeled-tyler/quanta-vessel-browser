@@ -10,6 +10,11 @@ export interface TabState {
   adBlockingEnabled: boolean;
 }
 
+export interface SelectOption {
+  label: string;
+  value: string;
+}
+
 export interface InteractiveElement {
   type: "button" | "link" | "input" | "select" | "textarea";
   text?: string;
@@ -24,13 +29,23 @@ export interface InteractiveElement {
   role?: string;
   description?: string;
   value?: string;
-  options?: string[];
+  options?: SelectOption[];
   visible?: boolean;
   inViewport?: boolean;
   fullyInViewport?: boolean;
   obscured?: boolean;
   blockedByOverlay?: boolean;
   disabled?: boolean;
+  name?: string;
+  autocomplete?: string;
+  ariaExpanded?: boolean;
+  ariaPressed?: boolean;
+  ariaSelected?: boolean;
+  checked?: boolean;
+  maxLength?: number;
+  min?: string;
+  max?: string;
+  pattern?: string;
 }
 
 export interface HeadingStructure {
