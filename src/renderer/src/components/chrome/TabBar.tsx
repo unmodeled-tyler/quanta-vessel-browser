@@ -62,7 +62,7 @@ const TabBar: Component = () => {
           )}
         </For>
       </div>
-      <button class="tab-new" onClick={() => createTab()} title="New Tab">
+      <button class="tab-new" onClick={() => createTab()} data-tooltip="New Tab">
         +
       </button>
     </div>

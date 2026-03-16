@@ -223,24 +223,32 @@ const Settings: Component = () => {
 
           <div class="settings-field">
             <label class="settings-toggle">
-              <input
-                type="checkbox"
-                checked={autoRestoreSession()}
-                onChange={(e) => setAutoRestoreSession(e.currentTarget.checked)}
-              />
+              <button
+                type="button"
+                class="toggle-switch"
+                classList={{ on: autoRestoreSession() }}
+                onClick={() => setAutoRestoreSession(!autoRestoreSession())}
+                role="switch"
+                aria-checked={autoRestoreSession()}
+              >
+                <span class="toggle-switch-thumb" />
+              </button>
               <span>Restore last browser session on launch</span>
             </label>
           </div>
 
           <div class="settings-field">
             <label class="settings-toggle">
-              <input
-                type="checkbox"
-                checked={clearBookmarksOnLaunch()}
-                onChange={(e) =>
-                  setClearBookmarksOnLaunch(e.currentTarget.checked)
-                }
-              />
+              <button
+                type="button"
+                class="toggle-switch"
+                classList={{ on: clearBookmarksOnLaunch() }}
+                onClick={() => setClearBookmarksOnLaunch(!clearBookmarksOnLaunch())}
+                role="switch"
+                aria-checked={clearBookmarksOnLaunch()}
+              >
+                <span class="toggle-switch-thumb" />
+              </button>
               <span>Start bookmarks fresh on launch</span>
             </label>
             <p class="settings-hint">
@@ -395,16 +403,50 @@ const Settings: Component = () => {
         .settings-toggle {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
           color: var(--text-primary);
           font-size: 13px;
           cursor: pointer;
           padding: 6px 0;
         }
-        .settings-toggle input {
-          width: 15px;
-          height: 15px;
-          accent-color: var(--accent-primary);
+        .toggle-switch {
+          position: relative;
+          width: 36px;
+          height: 20px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 0;
+          flex-shrink: 0;
+          cursor: pointer;
+          transition:
+            background var(--duration-normal) var(--ease-in-out),
+            border-color var(--duration-normal) var(--ease-in-out);
+        }
+        .toggle-switch:hover {
+          background: rgba(255, 255, 255, 0.14);
+        }
+        .toggle-switch.on {
+          background: var(--accent-primary);
+          border-color: transparent;
+        }
+        .toggle-switch.on:hover {
+          background: #7a6db7;
+        }
+        .toggle-switch-thumb {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 14px;
+          height: 14px;
+          border-radius: 999px;
+          background: var(--text-primary);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+          transition: transform var(--duration-normal) var(--ease-out-expo);
+          pointer-events: none;
+        }
+        .toggle-switch.on .toggle-switch-thumb {
+          transform: translateX(16px);
         }
         .settings-status {
           margin-top: 14px;

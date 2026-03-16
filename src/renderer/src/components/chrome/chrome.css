@@ -101,6 +101,20 @@
     transition:
         background var(--duration-normal) var(--ease-in-out),
         color var(--duration-normal) var(--ease-in-out);
+    animation: tab-open var(--duration-slow) var(--ease-out-expo) both;
+}
+
+@keyframes tab-open {
+    from {
+        max-width: 0;
+        padding: 0;
+        opacity: 0;
+    }
+    to {
+        max-width: 200px;
+        padding: 0 12px;
+        opacity: 1;
+    }
 }
 
 .tab-item:hover {
@@ -421,6 +435,50 @@
     flex-shrink: 0;
 }
 
+/* Sidebar button — approval notification badge */
+.nav-btn-sidebar {
+    position: relative;
+}
+
+.nav-btn-sidebar.has-approvals {
+    color: var(--accent-warm);
+    animation: approval-attention 2s ease-in-out infinite;
+}
+
+@keyframes approval-attention {
+    0%, 100% { color: var(--accent-warm); }
+    50% { color: var(--text-primary); }
+}
+
+.nav-btn-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: var(--accent-warm);
+    color: #1a1a1e;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    pointer-events: none;
+    animation: badge-enter var(--duration-enter) var(--ease-out-back) both;
+}
+
+@keyframes badge-enter {
+    from {
+        opacity: 0;
+        transform: scale(0);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
 
 /* ═══════════════════════════════════════
    Bookmark toast notifications — animated
@@ -595,6 +653,15 @@
     gap: 6px;
     padding: 10px 12px 12px;
     overflow: auto;
+    position: relative;
+}
+
+.agent-transcript-list.scroll-fade::before {
+    background: linear-gradient(to bottom, rgba(30, 30, 34, 0.95), transparent);
+}
+
+.agent-transcript-list.scroll-fade::after {
+    background: linear-gradient(to top, rgba(24, 24, 28, 0.95), transparent);
 }
 
 .agent-transcript-entry {

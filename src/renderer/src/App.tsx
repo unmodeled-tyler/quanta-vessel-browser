@@ -1,4 +1,4 @@
-import { onMount, onCleanup, type Component } from "solid-js";
+import { onMount, onCleanup, Show, type Component } from "solid-js";
 import TitleBar from "./components/chrome/TitleBar";
 import TabBar from "./components/chrome/TabBar";
 import AddressBar from "./components/chrome/AddressBar";
@@ -21,7 +21,7 @@ const App: Component = () => {
     openSettings,
     focusMode,
   } = useUI();
-  const { createTab, closeTab, activeTabId } = useTabs();
+  const { createTab, closeTab, activeTabId, activeTab } = useTabs();
 
   onMount(() => {
     if (view !== "chrome") return;
@@ -52,6 +52,9 @@ const App: Component = () => {
         <TitleBar />
         <TabBar />
         <AddressBar />
+        <Show when={activeTab()?.isLoading}>
+          <div class="loading-bar" />
+        </Show>
       </div>
       <CommandBar />
       <Settings />
