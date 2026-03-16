@@ -1,11 +1,11 @@
-import { createSignal, Show, type Component } from 'solid-js';
+import { createSignal, For, Show, type Component } from 'solid-js';
 import { useUI } from '../../stores/ui';
 import { useAI } from '../../stores/ai';
 import './ai.css';
 
 const CommandBar: Component = () => {
   const { commandBarOpen, closeCommandBar, toggleSidebar } = useUI();
-  const { query, streamingText, isStreaming, cancel } = useAI();
+  const { query, recentQueries, isStreaming, cancel } = useAI();
   const [input, setInput] = createSignal('');
   let inputRef: HTMLInputElement | undefined;
 
@@ -15,9 +15,15 @@ const CommandBar: Component = () => {
     if (!val || isStreaming()) return;
     setInput('');
     closeCommandBar();
-    // Open sidebar to show response
     await toggleSidebar();
     await query(val);
+  };
+
+  const handleRecentClick = async (q: string) => {
+    setInput('');
+    closeCommandBar();
+    await toggleSidebar();
+    await query(q);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -29,7 +35,6 @@ const CommandBar: Component = () => {
     }
   };
 
-  // Auto-focus when opened
   const setRef = (el: HTMLInputElement) => {
     inputRef = el;
     setTimeout(() => el.focus(), 0);
@@ -72,6 +77,24 @@ const CommandBar: Component = () => {
               spellcheck={false}
             />
           </form>
+          <Show when={recentQueries().length > 0 && !input().trim()}>
+            <div class="command-bar-recent">
+              <span class="command-bar-recent-label">Recent</span>
+              <div class="command-bar-recent-list">
+                <For each={recentQueries()}>
+                  {(q) => (
+                    <button
+                      class="command-bar-recent-item"
+                      type="button"
+                      onClick={() => void handleRecentClick(q)}
+                    >
+                      {q}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
           <div class="command-bar-hints">
             <span>
               <kbd>Enter</kbd> to ask

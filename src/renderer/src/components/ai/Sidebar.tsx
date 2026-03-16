@@ -567,7 +567,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               <div class="agent-section-title">Pending approvals</div>
               <For each={runtimeState().supervisor.pendingApprovals}>
                 {(approval) => (
-                  <div class="agent-card">
+                  <div class="agent-card agent-card-approval">
+                    <div class="agent-card-approval-stripe" aria-hidden="true" />
                     <div class="agent-card-title">{approval.name}</div>
                     <div class="agent-card-copy">{approval.argsSummary}</div>
                     <div class="agent-card-copy">{approval.reason}</div>
@@ -969,25 +970,36 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 when={recentCheckpoints().length > 0}
                 fallback={<div class="agent-muted">No checkpoints yet.</div>}
               >
-                <For each={recentCheckpoints()}>
-                  {(checkpoint) => (
-                    <div class="agent-card compact">
-                      <div>
-                        <div class="agent-card-title">{checkpoint.name}</div>
-                        <div class="agent-card-copy">
-                          {new Date(checkpoint.createdAt).toLocaleString()}
+                <div class="checkpoint-timeline">
+                  <For each={recentCheckpoints()}>
+                    {(checkpoint, i) => (
+                      <div class="checkpoint-timeline-item">
+                        <div class="checkpoint-timeline-rail">
+                          <span
+                            class="checkpoint-timeline-dot"
+                            classList={{ latest: i() === 0 }}
+                          />
+                          <Show when={i() < recentCheckpoints().length - 1}>
+                            <span class="checkpoint-timeline-line" />
+                          </Show>
+                        </div>
+                        <div class="checkpoint-timeline-content">
+                          <div class="checkpoint-timeline-name">{checkpoint.name}</div>
+                          <div class="checkpoint-timeline-time">
+                            {new Date(checkpoint.createdAt).toLocaleString()}
+                          </div>
+                          <button
+                            class="agent-control-button"
+                            type="button"
+                            onClick={() => void restoreCheckpoint(checkpoint.id)}
+                          >
+                            Restore
+                          </button>
                         </div>
                       </div>
-                      <button
-                        class="agent-control-button"
-                        type="button"
-                        onClick={() => void restoreCheckpoint(checkpoint.id)}
-                      >
-                        Restore
-                      </button>
-                    </div>
-                  )}
-                </For>
+                    )}
+                  </For>
+                </div>
               </Show>
             </div>
           </section>

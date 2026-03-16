@@ -310,8 +310,8 @@ const Settings: Component = () => {
           margin-bottom: 20px;
           padding: 14px;
           border-radius: var(--radius-md);
-          border: 1px solid rgba(159, 184, 255, 0.14);
-          background: rgba(159, 184, 255, 0.06);
+          border: 1px solid rgba(224, 200, 120, 0.14);
+          background: rgba(224, 200, 120, 0.06);
         }
         .settings-callout-title {
           font-size: 12px;
@@ -385,7 +385,7 @@ const Settings: Component = () => {
         }
         .settings-input:focus {
           border-color: var(--accent-primary);
-          box-shadow: 0 0 0 2px rgba(139, 126, 200, 0.1);
+          box-shadow: 0 0 0 2px rgba(196, 160, 90, 0.1);
           outline: none;
         }
         .settings-hint {
@@ -431,7 +431,7 @@ const Settings: Component = () => {
           border-color: transparent;
         }
         .toggle-switch.on:hover {
-          background: #7a6db7;
+          background: #d4b06a;
         }
         .toggle-switch-thumb {
           position: absolute;
@@ -476,7 +476,7 @@ const Settings: Component = () => {
           background: var(--accent-primary);
           color: white;
         }
-        .settings-save:hover { background: #7a6db7; }
+        .settings-save:hover { background: #d4b06a; }
         .settings-close {
           background: var(--bg-tertiary);
           color: var(--text-secondary);

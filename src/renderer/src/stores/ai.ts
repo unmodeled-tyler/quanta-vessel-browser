@@ -1,11 +1,13 @@
 import { createSignal } from "solid-js";
 import type { AIMessage } from "../../../shared/types";
 
+const MAX_RECENT_QUERIES = 5;
 const [messages, setMessages] = createSignal<AIMessage[]>([]);
 const [streamingText, setStreamingText] = createSignal("");
 const [isStreaming, setIsStreaming] = createSignal(false);
 const [hasFirstChunk, setHasFirstChunk] = createSignal(false);
 const [streamStartedAt, setStreamStartedAt] = createSignal<number | null>(null);
+const [recentQueries, setRecentQueries] = createSignal<string[]>([]);
 
 let initialized = false;
 
@@ -48,7 +50,12 @@ export function useAI() {
     isStreaming,
     hasFirstChunk,
     streamStartedAt,
+    recentQueries,
     query: async (prompt: string) => {
+      setRecentQueries((prev) => {
+        const filtered = prev.filter((q) => q !== prompt);
+        return [prompt, ...filtered].slice(0, MAX_RECENT_QUERIES);
+      });
       await window.vessel.ai.query(prompt);
     },
     cancel: () => window.vessel.ai.cancel(),

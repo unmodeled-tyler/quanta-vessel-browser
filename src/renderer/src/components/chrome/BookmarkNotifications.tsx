@@ -13,9 +13,11 @@ interface ToastItem {
   id: string;
   title: string;
   message: string;
+  leaving: boolean;
 }
 
 const TOAST_DURATION_MS = 4200;
+const TOAST_EXIT_MS = 300;
 
 function isBookmarkToastCandidate(action: AgentActionEntry): boolean {
   return (
@@ -38,7 +40,16 @@ const BookmarkNotifications: Component = () => {
       window.clearTimeout(timeoutId);
       timeoutIds.delete(toastId);
     }
-    setToasts((current) => current.filter((toast) => toast.id !== toastId));
+
+    // Mark as leaving to trigger exit animation
+    setToasts((current) =>
+      current.map((t) => (t.id === toastId ? { ...t, leaving: true } : t)),
+    );
+
+    // Remove after exit animation completes
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((t) => t.id !== toastId));
+    }, TOAST_EXIT_MS);
   };
 
   createEffect(() => {
@@ -65,6 +76,7 @@ const BookmarkNotifications: Component = () => {
         id: action.id,
         title,
         message: action.resultSummary || action.argsSummary,
+        leaving: false,
       };
 
       setToasts((current) => [...current.slice(-2), toast]);
@@ -87,7 +99,11 @@ const BookmarkNotifications: Component = () => {
     <div class="bookmark-toast-stack" aria-live="polite" aria-atomic="true">
       <For each={toasts()}>
         {(toast) => (
-          <div class="bookmark-toast" role="status">
+          <div
+            class="bookmark-toast"
+            classList={{ "bookmark-toast-leaving": toast.leaving }}
+            role="status"
+          >
             <div class="bookmark-toast-title">{toast.title}</div>
             <div class="bookmark-toast-message">{toast.message}</div>
           </div>
