@@ -112,6 +112,32 @@ export function removeHighlight(id: string): StoredHighlight | null {
   return removed;
 }
 
+export function findHighlightByText(
+  url: string,
+  text: string,
+): StoredHighlight | null {
+  load();
+  const normalized = normalizeUrl(url);
+  return (
+    state!.highlights.find(
+      (h) => h.url === normalized && h.text && h.text === text,
+    ) ?? null
+  );
+}
+
+export function updateHighlightColor(
+  id: string,
+  color: HighlightColor,
+): StoredHighlight | null {
+  load();
+  const highlight = state!.highlights.find((h) => h.id === id);
+  if (!highlight) return null;
+  highlight.color = color;
+  save();
+  emit();
+  return highlight;
+}
+
 export function clearHighlightsForUrl(url: string): number {
   load();
   const normalized = normalizeUrl(url);

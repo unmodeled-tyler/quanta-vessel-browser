@@ -68,6 +68,7 @@ Instructions:
 - Use save_session after completing a login flow you may need again later, and load_session to resume that authenticated state in future runs.
 - Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.
 - After clicking or navigating, use read_page to see the updated content.
+- If the user says they highlighted or selected text, use read_page before falling back to screenshots because it includes active selection and visible unsaved highlights.
 - If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.
 - For broad discovery tasks, prefer direct sources, official sites, venue directories, and site-specific search over generic search engines, which often rate-limit automated browser traffic.
 - If the page context reports a rate limit, human verification, or access warning, stop using that page and switch to a different source.

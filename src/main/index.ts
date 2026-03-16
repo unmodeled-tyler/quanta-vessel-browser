@@ -1,4 +1,4 @@
-import { app, dialog, Menu } from "electron";
+import { app, dialog, globalShortcut, Menu } from "electron";
 import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
@@ -13,8 +13,6 @@ import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
 import { installAdBlocking } from "./network/ad-blocking";
 import * as bookmarkManager from "./bookmarks/manager";
-import * as highlightsManager from "./highlights/manager";
-import { highlightOnPage } from "./highlights/inject";
 import {
   getRuntimeHealth,
   initializeRuntimeHealth,
@@ -139,8 +137,29 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers(windowState, runtime);
 
-  // Application-level keyboard shortcuts via Menu accelerators.
-  // This ensures shortcuts work regardless of which WebContentsView has focus.
+  // Register global shortcut for Ctrl+H highlight capture
+  const registerHighlightShortcut = () => {
+    globalShortcut.unregister("CommandOrControl+H");
+    const success = globalShortcut.register("CommandOrControl+H", () => {
+      console.log("[Vessel] Ctrl+H shortcut triggered");
+      const activeTab = tabManager.getActiveTab();
+      if (!activeTab) {
+        console.log("[Vessel] No active tab");
+        return;
+      }
+      tabManager.captureHighlightFromActiveTab();
+    });
+    console.log("[Vessel] Ctrl+H shortcut registered:", success);
+    if (!success) {
+      console.warn("[Vessel] Failed to register Ctrl+H shortcut");
+    }
+  };
+  registerHighlightShortcut();
+
+  // Re-register shortcut when window gains focus (needed on some platforms)
+  windowState.mainWindow.on("focus", registerHighlightShortcut);
+
+  // Application menu with standard edit operations
   const appMenu = Menu.buildFromTemplate([
     {
       label: "Edit",
@@ -152,79 +171,6 @@ async function bootstrap(): Promise<void> {
         { role: "copy" },
         { role: "paste" },
         { role: "selectAll" },
-      ],
-    },
-    {
-      label: "Highlights",
-      submenu: [
-        {
-          label: "Capture Highlight",
-          accelerator: "CmdOrCtrl+H",
-          click: () => {
-            const activeTab = tabManager.getActiveTab();
-            if (!activeTab) return;
-            const wc = activeTab.view.webContents;
-            if (wc.isDestroyed()) return;
-            const url = wc.getURL();
-            if (!url || url === "about:blank") return;
-
-            void (async () => {
-              try {
-                const selectedText: string = await wc.executeJavaScript(`
-                  (function() {
-                    var sel = window.getSelection();
-                    return sel ? sel.toString().trim() : '';
-                  })()
-                `);
-
-                if (!selectedText) {
-                  chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, {
-                    success: false,
-                    message: "No text selected — select text on the page first",
-                  });
-                  return;
-                }
-
-                const capped =
-                  selectedText.length > 5000
-                    ? selectedText.slice(0, 5000)
-                    : selectedText;
-
-                const highlight = highlightsManager.addHighlight(
-                  url,
-                  undefined,
-                  capped,
-                  undefined,
-                  "yellow",
-                  "user",
-                );
-
-                await highlightOnPage(
-                  wc,
-                  null,
-                  capped,
-                  undefined,
-                  undefined,
-                  "yellow",
-                ).catch(() => {});
-
-                if (!chromeView.webContents.isDestroyed()) {
-                  chromeView.webContents.send(
-                    Channels.HIGHLIGHT_CAPTURE_RESULT,
-                    { success: true, text: capped, id: highlight.id },
-                  );
-                }
-              } catch {
-                if (!chromeView.webContents.isDestroyed()) {
-                  chromeView.webContents.send(
-                    Channels.HIGHLIGHT_CAPTURE_RESULT,
-                    { success: false, message: "Could not capture selection" },
-                  );
-                }
-              }
-            })();
-          },
-        },
       ],
     },
   ]);
@@ -276,6 +222,7 @@ app.whenReady().then(bootstrap).catch((error) => {
 });
 
 app.on("window-all-closed", () => {
+  globalShortcut.unregisterAll();
   void stopMcpServer().finally(() => {
     app.quit();
   });

@@ -1,7 +1,7 @@
 // Content script preload - injected into web page views
 // Provides readability-based content extraction + structured context for AI agents
 
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import { Readability } from "@mozilla/readability";
 import {
   generateStableSelector,
@@ -1214,4 +1214,9 @@ function resolveElementSelector(index: number): string | null {
 contextBridge.exposeInMainWorld("__vessel", {
   extractContent: vesselExtractContent,
   getElementSelector: resolveElementSelector,
+  notifyHighlightSelection: (text: string) => {
+    if (typeof text === "string" && text.trim()) {
+      ipcRenderer.send("vessel:highlight-selection", text.trim());
+    }
+  },
 });

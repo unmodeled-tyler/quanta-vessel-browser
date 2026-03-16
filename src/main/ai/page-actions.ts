@@ -3,7 +3,12 @@ import type { AgentCheckpoint } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import * as bookmarkManager from "../bookmarks/manager";
+import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, clearHighlights } from "../highlights/inject";
+import {
+  captureLiveHighlightSnapshot,
+  formatLiveSelectionSection,
+} from "../highlights/live-snapshot";
 import { extractContent } from "../content/extractor";
 import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
@@ -1543,12 +1548,21 @@ export async function executeAction(
         case "read_page": {
           if (!wc) return "Error: No active tab";
           const content = await extractContent(wc);
+          const liveSelectionSection = formatLiveSelectionSection(
+            await captureLiveHighlightSnapshot(
+              wc,
+              highlightsManager.getHighlightsForUrl(content.url),
+            ),
+          );
           const structured = buildStructuredContext(content);
           const truncated =
             content.content.length > 20000
               ? content.content.slice(0, 20000) + "\n[Content truncated...]"
               : content.content;
-          return `${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+          const livePrefix = liveSelectionSection
+            ? `${liveSelectionSection}\n\n`
+            : "";
+          return `${livePrefix}${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
         }
 
         case "wait_for": {

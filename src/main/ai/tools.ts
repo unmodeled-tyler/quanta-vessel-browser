@@ -254,7 +254,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "read_page",
     description:
-      "Re-read the current page content. Use after navigation or interaction to see updated content.",
+      "Re-read the current page content. Includes active text selection and visible unsaved highlights on the active tab when present. Use after navigation or interaction to see updated content.",
     input_schema: {
       type: "object" as const,
       properties: {},

@@ -728,14 +728,9 @@ export function buildScopedContext(
         `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
       );
       if (summaryHighlights.length > 0) {
-        const userCount = summaryHighlights.filter((h) => h.source === "user").length;
-        const agentCount = summaryHighlights.length - userCount;
-        const parts: string[] = [];
-        if (userCount > 0) parts.push(`${userCount} user`);
-        if (agentCount > 0) parts.push(`${agentCount} agent`);
-        sections.push(
-          `Highlights: ${summaryHighlights.length} (${parts.join(", ")}) — use vessel_list_highlights for details`,
-        );
+        sections.push("");
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(summaryHighlights));
       }
       if ((page.structuredData?.length ?? 0) > 0) {
         if (hasOnlyFallbackStructuredData(page)) {
@@ -776,6 +771,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const interactivesHighlights = getHighlightsForPage(page.url);
+      if (interactivesHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(interactivesHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -811,6 +812,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const formsHighlights = getHighlightsForPage(page.url);
+      if (formsHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(formsHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -841,6 +848,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const textHighlights = getHighlightsForPage(page.url);
+      if (textHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(textHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -868,6 +881,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const visibleHighlights = getHighlightsForPage(page.url);
+      if (visibleHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(visibleHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -913,6 +932,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const resultsHighlights = getHighlightsForPage(page.url);
+      if (resultsHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(resultsHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));

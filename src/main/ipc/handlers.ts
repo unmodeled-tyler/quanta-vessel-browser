@@ -280,6 +280,48 @@ export function registerIpcHandlers(
     }
   });
 
+  // Forward context-menu highlight captures to the chrome view for toast
+  tabManager.onHighlightCapture((result) => {
+    if (!chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
+    }
+  });
+
+  // Handle auto-highlight selections from highlight mode (sent from page via preload)
+  // Visual marking is already done in-page by the mouseup handler — this just persists
+  ipcMain.on(Channels.HIGHLIGHT_SELECTION, (event, text: string) => {
+    try {
+      const wc = event.sender;
+      if (wc.isDestroyed()) return;
+
+      const tab = tabManager.findTabByWebContentsId(wc.id);
+      if (!tab || !tab.highlightModeActive) return;
+
+      const url = wc.getURL();
+      if (!url || url === "about:blank") return;
+
+      const capped = text.length > 5000 ? text.slice(0, 5000) : text;
+
+      const highlight = highlightsManager.addHighlight(
+        url,
+        undefined,
+        capped,
+        undefined,
+        "yellow",
+        "user",
+      );
+
+      if (!chromeView.webContents.isDestroyed()) {
+        chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, {
+          success: true,
+          text: capped,
+          id: highlight.id,
+        });
+      }
+    } catch {
+      // Silently ignore errors from auto-highlight
+    }
+  });
 
   // --- Window controls ---
 

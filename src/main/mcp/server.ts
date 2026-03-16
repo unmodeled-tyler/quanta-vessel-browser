@@ -24,6 +24,10 @@ import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, clearHighlights } from "../highlights/inject";
+import {
+  captureLiveHighlightSnapshot,
+  formatLiveSelectionSection,
+} from "../highlights/live-snapshot";
 import * as namedSessionManager from "../sessions/manager";
 import {
   appendToMemoryNote,
@@ -1373,12 +1377,20 @@ function registerTools(
     "results_only",
   ];
 
-  function buildExtractResponse(
+  async function buildExtractResponse(
     pageContent: PageContent,
     mode: ExtractMode,
     adBlockingEnabled: boolean,
-  ): string {
+    wc?: Electron.WebContents,
+  ): Promise<string> {
     const adBlockLine = `**Ad Blocking:** ${adBlockingEnabled ? "On" : "Off"}`;
+    const savedHighlights = highlightsManager.getHighlightsForUrl(pageContent.url);
+    const liveSelectionSection = wc
+      ? formatLiveSelectionSection(
+          await captureLiveHighlightSnapshot(wc, savedHighlights),
+        )
+      : null;
+    const livePrefix = liveSelectionSection ? `\n\n${liveSelectionSection}` : "";
 
     if (mode === "full") {
       const structured = buildStructuredContext(pageContent);
@@ -1386,12 +1398,12 @@ function registerTools(
         pageContent.content.length > 30000
           ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
           : pageContent.content;
-      return `${adBlockLine}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+      return `${adBlockLine}${livePrefix}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
     }
     if (mode === "text_only") {
-      return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
+      return `${adBlockLine}${livePrefix}\n\n${buildScopedContext(pageContent, mode)}`;
     }
-    return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
+    return `${adBlockLine}${livePrefix}\n\n${buildScopedContext(pageContent, mode)}`;
   }
 
   server.registerTool(
@@ -1417,10 +1429,11 @@ function registerTools(
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
         return asTextResponse(
-          buildExtractResponse(
+          await buildExtractResponse(
             pageContent,
             effectiveMode,
             tab.state.adBlockingEnabled,
+            tab.view.webContents,
           ),
         );
       } catch (error) {
@@ -1436,7 +1449,7 @@ function registerTools(
     {
       title: "Read Page",
       description:
-        "Alias for vessel_extract_content. Supports same modes: full, summary, interactives_only, forms_only, text_only, visible_only, results_only.",
+        "Read the active tab's page content. Includes saved highlights plus any active text selection or visible unsaved highlights on the page. Supports modes: full (default — includes highlights section), summary, interactives_only, forms_only, text_only, visible_only, results_only.",
       inputSchema: {
         mode: z
           .enum(EXTRACT_MODES as [string, ...string[]])
@@ -1454,10 +1467,11 @@ function registerTools(
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
         return asTextResponse(
-          buildExtractResponse(
+          await buildExtractResponse(
             pageContent,
             effectiveMode,
             tab.state.adBlockingEnabled,
+            tab.view.webContents,
           ),
         );
       } catch (error) {
@@ -1479,10 +1493,11 @@ function registerTools(
       const activeId = tabManager.getActiveTabId();
       const lines = tabManager
         .getAllStates()
-        .map(
-          (tab) =>
-            `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]`,
-        );
+        .map((tab) => {
+          const hlCount = highlightsManager.getHighlightsForUrl(tab.url).length;
+          const hlTag = hlCount > 0 ? ` [highlights:${hlCount}]` : "";
+          return `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]${hlTag}`;
+        });
       return asTextResponse(lines.join("\n") || "No tabs open");
     },
   );
@@ -2607,31 +2622,110 @@ function registerTools(
   server.registerTool(
     "vessel_list_highlights",
     {
-      title: "List Persistent Highlights",
+      title: "List Highlights",
       description:
-        "List all persistent highlights (both user-created and agent-created). Each highlight has a 'source' field ('user' or 'agent'). User highlights are created by the user selecting text and pressing Ctrl+H. Optionally filter by URL.",
+        "List highlights related to the current browsing session. Includes saved persistent highlights plus the active tab's live text selection and any visible unsaved highlight marks. IMPORTANT: When the user says they highlighted or selected text, call this tool before falling back to screenshots or vision.",
       inputSchema: {
         url: z
           .string()
           .optional()
           .describe(
-            "URL to list highlights for. Omit to list all saved highlights.",
+            "URL to list highlights for. Omit to see active tab highlights first, then all others.",
           ),
       },
     },
     async ({ url }) => {
       const state = highlightsManager.getState();
-      const filtered = url
-        ? state.highlights.filter(
-            (h) => h.url === highlightsManager.normalizeUrl(url),
-          )
-        : state.highlights;
-      if (filtered.length === 0) {
-        return asTextResponse(
-          url ? `No saved highlights for ${url}` : "No saved highlights",
+      const activeTab = tabManager.getActiveTab();
+      const activeUrl = activeTab
+        ? highlightsManager.normalizeUrl(activeTab.view.webContents.getURL())
+        : null;
+      const activeSavedHighlights =
+        activeUrl
+          ? state.highlights.filter((highlight) => highlight.url === activeUrl)
+          : [];
+      const liveSnapshot =
+        activeTab && activeUrl
+          ? await captureLiveHighlightSnapshot(
+              activeTab.view.webContents,
+              activeSavedHighlights,
+            )
+          : { pageHighlights: [] };
+      const unsavedLiveHighlights = liveSnapshot.pageHighlights.filter(
+        (highlight) => !highlight.persisted,
+      );
+
+      if (url) {
+        const filtered = state.highlights.filter(
+          (h) => h.url === highlightsManager.normalizeUrl(url),
+        );
+        const normalizedUrl = highlightsManager.normalizeUrl(url);
+        const sections: string[] = [];
+        if (activeUrl && activeUrl === normalizedUrl) {
+          if (liveSnapshot.activeSelection) {
+            sections.push(
+              `## Active selection (${activeUrl})\n${JSON.stringify(liveSnapshot.activeSelection, null, 2)}`,
+            );
+          }
+          if (unsavedLiveHighlights.length > 0) {
+            sections.push(
+              `## Visible unsaved highlights (${activeUrl})\n${JSON.stringify(unsavedLiveHighlights, null, 2)}`,
+            );
+          }
+        }
+        if (filtered.length > 0) {
+          sections.push(
+            `## Saved highlights (${normalizedUrl})\n${JSON.stringify(filtered, null, 2)}`,
+          );
+        }
+        if (sections.length === 0) {
+          return asTextResponse(`No highlights or active selection for ${url}`);
+        }
+        return asTextResponse(sections.join("\n\n"));
+      }
+
+      // No URL filter — show active tab's highlights prominently first
+      const activeHighlights = activeSavedHighlights;
+      const otherHighlights =
+        activeUrl
+          ? state.highlights.filter((h) => h.url !== activeUrl)
+          : state.highlights;
+
+      const sections: string[] = [];
+
+      if (liveSnapshot.activeSelection) {
+        sections.push(
+          `## Active selection (${activeUrl})\n${JSON.stringify(liveSnapshot.activeSelection, null, 2)}`,
         );
       }
-      return asTextResponse(JSON.stringify(filtered, null, 2));
+
+      if (unsavedLiveHighlights.length > 0) {
+        sections.push(
+          `## Visible unsaved highlights on active tab (${activeUrl})\n${JSON.stringify(unsavedLiveHighlights, null, 2)}`,
+        );
+      }
+
+      if (activeHighlights.length > 0) {
+        sections.push(
+          `## Saved highlights on active tab (${activeUrl})\n${JSON.stringify(activeHighlights, null, 2)}`,
+        );
+      } else if (activeUrl) {
+        sections.push(
+          `## Active tab (${activeUrl})\nNo saved highlights on this page.`,
+        );
+      }
+
+      if (otherHighlights.length > 0) {
+        sections.push(
+          `## Other saved highlights\n${JSON.stringify(otherHighlights, null, 2)}`,
+        );
+      }
+
+      if (sections.length === 0) {
+        return asTextResponse("No saved or live highlights");
+      }
+
+      return asTextResponse(sections.join("\n\n"));
     },
   );
 
