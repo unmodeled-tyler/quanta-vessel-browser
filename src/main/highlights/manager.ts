@@ -88,16 +88,19 @@ export function addHighlight(
   return highlight;
 }
 
-export function removeHighlight(id: string): boolean {
+export function getHighlight(id: string): StoredHighlight | null {
   load();
-  const before = state!.highlights.length;
-  state!.highlights = state!.highlights.filter((h) => h.id !== id);
-  if (state!.highlights.length !== before) {
-    save();
-    emit();
-    return true;
-  }
-  return false;
+  return state!.highlights.find((h) => h.id === id) ?? null;
+}
+
+export function removeHighlight(id: string): StoredHighlight | null {
+  load();
+  const index = state!.highlights.findIndex((h) => h.id === id);
+  if (index === -1) return null;
+  const [removed] = state!.highlights.splice(index, 1);
+  save();
+  emit();
+  return removed;
 }
 
 export function clearHighlightsForUrl(url: string): number {

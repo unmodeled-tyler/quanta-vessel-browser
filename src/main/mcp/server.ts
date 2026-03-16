@@ -2625,18 +2625,36 @@ function registerTools(
     {
       title: "Remove Persistent Highlight",
       description:
-        "Remove a persistent highlight by ID. Use vessel_list_highlights to find IDs.",
+        "Remove a persistent highlight by ID and clear it from any open tab. Use vessel_list_highlights to find IDs.",
       inputSchema: {
         id: z.string().describe("ID of the highlight to remove"),
       },
     },
     async ({ id }) => {
       const removed = highlightsManager.removeHighlight(id);
-      return asTextResponse(
-        removed
-          ? `Removed highlight ${id}`
-          : `No highlight found with id ${id}`,
-      );
+      if (!removed) {
+        return asTextResponse(`No highlight found with id ${id}`);
+      }
+
+      // Clear visual highlights and re-apply remaining ones on matching tabs
+      const remaining = highlightsManager.getHighlightsForUrl(removed.url);
+      for (const tabState of tabManager.getAllStates()) {
+        if (highlightsManager.normalizeUrl(tabState.url) !== removed.url) {
+          continue;
+        }
+        const tab = tabManager.getTab(tabState.id);
+        if (!tab) continue;
+        const wc = tab.view.webContents;
+        await clearHighlights(wc);
+        for (const h of remaining) {
+          if (!h.selector && !h.text) continue;
+          void highlightOnPage(wc, h.selector ?? null, h.text, h.label).catch(
+            () => {},
+          );
+        }
+      }
+
+      return asTextResponse(`Removed highlight ${id}`);
     },
   );
 
