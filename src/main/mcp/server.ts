@@ -2528,16 +2528,22 @@ function registerTools(
           .describe(
             "If true, save this highlight so it re-appears automatically when the user revisits the page. Ignored when durationMs is set.",
           ),
+        color: z
+          .enum(["yellow", "red", "green", "blue", "purple", "orange"])
+          .optional()
+          .describe(
+            "Highlight color. Use red for problems/errors, green for targets/success, blue for informational, purple for important, orange for warnings. Defaults to yellow.",
+          ),
       },
     },
-    async ({ index, selector, text, label, durationMs, persist }) => {
+    async ({ index, selector, text, label, durationMs, persist, color }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
         runtime,
         tabManager,
         "highlight",
-        { index, selector, text, label, durationMs, persist },
+        { index, selector, text, label, durationMs, persist, color },
         async () => {
           const wc = tab.view.webContents;
           const resolvedSelector = await resolveSelector(wc, index, selector);
@@ -2547,6 +2553,7 @@ function registerTools(
             text,
             label,
             durationMs,
+            color,
           );
 
           if (
@@ -2561,6 +2568,7 @@ function registerTools(
               resolvedSelector ?? undefined,
               text,
               label,
+              color,
             );
           }
 
@@ -2648,9 +2656,14 @@ function registerTools(
         await clearHighlights(wc);
         for (const h of remaining) {
           if (!h.selector && !h.text) continue;
-          void highlightOnPage(wc, h.selector ?? null, h.text, h.label).catch(
-            () => {},
-          );
+          void highlightOnPage(
+            wc,
+            h.selector ?? null,
+            h.text,
+            h.label,
+            undefined,
+            h.color,
+          ).catch(() => {});
         }
       }
 

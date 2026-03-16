@@ -389,12 +389,21 @@ export interface BookmarksState {
 
 // --- Highlights ---
 
+export type HighlightColor =
+  | "yellow"
+  | "red"
+  | "green"
+  | "blue"
+  | "purple"
+  | "orange";
+
 export interface StoredHighlight {
   id: string;
   url: string; // hash-stripped canonical URL
   selector?: string;
   text?: string;
   label?: string;
+  color?: HighlightColor;
   createdAt: string; // ISO timestamp
 }
 

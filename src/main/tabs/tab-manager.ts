@@ -204,9 +204,14 @@ export class TabManager {
     const highlights = highlightsManager.getHighlightsForUrl(url);
     for (const h of highlights) {
       if (!h.selector && !h.text) continue;
-      void highlightOnPage(wc, h.selector ?? null, h.text, h.label).catch(
-        () => {},
-      );
+      void highlightOnPage(
+        wc,
+        h.selector ?? null,
+        h.text,
+        h.label,
+        undefined,
+        h.color,
+      ).catch(() => {});
     }
   }
 

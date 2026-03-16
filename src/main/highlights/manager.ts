@@ -2,7 +2,11 @@ import { app } from "electron";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import type { HighlightsState, StoredHighlight } from "../../shared/types";
+import type {
+  HighlightColor,
+  HighlightsState,
+  StoredHighlight,
+} from "../../shared/types";
 
 let state: HighlightsState | null = null;
 const listeners = new Set<(state: HighlightsState) => void>();
@@ -72,6 +76,7 @@ export function addHighlight(
   selector?: string,
   text?: string,
   label?: string,
+  color?: HighlightColor,
 ): StoredHighlight {
   load();
   const highlight: StoredHighlight = {
@@ -80,6 +85,7 @@ export function addHighlight(
     selector: selector || undefined,
     text: text || undefined,
     label: label || undefined,
+    color: color || undefined,
     createdAt: new Date().toISOString(),
   };
   state!.highlights.push(highlight);
