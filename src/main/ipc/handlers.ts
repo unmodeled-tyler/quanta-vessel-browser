@@ -95,11 +95,21 @@ export function registerIpcHandlers(
     const activeTab = tabManager.getActiveTab();
     if (!activeTab) return;
 
-    const content = await extractContent(activeTab.view.webContents);
-    const html = generateReaderHTML(content);
-    activeTab.view.webContents.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
-    );
+    if (activeTab.state.isReaderMode) {
+      const originalUrl = activeTab.readerOriginalUrl;
+      activeTab.setReaderMode(false);
+      if (originalUrl) {
+        activeTab.view.webContents.loadURL(originalUrl);
+      }
+    } else {
+      const originalUrl = activeTab.state.url;
+      const content = await extractContent(activeTab.view.webContents);
+      const html = generateReaderHTML(content);
+      activeTab.setReaderMode(true, originalUrl);
+      activeTab.view.webContents.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+      );
+    }
   });
 
   // --- UI handlers ---
