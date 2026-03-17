@@ -56,6 +56,10 @@ export const Channels = {
   HIGHLIGHT_CAPTURE_RESULT: "highlights:capture-result",
   HIGHLIGHT_SELECTION: "vessel:highlight-selection",
 
+  // DevTools panel
+  DEVTOOLS_PANEL_TOGGLE: "devtools-panel:toggle",
+  DEVTOOLS_PANEL_STATE: "devtools-panel:state",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

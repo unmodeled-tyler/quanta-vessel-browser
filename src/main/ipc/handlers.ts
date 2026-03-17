@@ -3,7 +3,7 @@ import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
-import { layoutViews, type WindowState } from "../window";
+import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
 import type {
   ApprovalMode,
@@ -20,11 +20,12 @@ export function registerIpcHandlers(
   windowState: WindowState,
   runtime: AgentRuntime,
 ): void {
-  const { tabManager, chromeView, sidebarView, mainWindow } = windowState;
+  const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
+    devtoolsPanelView.webContents.send(channel, ...args);
   };
 
   runtime.setUpdateListener((state: AgentRuntimeState) => {
@@ -321,6 +322,21 @@ export function registerIpcHandlers(
     } catch {
       // Silently ignore errors from auto-highlight
     }
+  });
+
+  // --- DevTools panel ---
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => {
+    windowState.uiState.devtoolsPanelOpen = !windowState.uiState.devtoolsPanelOpen;
+    layoutViews(windowState);
+    return { open: windowState.uiState.devtoolsPanelOpen };
+  });
+
+  ipcMain.handle("devtools-panel:resize", (_, height: number) => {
+    const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
+    windowState.uiState.devtoolsPanelHeight = clamped;
+    layoutViews(windowState);
+    return clamped;
   });
 
   // --- Window controls ---

@@ -289,6 +289,8 @@ export interface UIState {
   sidebarWidth: number;
   focusMode: boolean;
   settingsOpen: boolean;
+  devtoolsPanelOpen: boolean;
+  devtoolsPanelHeight: number;
 }
 
 // --- Provider types ---

@@ -88,3 +88,22 @@ export interface ErrorEntry {
   column?: number;
   stackTrace?: string;
 }
+
+export type DevToolsPanelTab = "console" | "network" | "activity";
+
+export interface DevToolsActivityEntry {
+  id: number;
+  timestamp: string;
+  tool: string;
+  args: string;
+  result: string;
+  durationMs: number;
+  status: "running" | "completed" | "failed";
+}
+
+export interface DevToolsPanelState {
+  console: ConsoleEntry[];
+  network: NetworkEntry[];
+  errors: ErrorEntry[];
+  activity: DevToolsActivityEntry[];
+}

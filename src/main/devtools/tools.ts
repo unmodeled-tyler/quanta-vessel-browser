@@ -2,7 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AgentRuntime } from "../agent/runtime";
 import type { TabManager } from "../tabs/tab-manager";
-import { getOrCreateSession } from "./manager";
+import { getOrCreateSession, getSession } from "./manager";
+import type { DevToolsActivityEntry, DevToolsPanelState } from "./types";
 
 function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -14,6 +15,34 @@ const DANGEROUS_DEVTOOLS_ACTIONS = new Set([
   "devtools_set_storage",
 ]);
 
+// State broadcast for the DevTools panel UI
+let stateListener: ((state: DevToolsPanelState) => void) | null = null;
+const activityLog: DevToolsActivityEntry[] = [];
+const MAX_ACTIVITY_ENTRIES = 100;
+let activityCounter = 0;
+
+export function setDevToolsPanelListener(
+  listener: ((state: DevToolsPanelState) => void) | null,
+): void {
+  stateListener = listener;
+}
+
+export function getDevToolsPanelState(tabId: string | null): DevToolsPanelState {
+  const session = tabId ? getSession(tabId) : undefined;
+  return {
+    console: session?.getConsoleLogs() ?? [],
+    network: session?.getNetworkLog() ?? [],
+    errors: session?.getErrors() ?? [],
+    activity: activityLog,
+  };
+}
+
+function broadcastState(tabManager: TabManager): void {
+  if (!stateListener) return;
+  const tabId = tabManager.getActiveTabId();
+  stateListener(getDevToolsPanelState(tabId));
+}
+
 async function withDevToolsAction(
   runtime: AgentRuntime,
   tabManager: TabManager,
@@ -21,6 +50,22 @@ async function withDevToolsAction(
   args: Record<string, unknown>,
   executor: () => Promise<string>,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  const activityEntry: DevToolsActivityEntry = {
+    id: ++activityCounter,
+    timestamp: new Date().toISOString(),
+    tool: name,
+    args: JSON.stringify(args).slice(0, 200),
+    result: "",
+    durationMs: 0,
+    status: "running",
+  };
+  activityLog.push(activityEntry);
+  if (activityLog.length > MAX_ACTIVITY_ENTRIES) {
+    activityLog.splice(0, activityLog.length - MAX_ACTIVITY_ENTRIES);
+  }
+  broadcastState(tabManager);
+
+  const startTime = Date.now();
   try {
     const result = await runtime.runControlledAction({
       source: "mcp",
@@ -30,11 +75,18 @@ async function withDevToolsAction(
       dangerous: DANGEROUS_DEVTOOLS_ACTIONS.has(name),
       executor,
     });
+    activityEntry.status = "completed";
+    activityEntry.result = result.slice(0, 200);
+    activityEntry.durationMs = Date.now() - startTime;
+    broadcastState(tabManager);
     return asTextResponse(result);
   } catch (error) {
-    return asTextResponse(
-      `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    const message = error instanceof Error ? error.message : "Unknown error";
+    activityEntry.status = "failed";
+    activityEntry.result = message.slice(0, 200);
+    activityEntry.durationMs = Date.now() - startTime;
+    broadcastState(tabManager);
+    return asTextResponse(`Error: ${message}`);
   }
 }
 
