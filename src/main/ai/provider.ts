@@ -21,6 +21,7 @@ export interface AIProvider {
     onChunk: (text: string) => void,
     onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void>;
 
   cancel(): void;

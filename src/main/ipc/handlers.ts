@@ -7,6 +7,7 @@ import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState }
 import { getRuntimeHealth } from "../health/runtime-health";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
+import { handleAIQuery } from "../ai/commands";
 import type {
   AIMessage,
   ApprovalMode,
@@ -90,11 +91,15 @@ export function registerIpcHandlers(
 
     try {
       activeChatProvider = createProvider(chatConfig);
-      await activeChatProvider.streamQuery(
-        "You are a helpful AI assistant integrated into the Vessel browser. Be concise and helpful.",
+      const activeTab = tabManager.getActiveTab();
+      await handleAIQuery(
         query,
+        activeChatProvider,
+        activeTab?.view.webContents,
         (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
         () => sendToRendererViews(Channels.AI_STREAM_END),
+        tabManager,
+        runtime,
         history,
       );
     } catch (err: unknown) {

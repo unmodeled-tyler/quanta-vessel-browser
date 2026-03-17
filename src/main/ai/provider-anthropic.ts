@@ -64,10 +64,12 @@ export class AnthropicProvider implements AIProvider {
     onChunk: (text: string) => void,
     onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void> {
     this.abortController = new AbortController();
 
     const messages: Anthropic.MessageParam[] = [
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),
       { role: "user", content: userMessage },
     ];
 
