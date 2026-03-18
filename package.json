@@ -1,5 +1,6 @@
 {
   "name": "@quanta-intellect/vessel-browser",
+  "mcpName": "io.github.unmodeled-tyler/vessel-browser",
   "version": "0.1.0",
   "description": "AI-native web browser for Linux — persistent browser runtime for autonomous agents with human supervision",
   "main": "./out/main/index.js",
