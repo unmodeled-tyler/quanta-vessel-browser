@@ -4,6 +4,7 @@ dist/
 .venv/
 *.log
 .env
+.mcpregistry_*
 scripts/*.cjs
 tmp/
 docs/release-checklist.md
