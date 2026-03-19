@@ -114,7 +114,30 @@ interface OverlayCandidate {
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
 let indexedElements = new WeakMap<Element, number>();
+// Direct element references for shadow DOM support — CSS selectors can't cross shadow boundaries
+const indexedElementRefs: Record<number, Element> = {};
 let activeOverlays: OverlayCandidate[] = [];
+
+/**
+ * querySelectorAll that pierces open Shadow DOM roots.
+ * Finds elements inside web components (Internet Archive, etc.)
+ */
+function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
+  const results: Element[] = [];
+  // Get matches in the light DOM
+  root.querySelectorAll(selector).forEach((el) => results.push(el));
+  // Traverse shadow roots
+  const walkShadows = (node: ParentNode) => {
+    node.querySelectorAll("*").forEach((el) => {
+      if (el.shadowRoot) {
+        el.shadowRoot.querySelectorAll(selector).forEach((inner) => results.push(inner));
+        walkShadows(el.shadowRoot);
+      }
+    });
+  };
+  walkShadows(root);
+  return results;
+}
 
 function generateSelector(el: Element): string {
   return generateStableSelector(el);
@@ -125,6 +148,7 @@ function assignIndex(el: Element): number {
   if (existing != null) return existing;
   elementIndex += 1;
   elementSelectors[elementIndex] = generateSelector(el);
+  indexedElementRefs[elementIndex] = el;
   indexedElements.set(el, elementIndex);
   return elementIndex;
 }
@@ -685,7 +709,7 @@ function buildBaseMetadata(
 }
 
 function extractHeadings(): HeadingStructure[] {
-  return Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"))
+  return deepQuerySelectorAll("h1, h2, h3, h4, h5, h6")
     .map((el) => {
       const text = el.textContent?.trim() || "";
       if (!text) return null;
@@ -700,12 +724,12 @@ function extractHeadings(): HeadingStructure[] {
 function extractNavigation(): InteractiveElement[] {
   const navigation: InteractiveElement[] = [];
 
-  document
-    .querySelectorAll(
+  deepQuerySelectorAll(
       'nav, [role="navigation"], header nav, [role="banner"] nav',
     )
     .forEach((nav) => {
-      nav.querySelectorAll("a[href]").forEach((link) => {
+      // Also pierce shadow DOM within nav elements
+      deepQuerySelectorAll("a[href]", nav as ParentNode).forEach((link) => {
         const anchor = link as HTMLAnchorElement;
         const text = anchor.textContent?.trim();
         if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
@@ -760,8 +784,7 @@ function getFieldMetadata(
 function extractInteractiveElements(): InteractiveElement[] {
   const elements: InteractiveElement[] = [];
 
-  document
-    .querySelectorAll(
+  deepQuerySelectorAll(
       'button, [role="button"], input[type="submit"], input[type="button"]',
     )
     .forEach((btn) => {
@@ -779,7 +802,7 @@ function extractInteractiveElements(): InteractiveElement[] {
       });
     });
 
-  document.querySelectorAll("a[href]").forEach((link) => {
+  deepQuerySelectorAll("a[href]").forEach((link) => {
     const anchor = link as HTMLAnchorElement;
     const text = anchor.textContent?.trim();
     if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
@@ -795,8 +818,7 @@ function extractInteractiveElements(): InteractiveElement[] {
     });
   });
 
-  document
-    .querySelectorAll(
+  deepQuerySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea',
     )
     .forEach((input) => {
@@ -859,7 +881,8 @@ function extractForms(): Array<{
     );
   }
 
-  document.querySelectorAll("form").forEach((form) => {
+  deepQuerySelectorAll("form").forEach((formEl) => {
+    const form = formEl as HTMLFormElement;
     const fields: InteractiveElement[] = [];
 
     form
@@ -1202,9 +1225,18 @@ function vesselExtractContent(): PageContent {
   }): PageContent => {
     activeOverlays = detectOverlays();
 
+    // Use whichever content source is richer — Readability misses shadow DOM,
+    // while innerText captures it but includes all visible text (nav, footers, etc.)
+    const readabilityText = article?.textContent || "";
+    const visibleText = getVisiblePageText();
+    const content =
+      readabilityText.length > visibleText.length * 0.3
+        ? readabilityText
+        : visibleText;
+
     return {
       title: article?.title || document.title,
-      content: article?.textContent || getVisiblePageText(),
+      content,
       htmlContent: article?.content || "",
       byline: article?.byline || "",
       excerpt: article?.excerpt || "",
@@ -1232,6 +1264,9 @@ function vesselExtractContent(): PageContent {
     Object.keys(elementSelectors).forEach(
       (key) => delete elementSelectors[key as any],
     );
+    Object.keys(indexedElementRefs).forEach(
+      (key) => delete indexedElementRefs[key as any],
+    );
     // WeakMap entries are GC'd automatically; no explicit clearing needed
 
     const documentClone = document.cloneNode(true) as Document;
@@ -1250,9 +1285,76 @@ function resolveElementSelector(index: number): string | null {
   return elementSelectors[index] || null;
 }
 
+/**
+ * Interact with an element by index — works even for shadow DOM elements
+ * where CSS selectors fail. Returns a result string.
+ */
+function interactByIndex(
+  index: number,
+  action: "click" | "focus" | "value",
+  value?: string,
+): string {
+  const el = indexedElementRefs[index];
+  if (!el || !(el instanceof HTMLElement)) {
+    return "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.";
+  }
+  if (action === "click") {
+    el.focus();
+    el.click();
+    return (
+      "Clicked: " +
+      (el.getAttribute("aria-label") ||
+        el.textContent?.trim().slice(0, 60) ||
+        el.tagName.toLowerCase())
+    );
+  }
+  if (action === "focus") {
+    el.focus();
+    return (
+      "Focused: " +
+      (el.getAttribute("aria-label") ||
+        el.textContent?.trim().slice(0, 60) ||
+        el.tagName.toLowerCase())
+    );
+  }
+  if (action === "value" && value != null) {
+    if (
+      !(el instanceof HTMLInputElement) &&
+      !(el instanceof HTMLTextAreaElement) &&
+      !(el instanceof HTMLSelectElement)
+    ) {
+      return "Error[not-input]: Element is not a text input";
+    }
+    const proto =
+      el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : el instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : HTMLInputElement.prototype;
+    const desc = Object.getOwnPropertyDescriptor(proto, "value");
+    if (desc?.set) {
+      desc.set.call(el, value);
+    } else {
+      el.value = value;
+    }
+    el.focus();
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return (
+      "Typed into: " +
+      (el.getAttribute("aria-label") ||
+        (el as HTMLInputElement).placeholder ||
+        (el as HTMLInputElement).name ||
+        "input")
+    );
+  }
+  return "Error: Unknown action";
+}
+
 contextBridge.exposeInMainWorld("__vessel", {
   extractContent: vesselExtractContent,
   getElementSelector: resolveElementSelector,
+  interactByIndex,
   notifyHighlightSelection: (text: string) => {
     if (typeof text === "string" && text.trim()) {
       ipcRenderer.send("vessel:highlight-selection", text.trim());

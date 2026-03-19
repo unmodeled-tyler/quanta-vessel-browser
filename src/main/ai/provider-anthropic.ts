@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
+import { loadSettings } from "../config/settings";
 
-const MAX_AGENT_ITERATIONS = 15;
+const DEFAULT_MAX_ITERATIONS = 200;
 
 export class AnthropicProvider implements AIProvider {
   private client: Anthropic;
@@ -74,7 +75,8 @@ export class AnthropicProvider implements AIProvider {
     ];
 
     try {
-      for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
+      const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      for (let i = 0; i < maxIterations; i++) {
         const stream = this.client.messages.stream(
           {
             model: this.model,
@@ -171,6 +173,8 @@ export class AnthropicProvider implements AIProvider {
         }
         messages.push({ role: "user", content: toolResults });
       }
+      // If we exhausted iterations, let the user know
+      onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
     } catch (err: any) {
       if (err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);

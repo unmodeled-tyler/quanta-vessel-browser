@@ -435,6 +435,19 @@ async function clickResolvedSelector(
   wc: Electron.WebContents,
   selector: string,
 ): Promise<string> {
+  // Shadow DOM direct interaction via stored element reference
+  if (selector.startsWith("__vessel_idx:")) {
+    const idx = Number(selector.slice("__vessel_idx:".length));
+    const beforeUrl = wc.getURL();
+    const result = await wc.executeJavaScript(
+      `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
+    );
+    if (typeof result === "string" && result.startsWith("Error")) return result;
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+  }
+
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
@@ -834,6 +847,13 @@ async function setElementValue(
   selector: string,
   value: string,
 ): Promise<string> {
+  // Shadow DOM direct interaction
+  if (selector.startsWith("__vessel_idx:")) {
+    const idx = Number(selector.slice("__vessel_idx:".length));
+    return wc.executeJavaScript(
+      `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
+    );
+  }
   return wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -4324,7 +4344,13 @@ async function resolveSelector(
     `,
   );
   if (typeof authoritativeSelector === "string" && authoritativeSelector) {
-    return authoritativeSelector;
+    // Verify the selector actually resolves — if not, the element may be in shadow DOM
+    const resolves = await wc.executeJavaScript(
+      `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,
+    );
+    if (resolves) return authoritativeSelector;
+    // Shadow DOM element — return index-based marker for direct interaction
+    return `__vessel_idx:${index}`;
   }
 
   const page = await extractContent(wc);

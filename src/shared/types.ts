@@ -367,6 +367,7 @@ export interface VesselSettings {
   approvalMode: ApprovalMode;
   agentTranscriptMode: AgentTranscriptDisplayMode;
   chatProvider: ProviderConfig | null;
+  maxToolIterations: number;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";
