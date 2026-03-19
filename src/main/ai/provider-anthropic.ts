@@ -166,7 +166,12 @@ export class AnthropicProvider implements AIProvider {
         for (const tb of toolUseBlocks) {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
-          const result = await onToolCall(tb.name, tb.input);
+          let result: string;
+          try {
+            result = await onToolCall(tb.name, tb.input);
+          } catch (toolErr: any) {
+            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          }
           toolResults.push({
             type: "tool_result",
             tool_use_id: tb.id,

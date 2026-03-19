@@ -10,8 +10,11 @@ import type { AgentRuntime } from "../agent/runtime";
 import {
   buildStructuredContext,
   buildScopedContext,
+  detectPageType,
   type ExtractMode,
+  type PageType,
 } from "../ai/context-builder";
+import { TOOL_DEFINITIONS } from "../tools/definitions";
 import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import { extractContent } from "../content/extractor";
 import { getRecoverableAccessIssue } from "../content/page-access-issues";
@@ -1420,6 +1423,74 @@ function registerTools(
         },
       ],
     }),
+  );
+
+  server.registerResource(
+    "vessel-recommended-tools",
+    "vessel://context/recommended-tools",
+    {
+      title: "Recommended Tools for Current Page",
+      description:
+        "Context-aware tool recommendations based on the current page type (login, search, form, article, etc.). Returns tools sorted by relevance with contextual hints.",
+      mimeType: "application/json",
+    },
+    async () => {
+      const activeTab = tabManager.getActiveTab();
+      let pageType: PageType = "GENERAL";
+      let pageUrl = "";
+      let pageTitle = "";
+
+      if (activeTab) {
+        try {
+          const wc = activeTab.view.webContents;
+          pageUrl = wc.getURL();
+          pageTitle = wc.getTitle();
+          const page = await extractContent(wc);
+          pageType = detectPageType(page);
+        } catch {
+          // Fall back to GENERAL
+        }
+      }
+
+      // Score and sort tools by relevance for this page type
+      const scored = TOOL_DEFINITIONS.map((def) => {
+        const tier = def.tier ?? 1;
+        const isRelevant = !def.relevance || def.relevance.includes(pageType);
+        let score: number;
+        if (tier === 0) score = 0;
+        else if (tier === 1 && isRelevant) score = 10;
+        else if (tier === 2 && isRelevant) score = 20;
+        else if (tier === 1) score = 30;
+        else score = 40;
+        return {
+          name: `vessel_${def.name}`,
+          title: def.title,
+          description: def.description,
+          tier,
+          relevance: isRelevant ? "high" : "low",
+          score,
+        };
+      });
+
+      scored.sort((a, b) => a.score - b.score);
+
+      const result = {
+        pageType,
+        pageUrl,
+        pageTitle,
+        recommended: scored.filter((t) => t.score <= 20).map(({ name, title, description, relevance }) => ({ name, title, description, relevance })),
+        available: scored.filter((t) => t.score > 20).map(({ name, title, relevance }) => ({ name, title, relevance })),
+      };
+
+      return {
+        contents: [
+          {
+            uri: "vessel://context/recommended-tools",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
   );
 
   server.registerTool(
@@ -4489,6 +4560,53 @@ function registerTools(
       );
     },
   );
+  // --- wait_for_navigation ---
+  server.registerTool(
+    "vessel_wait_for_navigation",
+    {
+      title: "Wait For Navigation",
+      description:
+        "Wait for the current page to finish loading after a click or form submission.",
+      inputSchema: z.object({
+        timeoutMs: z.number().optional().describe("Max wait in milliseconds (default 10000)"),
+      }),
+    },
+    async ({ timeoutMs }) => {
+      return withAction(
+        tabManager,
+        runtime,
+        "vessel_wait_for_navigation",
+        { timeoutMs },
+        async (wc) => {
+          const timeout = timeoutMs || 10000;
+          const beforeUrl = wc.getURL();
+          if (wc.isLoading()) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, timeout);
+              wc.once("did-stop-loading", () => { clearTimeout(timer); resolve(); });
+            });
+          } else {
+            await new Promise<void>((resolve) => {
+              let navigated = false;
+              const timer = setTimeout(() => { if (!navigated) resolve(); }, Math.min(timeout, 2000));
+              wc.once("did-start-loading", () => {
+                navigated = true;
+                clearTimeout(timer);
+                const loadTimer = setTimeout(resolve, timeout);
+                wc.once("did-stop-loading", () => { clearTimeout(loadTimer); resolve(); });
+              });
+            });
+          }
+          const afterUrl = wc.getURL();
+          const title = wc.getTitle();
+          return afterUrl !== beforeUrl
+            ? `Navigation complete: ${title} (${afterUrl})`
+            : `Page loaded: ${title} (${afterUrl})`;
+        },
+      );
+    },
+  );
+
   // --- Speedee: metrics ---
   server.registerTool(
     "vessel_metrics",

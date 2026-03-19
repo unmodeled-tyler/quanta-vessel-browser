@@ -192,7 +192,12 @@ export class OpenAICompatProvider implements AIProvider {
           }
           const argSummary = args.url || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
-          const result = await onToolCall(tc.name, args);
+          let result: string;
+          try {
+            result = await onToolCall(tc.name, args);
+          } catch (toolErr: any) {
+            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          }
           messages.push({
             role: 'tool',
             tool_call_id: tc.id,

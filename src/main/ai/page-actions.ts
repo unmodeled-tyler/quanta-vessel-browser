@@ -1451,6 +1451,7 @@ const KNOWN_TOOLS = new Set([
   "flow_start", "flow_advance", "flow_status", "flow_end",
   "suggest", "fill_form", "login", "search", "paginate",
   "accept_cookies", "extract_table", "scroll_to_element", "metrics",
+  "wait_for_navigation",
 ]);
 
 export async function executeAction(
@@ -1753,6 +1754,38 @@ export async function executeAction(
         case "wait_for": {
           if (!wc) return "Error: No active tab";
           return waitForCondition(wc, args);
+        }
+
+        case "wait_for_navigation": {
+          if (!wc) return "Error: No active tab";
+          const timeout = typeof args.timeoutMs === "number" ? args.timeoutMs : 10000;
+          const beforeUrl = wc.getURL();
+          if (wc.isLoading()) {
+            // Page is currently loading — wait for it to finish
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, timeout);
+              wc.once("did-stop-loading", () => { clearTimeout(timer); resolve(); });
+            });
+          } else {
+            // Page already loaded — wait briefly in case a navigation is about to start
+            await new Promise<void>((resolve) => {
+              let navigated = false;
+              const timer = setTimeout(() => { if (!navigated) resolve(); }, Math.min(timeout, 2000));
+              wc.once("did-start-loading", () => {
+                navigated = true;
+                clearTimeout(timer);
+                // Now wait for it to finish
+                const loadTimer = setTimeout(resolve, timeout);
+                wc.once("did-stop-loading", () => { clearTimeout(loadTimer); resolve(); });
+              });
+            });
+          }
+          const afterUrl = wc.getURL();
+          const title = wc.getTitle();
+          if (afterUrl !== beforeUrl) {
+            return `Navigation complete: ${title} (${afterUrl})`;
+          }
+          return `Page loaded: ${title} (${afterUrl})`;
         }
 
         case "create_checkpoint": {

@@ -739,6 +739,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     tier: 1,
   },
 
+  // --- Navigation Primitives ---
+  {
+    name: "wait_for_navigation",
+    title: "Wait For Navigation",
+    description:
+      "Wait for the current page to finish loading after a click or form submission. Use when you clicked a link and need to wait for the new page before reading it.",
+    inputSchema: {
+      timeoutMs: z
+        .number()
+        .optional()
+        .describe("Maximum time to wait in milliseconds (default 10000)"),
+    },
+    tier: 1,
+  },
+
   // --- Speedee System: Metrics ---
   {
     name: "metrics",
