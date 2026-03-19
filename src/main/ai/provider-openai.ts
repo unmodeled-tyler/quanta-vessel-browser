@@ -147,6 +147,16 @@ export class OpenAICompatProvider implements AIProvider {
           if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         }
 
+        // Sanitize tool call arguments — ensure valid JSON for message history
+        // (malformed args from the model would cause a 400 on the next API call)
+        for (const tc of toolCalls) {
+          try {
+            JSON.parse(tc.argsJson || '{}');
+          } catch {
+            tc.argsJson = '{}';
+          }
+        }
+
         // Build assistant message for history
         const assistantMsg: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
           role: 'assistant',
