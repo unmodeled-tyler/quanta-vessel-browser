@@ -2372,9 +2372,13 @@ export async function executeAction(
 
         case "search": {
           if (!wc) return "Error: No active tab";
-          const searchSel =
-            args.selector ||
-            (await wc.executeJavaScript(`
+          const query = String(args.query || "");
+          if (!query) return "Error: No search query provided.";
+
+          // Step 1: Find the search input
+          const searchInfo = args.selector
+            ? { selector: args.selector, formAction: null, formMethod: null }
+            : await wc.executeJavaScript(`
               (function() {
                 var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
                 if (!el) {
@@ -2387,18 +2391,27 @@ export async function executeAction(
                     }
                   }
                 }
-                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+                if (!el) return null;
+                var sel = el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null;
+                var form = el.closest('form');
+                return {
+                  selector: sel,
+                  formAction: form ? form.action : null,
+                  formMethod: form ? (form.method || 'GET').toUpperCase() : null,
+                  inputName: el.name || 'q',
+                };
               })()
-            `));
-          if (!searchSel) return "Error: Could not find search input. Try providing a selector.";
+            `);
+          if (!searchInfo?.selector) return "Error: Could not find search input. Try providing a selector.";
 
-          await setElementValue(wc, searchSel, String(args.query || ""));
+          // Step 2: Fill the search box
+          await setElementValue(wc, searchInfo.selector, query);
+          await sleep(100); // Let autocomplete/JS process the input
 
-          // Focus the input and press Enter via native Chromium input events
-          // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
+          // Step 3: Focus and press Enter via native input events
           await wc.executeJavaScript(`
             (function() {
-              var el = document.querySelector(${JSON.stringify(searchSel)});
+              var el = document.querySelector(${JSON.stringify(searchInfo.selector)});
               if (el) el.focus();
             })()
           `);
@@ -2408,11 +2421,48 @@ export async function executeAction(
           await sleep(16);
           wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
 
-          await waitForPotentialNavigation(wc, beforeUrl);
-          const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl
-            ? `Searched "${args.query}" → ${afterUrl}`
-            : `Searched "${args.query}" (same page — results may have loaded dynamically)`;
+          await waitForPotentialNavigation(wc, beforeUrl, 3000);
+          let afterUrl = wc.getURL();
+          if (afterUrl !== beforeUrl) {
+            return `Searched "${query}" → ${afterUrl}`;
+          }
+
+          // Step 4: Enter didn't navigate — try clicking the submit/search button
+          const clickedSubmit = await wc.executeJavaScript(`
+            (function() {
+              var form = document.querySelector(${JSON.stringify(searchInfo.selector)})?.closest('form');
+              if (!form) return false;
+              var btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+              if (btn) { btn.click(); return true; }
+              // Try any button in the form
+              var anyBtn = form.querySelector('button');
+              if (anyBtn) { anyBtn.click(); return true; }
+              return false;
+            })()
+          `);
+          if (clickedSubmit) {
+            await waitForPotentialNavigation(wc, beforeUrl, 3000);
+            afterUrl = wc.getURL();
+            if (afterUrl !== beforeUrl) {
+              return `Searched "${query}" (via submit button) → ${afterUrl}`;
+            }
+          }
+
+          // Step 5: Button click didn't work either — construct URL directly for GET forms
+          if (searchInfo.formAction && searchInfo.formMethod === "GET") {
+            try {
+              const url = new URL(searchInfo.formAction);
+              url.searchParams.set(searchInfo.inputName || "q", query);
+              wc.loadURL(url.toString());
+              await waitForPotentialNavigation(wc, beforeUrl);
+              afterUrl = wc.getURL();
+              return `Searched "${query}" (via direct URL) → ${afterUrl}`;
+            } catch {
+              // URL construction failed, continue to final fallback
+            }
+          }
+
+          return `Searched "${query}" (same page — results may have loaded dynamically)`;
         }
 
         case "paginate": {

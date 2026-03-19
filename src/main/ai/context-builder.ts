@@ -111,7 +111,21 @@ function isVisibleToUser(el: InteractiveElement): boolean {
 function formatInteractiveElements(elements: InteractiveElement[]): string {
   if (elements.length === 0) return "None";
 
-  const items = limitItems(elements, 50);
+  // Prioritize visible, in-viewport, content-area elements over offscreen nav/sidebar links
+  const sorted = [...elements].sort((a, b) => {
+    const scoreEl = (el: InteractiveElement) => {
+      let s = 0;
+      if (el.visible === false) s += 100;
+      if (el.inViewport === false) s += 50;
+      if (el.context === "nav" || el.context === "footer" || el.context === "sidebar") s += 30;
+      if (el.obscured) s += 20;
+      // Inputs/buttons are higher priority than links (fewer of them, more actionable)
+      if (el.type === "link") s += 5;
+      return s;
+    };
+    return scoreEl(a) - scoreEl(b);
+  });
+  const items = limitItems(sorted, 50);
 
   return items
     .map((el) => {
