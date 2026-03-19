@@ -58,6 +58,8 @@ export const Channels = {
   HIGHLIGHT_CAPTURE: "highlights:capture",
   HIGHLIGHT_CAPTURE_RESULT: "highlights:capture-result",
   HIGHLIGHT_SELECTION: "vessel:highlight-selection",
+  HIGHLIGHT_NAV_COUNT: "highlights:nav-count",
+  HIGHLIGHT_NAV_SCROLL: "highlights:nav-scroll",
 
   // DevTools panel
   DEVTOOLS_PANEL_TOGGLE: "devtools-panel:toggle",

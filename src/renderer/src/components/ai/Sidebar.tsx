@@ -164,6 +164,32 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<"supervisor" | "bookmarks" | "checkpoints" | "chat">("supervisor");
   const [chatInput, setChatInput] = createSignal("");
+  const [highlightCount, setHighlightCount] = createSignal(0);
+  const [highlightIndex, setHighlightIndex] = createSignal(-1);
+
+  // Poll for highlight count when chat tab is active
+  createEffect(() => {
+    if (sidebarTab() !== "chat") return;
+    const poll = async () => {
+      try {
+        const count = await (window as any).vessel?.highlights?.getCount?.() ?? 0;
+        setHighlightCount(count);
+        // Reset index if highlights were cleared
+        if (count === 0 && highlightIndex() >= 0) setHighlightIndex(-1);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const id = setInterval(poll, 2000);
+    onCleanup(() => clearInterval(id));
+  });
+
+  const scrollToHighlight = async (idx: number) => {
+    const count = highlightCount();
+    if (count === 0) return;
+    const clamped = Math.max(0, Math.min(idx, count - 1));
+    setHighlightIndex(clamped);
+    await (window as any).vessel?.highlights?.scrollTo?.(clamped);
+  };
 
   const handleChatSend = async () => {
     const prompt = chatInput().trim();
@@ -1195,6 +1221,42 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                   Retry
                 </button>
               </Show>
+            </div>
+          </Show>
+          <Show when={highlightCount() > 0}>
+            <div class="highlight-nav">
+              <button
+                class="highlight-nav-btn"
+                disabled={highlightIndex() <= 0}
+                onClick={() => void scrollToHighlight(highlightIndex() - 1)}
+                title="Previous highlight"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M8 10L4 6l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <button
+                class="highlight-nav-label"
+                onClick={() => void scrollToHighlight(highlightIndex() < 0 ? 0 : highlightIndex())}
+                title="Go to current highlight"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <circle cx="6" cy="6" r="3" fill="rgba(196, 160, 90, 0.6)" stroke="rgba(196, 160, 90, 0.9)" stroke-width="1" />
+                </svg>
+                {highlightIndex() >= 0
+                  ? `${highlightIndex() + 1} / ${highlightCount()}`
+                  : `${highlightCount()} highlight${highlightCount() > 1 ? "s" : ""}`}
+              </button>
+              <button
+                class="highlight-nav-btn"
+                disabled={highlightIndex() >= highlightCount() - 1}
+                onClick={() => void scrollToHighlight(highlightIndex() < 0 ? 0 : highlightIndex() + 1)}
+                title="Next highlight"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
             </div>
           </Show>
           <div class="sidebar-input-area">

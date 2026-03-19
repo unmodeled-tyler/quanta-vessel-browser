@@ -384,6 +384,47 @@ export function registerIpcHandlers(
     }
   });
 
+  // --- Highlight navigation ---
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, () => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return 0;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return 0;
+    try {
+      return wc.executeJavaScript(
+        `document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text').length`,
+      );
+    } catch {
+      return 0;
+    }
+  });
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return false;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return false;
+    try {
+      return wc.executeJavaScript(`
+        (function() {
+          var highlights = document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text');
+          if (${index} < 0 || ${index} >= highlights.length) return false;
+          // Remove focus ring from all highlights
+          highlights.forEach(function(h) { h.style.removeProperty('outline'); h.style.removeProperty('outline-offset'); });
+          var target = highlights[${index}];
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add focus ring to current highlight
+          target.style.setProperty('outline', '2px solid rgba(255, 255, 255, 0.9)', 'important');
+          target.style.setProperty('outline-offset', '2px', 'important');
+          return true;
+        })()
+      `);
+    } catch {
+      return false;
+    }
+  });
+
   // --- DevTools panel ---
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => {
