@@ -109,6 +109,10 @@ const api = {
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_COUNT),
     scrollTo: (index: number): Promise<boolean> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_SCROLL, index),
+    remove: (index: number): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_REMOVE, index),
+    clearAll: (): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_CLEAR),
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),

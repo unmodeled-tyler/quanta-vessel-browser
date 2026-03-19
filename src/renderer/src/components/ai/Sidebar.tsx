@@ -183,6 +183,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     onCleanup(() => clearInterval(id));
   });
 
+  const [hlMenuPos, setHlMenuPos] = createSignal<{ x: number; y: number } | null>(null);
+
   const scrollToHighlight = async (idx: number) => {
     const count = highlightCount();
     if (count === 0) return;
@@ -190,6 +192,43 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     setHighlightIndex(clamped);
     await (window as any).vessel?.highlights?.scrollTo?.(clamped);
   };
+
+  const handleHlContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    setHlMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const closeHlMenu = () => setHlMenuPos(null);
+
+  const removeCurrentHighlight = async () => {
+    closeHlMenu();
+    const idx = highlightIndex();
+    if (idx < 0) return;
+    await (window as any).vessel?.highlights?.remove?.(idx);
+    const newCount = await (window as any).vessel?.highlights?.getCount?.() ?? 0;
+    setHighlightCount(newCount);
+    if (newCount === 0) {
+      setHighlightIndex(-1);
+    } else if (idx >= newCount) {
+      setHighlightIndex(newCount - 1);
+      await (window as any).vessel?.highlights?.scrollTo?.(newCount - 1);
+    }
+  };
+
+  const clearAllHighlights = async () => {
+    closeHlMenu();
+    await (window as any).vessel?.highlights?.clearAll?.();
+    setHighlightCount(0);
+    setHighlightIndex(-1);
+  };
+
+  // Close highlight context menu on click anywhere
+  createEffect(() => {
+    if (!hlMenuPos()) return;
+    const handler = () => closeHlMenu();
+    document.addEventListener("click", handler, { once: true });
+    onCleanup(() => document.removeEventListener("click", handler));
+  });
 
   const handleChatSend = async () => {
     const prompt = chatInput().trim();
@@ -1224,7 +1263,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             </div>
           </Show>
           <Show when={highlightCount() > 0}>
-            <div class="highlight-nav">
+            <div class="highlight-nav" onContextMenu={handleHlContextMenu}>
               <button
                 class="highlight-nav-btn"
                 disabled={highlightIndex() <= 0}
@@ -1258,6 +1297,21 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 </svg>
               </button>
             </div>
+            <Show when={hlMenuPos()}>
+              <div
+                class="hl-context-menu"
+                style={{ left: `${hlMenuPos()!.x}px`, top: `${hlMenuPos()!.y}px` }}
+              >
+                <Show when={highlightIndex() >= 0}>
+                  <button class="hl-context-item" onClick={removeCurrentHighlight}>
+                    Remove this highlight
+                  </button>
+                </Show>
+                <button class="hl-context-item hl-context-danger" onClick={clearAllHighlights}>
+                  Clear all highlights
+                </button>
+              </div>
+            </Show>
           </Show>
           <div class="sidebar-input-area">
             <textarea
