@@ -45,7 +45,21 @@ export async function handleAIQuery(
         .map((item) => `- ${item.name} (${item.id})`)
         .join("\n");
 
+      const activeTabTitle = pageContent.title || "(untitled)";
+      const activeTabUrl = pageContent.url || activeWebContents.getURL();
+      const allTabs = tabManager.getAllStates();
+      const activeTabId = tabManager.getActiveTabId();
+      const tabSummary = allTabs.length > 1
+        ? `\nAll open tabs: ${allTabs.map((t) => `${t.id === activeTabId ? "→ " : ""}${t.title || "New Tab"} (${t.url})`).join(" | ")}`
+        : "";
+
       const systemPrompt = `You are Vessel, an AI agent embedded in a web browser. You can see the current page and interact with it using tools.
+
+THE USER IS CURRENTLY LOOKING AT:
+  Title: ${activeTabTitle}
+  URL: ${activeTabUrl}${tabSummary}
+
+When the user says "this page", "this article", "this site", or asks about what they're viewing, they mean the page above. The content below is from that page — answer directly without needing to call read_page or current_tab first.
 
 Current page context:
 ${structuredContext}

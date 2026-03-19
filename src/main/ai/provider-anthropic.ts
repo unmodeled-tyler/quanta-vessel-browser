@@ -76,7 +76,9 @@ export class AnthropicProvider implements AIProvider {
 
     try {
       const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
+        iterationsUsed = i + 1;
         const stream = this.client.messages.stream(
           {
             model: this.model,
@@ -173,8 +175,9 @@ export class AnthropicProvider implements AIProvider {
         }
         messages.push({ role: "user", content: toolResults });
       }
-      // If we exhausted iterations, let the user know
-      onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
+      if (iterationsUsed >= maxIterations) {
+        onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
+      }
     } catch (err: any) {
       if (err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);

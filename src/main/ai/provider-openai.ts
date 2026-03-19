@@ -96,7 +96,9 @@ export class OpenAICompatProvider implements AIProvider {
 
     try {
       const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
+        iterationsUsed = i + 1;
         // Accumulate text and tool calls across streamed chunks
         let textAccum = '';
         const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
@@ -176,8 +178,9 @@ export class OpenAICompatProvider implements AIProvider {
           });
         }
       }
-      // If we exhausted iterations, let the user know
-      onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
+      if (iterationsUsed >= maxIterations) {
+        onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
+      }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         onChunk(`\n\n[Error: ${err.message}]`);
