@@ -75,6 +75,71 @@ function renderList(block: string, ordered: boolean): string {
   return ordered ? `<ol>${items}</ol>` : `<ul>${items}</ul>`;
 }
 
+function isTableBlock(text: string): boolean {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length < 2) return false;
+  // Need at least a header row and a separator row (|---|---|)
+  const hasPipes = lines.every((l) => l.trim().includes("|"));
+  const hasSeparator = lines.some((l) => /^\|?\s*[-:]+[-|\s:]*$/.test(l.trim()));
+  return hasPipes && hasSeparator;
+}
+
+function renderTable(block: string): string {
+  const lines = block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const parseRow = (line: string): string[] =>
+    line
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim());
+
+  // Find separator row to split header from body
+  const sepIndex = lines.findIndex((l) =>
+    /^\|?\s*[-:]+[-|\s:]*$/.test(l),
+  );
+
+  const headerRows = sepIndex > 0 ? lines.slice(0, sepIndex) : [lines[0]];
+  const bodyRows = lines.slice(sepIndex + 1);
+
+  // Parse alignment from separator
+  const sepCells = sepIndex >= 0 ? parseRow(lines[sepIndex]) : [];
+  const alignments = sepCells.map((cell) => {
+    const trimmed = cell.replace(/\s/g, "");
+    if (trimmed.startsWith(":") && trimmed.endsWith(":")) return "center";
+    if (trimmed.endsWith(":")) return "right";
+    return "left";
+  });
+
+  const alignAttr = (i: number): string => {
+    const align = alignments[i];
+    return align && align !== "left" ? ` style="text-align:${align}"` : "";
+  };
+
+  const thead = headerRows
+    .map(
+      (row) =>
+        `<tr>${parseRow(row)
+          .map((cell, i) => `<th${alignAttr(i)}>${applyInlineMarkdown(cell)}</th>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+
+  const tbody = bodyRows
+    .map(
+      (row) =>
+        `<tr>${parseRow(row)
+          .map((cell, i) => `<td${alignAttr(i)}>${applyInlineMarkdown(cell)}</td>`)
+          .join("")}</tr>`,
+    )
+    .join("");
+
+  return `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
 function renderBlock(block: string): string {
   const trimmed = block.trim();
   if (!trimmed) return "";
@@ -103,6 +168,10 @@ function renderBlock(block: string): string {
 
   if (trimmed === "---" || trimmed === "***") {
     return "<hr />";
+  }
+
+  if (isTableBlock(trimmed)) {
+    return renderTable(trimmed);
   }
 
   if (trimmed.split("\n").every((line) => /^[-*+]\s+/.test(line))) {
@@ -166,8 +235,14 @@ export function renderMarkdown(source: string): string {
       "p",
       "pre",
       "strong",
+      "table",
+      "tbody",
+      "td",
+      "th",
+      "thead",
+      "tr",
       "ul",
     ],
-    ALLOWED_ATTR: ["href", "target", "rel", "data-language"],
+    ALLOWED_ATTR: ["href", "target", "rel", "data-language", "style"],
   });
 }

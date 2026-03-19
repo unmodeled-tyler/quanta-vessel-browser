@@ -1351,6 +1351,35 @@
     margin: 14px 0;
 }
 
+.markdown-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.markdown-content thead {
+    border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+}
+
+.markdown-content th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 6px 10px;
+}
+
+.markdown-content td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+}
+
+.markdown-content tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
 
 /* ═══════════════════════════════════════
    Thinking & streaming states
