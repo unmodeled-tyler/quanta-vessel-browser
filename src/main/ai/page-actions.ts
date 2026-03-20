@@ -10,7 +10,7 @@ import {
   formatLiveSelectionSection,
 } from "../highlights/live-snapshot";
 import { extractContent } from "../content/extractor";
-import { getRecoverableAccessIssue } from "../content/page-access-issues";
+
 import { findSelectorByIndex } from "../mcp/indexed-selector";
 import {
   formatDeadLinkMessage,
@@ -23,6 +23,29 @@ import { buildStructuredContext } from "./context-builder";
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
+}
+
+/**
+ * Probe the page's JS thread until it responds.  Heavy SPAs (Newegg,
+ * Wikipedia) can keep the JS thread busy for 10-20s after the HTML
+ * loads while React/Vue hydrate, ads initialise, etc.  Any
+ * executeJavaScript call made during that window queues behind the
+ * busy work and hangs.  This function polls with a tiny script until
+ * the thread is free, so subsequent tool calls work immediately.
+ */
+async function waitForJsReady(wc: WebContents, timeout = 8000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ready = await Promise.race([
+      wc.executeJavaScript("1", true).then(() => true).catch(() => false),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 1000)),
+    ]);
+    if (ready) {
+      console.log(`[Vessel] JS thread ready after ${Date.now() - start}ms`);
+      return;
+    }
+  }
+  console.log(`[Vessel] JS thread not ready after ${timeout}ms, continuing anyway`);
 }
 
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
@@ -1403,42 +1426,12 @@ async function getPostActionState(
   ];
 
   if (navActions.includes(name)) {
-    let warning = "";
-
-    // Use a hard timeout for post-nav content extraction so heavy pages
-    // (Newegg, Wikipedia, etc.) don't block the agent loop indefinitely.
-    try {
-      const page = await Promise.race([
-        extractContent(wc),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("post-nav extract timeout")), 5000),
-        ),
-      ]);
-      const issue = getRecoverableAccessIssue(page);
-      if (issue) {
-        const blockedUrl = wc.getURL();
-        const canRecover =
-          [
-            "navigate",
-            "open_bookmark",
-            "click",
-            "submit_form",
-            "reload",
-            "press_key",
-          ].includes(name) && tab.canGoBack();
-
-        if (canRecover && tab.goBack()) {
-          await waitForLoad(wc);
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
-        } else {
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
-        }
-      }
-    } catch {
-      // Best-effort post-action warning only — timeout or extraction failure
+    // If the page is still loading (spinner visible), wait for it to
+    // finish — just like a human waits for the spinner to stop.
+    if (wc.isLoading()) {
+      await waitForLoad(wc);
     }
-
-    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -1596,11 +1589,8 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
-          console.log(`[Vessel Navigate] calling navigateTab`);
           ctx.tabManager.navigateTab(tabId, args.url);
-          console.log(`[Vessel Navigate] navigateTab returned, calling waitForLoad`);
           await waitForLoad(wc);
-          console.log(`[Vessel Navigate] waitForLoad resolved`);
           return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
         }
 
@@ -1758,22 +1748,54 @@ export async function executeAction(
 
         case "read_page": {
           if (!wc) return "Error: No active tab";
-          const content = await extractContent(wc);
-          const liveSelectionSection = formatLiveSelectionSection(
-            await captureLiveHighlightSnapshot(
-              wc,
-              highlightsManager.getHighlightsForUrl(content.url),
-            ),
-          );
-          const structured = buildStructuredContext(content);
-          const truncated =
-            content.content.length > 20000
-              ? content.content.slice(0, 20000) + "\n[Content truncated...]"
-              : content.content;
-          const livePrefix = liveSelectionSection
-            ? `${liveSelectionSection}\n\n`
-            : "";
-          return `${livePrefix}${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+
+          // Try full extraction first; if the page JS thread is busy
+          // (common on heavy SPAs after navigation), fall back to a
+          // lightweight native-only read so the agent isn't blocked.
+          console.log("[Vessel read_page] starting extraction with 6s timeout");
+          let content: Awaited<ReturnType<typeof extractContent>> | null = null;
+          try {
+            content = await Promise.race([
+              extractContent(wc),
+              new Promise<null>((resolve) => setTimeout(() => {
+                console.log("[Vessel read_page] timeout fired, falling back");
+                resolve(null);
+              }, 6000)),
+            ]);
+          } catch {
+            content = null;
+          }
+          console.log(`[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`)
+
+          if (content && content.content) {
+            const liveSelectionSection = formatLiveSelectionSection(
+              await captureLiveHighlightSnapshot(
+                wc,
+                highlightsManager.getHighlightsForUrl(content.url),
+              ),
+            );
+            const structured = buildStructuredContext(content);
+            const truncated =
+              content.content.length > 20000
+                ? content.content.slice(0, 20000) + "\n[Content truncated...]"
+                : content.content;
+            const livePrefix = liveSelectionSection
+              ? `${liveSelectionSection}\n\n`
+              : "";
+            return `${livePrefix}${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+          }
+
+          // Fallback: native Electron APIs only — no executeJavaScript
+          const title = wc.getTitle() || "(untitled)";
+          const url = wc.getURL();
+          return [
+            `# ${title}`,
+            `URL: ${url}`,
+            "",
+            "[Page content extraction timed out — the page JS thread is busy.]",
+            "[Use the search tool to search the site, or type_text/click to interact directly.]",
+            "[You can retry read_page in a few seconds once the page finishes loading.]",
+          ].join("\n");
         }
 
         case "wait_for": {
@@ -2427,7 +2449,34 @@ export async function executeAction(
                 };
               })()
             `);
-          if (!searchInfo?.selector) return "Error: Could not find search input. Try providing a selector.";
+          // Retry once after a short delay if the search input wasn't
+          // found — the page may still be rendering after navigation.
+          if (!searchInfo?.selector) {
+            await sleep(1500);
+            const retry = await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
+                if (!el) {
+                  var inputs = document.querySelectorAll('input[type="text"]');
+                  for (var i = 0; i < inputs.length; i++) {
+                    var form = inputs[i].closest('form');
+                    if (form && (form.getAttribute('role') === 'search' || form.action?.includes('search'))) {
+                      el = inputs[i]; break;
+                    }
+                  }
+                }
+                if (!el) return null;
+                var sel = el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null;
+                var form = el.closest('form');
+                return { selector: sel, formAction: form ? form.action : null, formMethod: form ? (form.method || 'GET').toUpperCase() : null, inputName: el.name || 'q' };
+              })()
+            `);
+            if (retry?.selector) {
+              Object.assign(searchInfo ?? {}, retry);
+            } else {
+              return "Error: Could not find search input. Try providing a selector.";
+            }
+          }
 
           // Step 2: Fill the search box
           await setElementValue(wc, searchInfo.selector, query);
