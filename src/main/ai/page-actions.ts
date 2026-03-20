@@ -28,6 +28,7 @@ export interface ActionContext {
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   return new Promise((resolve) => {
     let finished = false;
+    console.log(`[Vessel waitForLoad] started, isLoading=${wc.isLoading()}, timeout=${timeout}`);
 
     const cleanup = () => {
       wc.removeListener("did-finish-load", onLoadEvent);
@@ -35,24 +36,27 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
       wc.removeListener("did-fail-load", onLoadEvent);
     };
 
-    const finish = () => {
+    const finish = (reason: string) => {
       if (finished) return;
       finished = true;
+      console.log(`[Vessel waitForLoad] finished: ${reason}`);
       clearTimeout(timer);
       cleanup();
       resolve();
     };
 
     const onLoadEvent = () => {
-      if (!wc.isLoading()) {
-        finish();
+      const loading = wc.isLoading();
+      console.log(`[Vessel waitForLoad] load event fired, isLoading=${loading}`);
+      if (!loading) {
+        finish("load event");
       }
     };
 
-    const timer = setTimeout(finish, timeout);
+    const timer = setTimeout(() => finish("timeout"), timeout);
 
     if (!wc.isLoading()) {
-      finish();
+      finish("already loaded");
       return;
     }
 
@@ -103,6 +107,16 @@ function waitForPotentialNavigation(
     wc.once("did-navigate", onNavigate);
     wc.once("did-navigate-in-page", onNavigateInPage);
   });
+}
+
+/**
+ * Grab just the page title — no JS execution in the page context at all.
+ * Electron exposes getTitle() on WebContents natively, so this never blocks
+ * on a busy page JS thread.
+ */
+function getPostNavSummary(wc: WebContents): string {
+  const title = wc.getTitle();
+  return title ? `\nPage title: ${title}` : "";
 }
 
 async function scrollPage(
@@ -1391,8 +1405,15 @@ async function getPostActionState(
   if (navActions.includes(name)) {
     let warning = "";
 
+    // Use a hard timeout for post-nav content extraction so heavy pages
+    // (Newegg, Wikipedia, etc.) don't block the agent loop indefinitely.
     try {
-      const page = await extractContent(wc);
+      const page = await Promise.race([
+        extractContent(wc),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("post-nav extract timeout")), 5000),
+        ),
+      ]);
       const issue = getRecoverableAccessIssue(page);
       if (issue) {
         const blockedUrl = wc.getURL();
@@ -1414,7 +1435,7 @@ async function getPostActionState(
         }
       }
     } catch {
-      // Best-effort post-action warning only
+      // Best-effort post-action warning only — timeout or extraction failure
     }
 
     return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
@@ -1568,15 +1589,19 @@ export async function executeAction(
           const created = ctx.tabManager.getActiveTab();
           if (created) {
             await waitForLoad(created.view.webContents);
+            return `Created tab ${createdId}${getPostNavSummary(created.view.webContents)}`;
           }
           return `Created tab ${createdId}`;
         }
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          console.log(`[Vessel Navigate] calling navigateTab`);
           ctx.tabManager.navigateTab(tabId, args.url);
+          console.log(`[Vessel Navigate] navigateTab returned, calling waitForLoad`);
           await waitForLoad(wc);
-          return `Navigated to ${wc.getURL()}`;
+          console.log(`[Vessel Navigate] waitForLoad resolved`);
+          return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
         }
 
         case "go_back": {
@@ -1589,7 +1614,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went back to ${afterUrl}`
+            ? `Went back to ${afterUrl}${getPostNavSummary(wc)}`
             : `Back action completed but page stayed on ${afterUrl}`;
         }
 
@@ -1603,7 +1628,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went forward to ${afterUrl}`
+            ? `Went forward to ${afterUrl}${getPostNavSummary(wc)}`
             : `Forward action completed but page stayed on ${afterUrl}`;
         }
 

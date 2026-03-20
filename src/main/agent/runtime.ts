@@ -343,6 +343,7 @@ export class AgentRuntime {
     });
 
     const approvalReason = this.getApprovalReason(dangerous);
+    console.log(`[Vessel Runtime] action=${name} dangerous=${dangerous} approvalReason=${approvalReason} mode=${this.state.supervisor.approvalMode}`);
     if (approvalReason) {
       this.publishTranscript({
         source,
@@ -352,7 +353,9 @@ export class AgentRuntime {
         streamId: transcriptStreamId,
         mode: "replace",
       });
+      console.log(`[Vessel Runtime] awaiting approval for ${name}...`);
       const approved = await this.awaitApproval(action, approvalReason);
+      console.log(`[Vessel Runtime] approval result for ${name}: ${approved}`);
       if (!approved) {
         this.publishTranscript({
           source,
