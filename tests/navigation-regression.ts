@@ -6,6 +6,7 @@ import { app, BaseWindow } from "electron";
 
 import {
   clickElementBySelector,
+  pressKey,
   setElementValue,
   submitFormBySelector,
   waitForLoad,
@@ -319,6 +320,34 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "same-page actions settle without a long fake navigation wait",
+    );
+
+    await runScenario(
+      "trusted Enter key presses trigger focused input handlers",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/trusted-enter-source`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            await setElementValue(wc, "#trusted-search", "rtx 4060 ti");
+            const result = await pressKey(wc, {
+              key: "Enter",
+              selector: "#trusted-search",
+            });
+
+            assert.match(result, /Pressed key: Enter/);
+            await waitForLoad(wc, 8000);
+            assert.equal(
+              wc.getURL(),
+              `${harness.baseUrl}/trusted-enter-result?q=rtx+4060+ti`,
+            );
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "trusted Enter key presses trigger focused input handlers",
     );
 
     console.log(

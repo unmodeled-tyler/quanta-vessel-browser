@@ -43,9 +43,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       match: z
         .string()
         .optional()
-        .describe(
-          "Case-insensitive partial match against tab title or URL",
-        ),
+        .describe("Case-insensitive partial match against tab title or URL"),
     },
     tier: 2,
   },
@@ -128,16 +126,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Select an option in a dropdown by visible label or option value.",
     inputSchema: {
-      index: z
-        .number()
-        .optional()
-        .describe("The select element index number"),
+      index: z.number().optional().describe("The select element index number"),
       selector: z.string().optional().describe("CSS selector as fallback"),
       label: z.string().optional().describe("Visible option label to match"),
-      value: z
-        .string()
-        .optional()
-        .describe("Option value attribute to match"),
+      value: z.string().optional().describe("Option value attribute to match"),
     },
     tier: 1,
     relevance: ["FORM", "SHOPPING"],
@@ -163,8 +155,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "press_key",
     title: "Press Key",
-    description:
-      "Press a keyboard key, optionally after focusing an element.",
+    description: "Press a keyboard key, optionally after focusing an element.",
     inputSchema: {
       key: z.string().describe("Keyboard key such as Enter or Escape"),
       index: z.number().optional().describe("Element index to focus first"),
@@ -178,10 +169,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Scroll the page up or down.",
     inputSchema: {
       direction: z.enum(["up", "down"]).describe("Scroll direction"),
-      amount: z
-        .number()
-        .optional()
-        .describe("Pixels to scroll (default 500)"),
+      amount: z.number().optional().describe("Pixels to scroll (default 500)"),
     },
     tier: 0,
     relevance: ["ARTICLE", "SEARCH_RESULTS", "PAGINATED_LIST"],
@@ -227,9 +215,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       match: z
         .string()
         .optional()
-        .describe(
-          "Case-insensitive partial match against tab title or URL",
-        ),
+        .describe("Case-insensitive partial match against tab title or URL"),
       reload: z
         .boolean()
         .optional()
@@ -248,7 +234,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "read_page",
     title: "Read Page",
     description:
-      "Re-read the current page content. Includes active text selection and visible unsaved highlights. Use after navigation or interaction to see updated content.",
+      "Read the current page using a scoped mode. Defaults to a minimal navigation-focused brief; use mode='debug' only when narrower modes are insufficient.",
+    inputSchema: {
+      mode: z
+        .enum([
+          "summary",
+          "interactives_only",
+          "forms_only",
+          "text_only",
+          "visible_only",
+          "results_only",
+          "full",
+          "debug",
+        ])
+        .optional()
+        .describe(
+          "Read mode: visible_only/results_only/forms_only/summary/text_only for narrow reads, full/debug for the complete page dump",
+        ),
+    },
     tier: 0,
   },
   {
@@ -402,14 +405,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .optional()
         .describe("CSS selector of a link to bookmark without opening"),
-      folderId: z
-        .string()
-        .optional()
-        .describe("Folder ID to save into"),
+      folderId: z.string().optional().describe("Folder ID to save into"),
       folderName: z
         .string()
         .optional()
-        .describe("Folder name to save into. Created automatically if missing."),
+        .describe(
+          "Folder name to save into. Created automatically if missing.",
+        ),
       folderSummary: z
         .string()
         .optional()
@@ -449,10 +451,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .optional()
         .describe("CSS selector of a link to organize"),
-      folderId: z
-        .string()
-        .optional()
-        .describe("Target folder ID"),
+      folderId: z.string().optional().describe("Target folder ID"),
       folderName: z
         .string()
         .optional()
@@ -538,7 +537,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       durationMs: z
         .number()
         .optional()
-        .describe("Auto-clear after this many milliseconds (omit for permanent)"),
+        .describe(
+          "Auto-clear after this many milliseconds (omit for permanent)",
+        ),
       color: z
         .enum(["yellow", "red", "green", "blue", "purple", "orange"])
         .optional()
@@ -550,8 +551,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "clear_highlights",
     title: "Clear Highlights",
-    description:
-      "Remove all visual highlights from the current page.",
+    description: "Remove all visual highlights from the current page.",
     tier: 2,
   },
 
@@ -564,7 +564,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       goal: z
         .string()
-        .describe("What this workflow accomplishes (e.g. 'Purchase item from Amazon')"),
+        .describe(
+          "What this workflow accomplishes (e.g. 'Purchase item from Amazon')",
+        ),
       steps: z
         .array(z.string())
         .describe(
@@ -622,10 +624,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               .number()
               .optional()
               .describe("Element index from page content"),
-            selector: z
-              .string()
-              .optional()
-              .describe("CSS selector fallback"),
+            selector: z.string().optional().describe("CSS selector fallback"),
             value: z.string().describe("Value to enter"),
           }),
         )
@@ -691,7 +690,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       selector: z
         .string()
         .optional()
-        .describe("CSS selector for pagination link (auto-detected if omitted)"),
+        .describe(
+          "CSS selector for pagination link (auto-detected if omitted)",
+        ),
     },
     tier: 1,
     relevance: ["SEARCH_RESULTS", "PAGINATED_LIST"],
@@ -718,7 +719,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       selector: z
         .string()
         .optional()
-        .describe("CSS selector for the table (auto-detected if omitted — uses first table)"),
+        .describe(
+          "CSS selector for the table (auto-detected if omitted — uses first table)",
+        ),
     },
     tier: 1,
     relevance: ["SEARCH_RESULTS", "ARTICLE"],
@@ -734,7 +737,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       position: z
         .enum(["center", "top", "bottom"])
         .optional()
-        .describe("Where to position the element in the viewport (default center)"),
+        .describe(
+          "Where to position the element in the viewport (default center)",
+        ),
     },
     tier: 1,
   },

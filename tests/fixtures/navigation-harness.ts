@@ -27,6 +27,7 @@ function renderPage(title: string, body: string): string {
       <a href="/post-form">POST form</a>
       <a href="/external-submit">External submit</a>
       <a href="/same-page-action">Same-page action</a>
+      <a href="/trusted-enter-source">Trusted Enter</a>
     </nav>
     <main>
       ${body}
@@ -344,6 +345,46 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
             >
               Update without navigating
             </button>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/trusted-enter-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "trusted-enter-source",
+          `
+            <h1>Trusted Enter Source</h1>
+            <label>
+              Search
+              <input id="trusted-search" name="q" />
+            </label>
+            <script>
+              const input = document.getElementById('trusted-search');
+              input?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && event.isTrusted) {
+                  window.location.href = '/trusted-enter-result?q=' + encodeURIComponent(input.value);
+                }
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/trusted-enter-result") {
+      const value = url.searchParams.get("q") || "";
+      sendHtml(
+        res,
+        renderPage(
+          "trusted-enter-result",
+          `
+            <h1>Trusted Enter Result</h1>
+            <p id="trusted-enter-value">${value}</p>
           `,
         ),
       );

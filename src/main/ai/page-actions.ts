@@ -18,7 +18,12 @@ import {
 } from "../network/link-validation";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
-import { buildStructuredContext } from "./context-builder";
+import {
+  buildScopedContext,
+  buildStructuredContext,
+  chooseAgentReadMode,
+  type ExtractMode,
+} from "./context-builder";
 
 export interface ActionContext {
   tabManager: TabManager;
@@ -31,6 +36,29 @@ const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
 
 function pageBusyError(action: string): string {
   return `Error: Page is still busy; ${action} timed out waiting for page scripts. Retry in a moment.`;
+}
+
+function normalizeReadPageMode(
+  mode: unknown,
+  pageContent?: Awaited<ReturnType<typeof extractContent>>,
+): ExtractMode | "debug" {
+  if (typeof mode === "string") {
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === "debug") return "debug";
+    if (
+      normalized === "full" ||
+      normalized === "summary" ||
+      normalized === "interactives_only" ||
+      normalized === "forms_only" ||
+      normalized === "text_only" ||
+      normalized === "visible_only" ||
+      normalized === "results_only"
+    ) {
+      return normalized;
+    }
+  }
+
+  return pageContent ? chooseAgentReadMode(pageContent) : "visible_only";
 }
 
 async function executePageScript<T>(
@@ -1602,7 +1630,7 @@ async function submitForm(
   return "Submitted form";
 }
 
-export { waitForLoad, setElementValue };
+export { waitForLoad, setElementValue, pressKey };
 
 export async function clickElementBySelector(
   wc: WebContents,
@@ -1626,40 +1654,75 @@ async function pressKey(
   if (!key) return "Error: No key provided";
 
   const selector = await resolveSelector(wc, args.index, args.selector);
-
-  const result = await executePageScript<string>(
+  const focusResult = await executePageScript<{
+    ok?: boolean;
+    error?: string;
+    label?: string;
+  }>(
     wc,
     `
     (function() {
-      const key = ${JSON.stringify(key)};
       const selector = ${JSON.stringify(selector)};
       const target =
         selector ? document.querySelector(selector) : document.activeElement;
       if (!target || !(target instanceof HTMLElement)) {
-        return selector ? 'Target not found' : 'No focused element';
+        return { error: selector ? 'Target not found' : 'No focused element' };
       }
-      target.focus();
-      const eventInit = { key, bubbles: true, cancelable: true };
-      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
-      target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
-      const tag = target.tagName;
-      const type = target instanceof HTMLInputElement ? target.type : '';
-      if (key === 'Enter' &&
-          typeof target.click === 'function' &&
-          (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button')))) {
-        target.click();
-      }
-      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
-      return 'Pressed key: ' + key;
+      target.focus({ preventScroll: false });
+      return {
+        ok: true,
+        label:
+          target.getAttribute('aria-label') ||
+          target.getAttribute('name') ||
+          target.getAttribute('placeholder') ||
+          target.textContent?.trim().slice(0, 60) ||
+          target.tagName.toLowerCase(),
+      };
     })()
   `,
     {
-      label: "press key",
+      label: "focus before key press",
     },
   );
-  return result === PAGE_SCRIPT_TIMEOUT
-    ? pageBusyError("press_key")
-    : result || "Error: Could not press key";
+  if (focusResult === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("press_key");
+  }
+  if (!focusResult || typeof focusResult !== "object") {
+    return "Error: Could not prepare key press";
+  }
+  if ("error" in focusResult && typeof focusResult.error === "string") {
+    return focusResult.error;
+  }
+
+  wc.focus();
+
+  const normalizedKey =
+    key.length === 1 ? key : key[0].toUpperCase() + key.slice(1);
+  const electronKeyCode =
+    normalizedKey === "Enter"
+      ? "Return"
+      : normalizedKey === "ArrowUp"
+        ? "Up"
+        : normalizedKey === "ArrowDown"
+          ? "Down"
+          : normalizedKey === "ArrowLeft"
+            ? "Left"
+            : normalizedKey === "ArrowRight"
+              ? "Right"
+              : normalizedKey;
+
+  wc.sendInputEvent({ type: "keyDown", keyCode: electronKeyCode });
+  if (key.length === 1) {
+    wc.sendInputEvent({ type: "char", keyCode: key });
+  }
+  await sleep(16);
+  wc.sendInputEvent({ type: "keyUp", keyCode: electronKeyCode });
+
+  const label =
+    "label" in focusResult && typeof focusResult.label === "string"
+      ? focusResult.label
+      : null;
+  return label ? `Pressed key: ${key} on ${label}` : `Pressed key: ${key}`;
 }
 
 async function getPostActionState(
@@ -2079,22 +2142,38 @@ export async function executeAction(
             `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
           );
 
-          if (content && content.content) {
+          if (content) {
             const liveSelectionSection = formatLiveSelectionSection(
               await captureLiveHighlightSnapshot(
                 wc,
                 highlightsManager.getHighlightsForUrl(content.url),
               ),
             );
-            const structured = buildStructuredContext(content);
-            const truncated =
-              content.content.length > 20000
-                ? content.content.slice(0, 20000) + "\n[Content truncated...]"
-                : content.content;
             const livePrefix = liveSelectionSection
               ? `${liveSelectionSection}\n\n`
               : "";
-            return `${livePrefix}${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+            const requestedMode = normalizeReadPageMode(args.mode, content);
+
+            if (requestedMode === "debug" || requestedMode === "full") {
+              const structured = buildStructuredContext(content);
+              const truncated =
+                content.content.length > 20000
+                  ? content.content.slice(0, 20000) + "\n[Content truncated...]"
+                  : content.content;
+              return `${livePrefix}[read_page mode=debug]\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+            }
+
+            const scoped = buildScopedContext(content, requestedMode);
+            return [
+              livePrefix ? livePrefix.trimEnd() : "",
+              `[read_page mode=${requestedMode}]`,
+              "",
+              scoped,
+              "",
+              `Need more detail? Escalate with read_page(mode="debug") only if the narrow modes are insufficient.`,
+            ]
+              .filter(Boolean)
+              .join("\n\n");
           }
 
           // Fallback: native Electron APIs only — no executeJavaScript
@@ -2656,18 +2735,25 @@ export async function executeAction(
             suggestions.push("  → fill_form(fields) — fill all fields at once");
           } else if (hasPagination) {
             suggestions.push("PAGINATED CONTENT:");
-            suggestions.push("  → read_page to read this page");
+            suggestions.push(
+              "  → read_page(mode='results_only') to inspect likely results",
+            );
             suggestions.push("  → paginate('next') for the next page");
           } else if (
             page.content.length > 3000 &&
             page.interactiveElements.length < 10
           ) {
             suggestions.push("ARTICLE/CONTENT page:");
-            suggestions.push("  → read_page for readable text");
+            suggestions.push("  → read_page(mode='summary') for a fast brief");
+            suggestions.push(
+              "  → read_page(mode='text_only') for readable text",
+            );
             suggestions.push("  → scroll to see more");
           } else {
             suggestions.push("GENERAL PAGE:");
-            suggestions.push("  → read_page to understand the page structure");
+            suggestions.push(
+              "  → read_page(mode='visible_only') to inspect active controls",
+            );
             suggestions.push("  → click on any element by index");
             suggestions.push("  → navigate to go somewhere new");
           }

@@ -117,7 +117,12 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
       let s = 0;
       if (el.visible === false) s += 100;
       if (el.inViewport === false) s += 50;
-      if (el.context === "nav" || el.context === "footer" || el.context === "sidebar") s += 30;
+      if (
+        el.context === "nav" ||
+        el.context === "footer" ||
+        el.context === "sidebar"
+      )
+        s += 30;
       if (el.obscured) s += 20;
       // Inputs/buttons are higher priority than links (fewer of them, more actionable)
       if (el.type === "link") s += 5;
@@ -332,10 +337,7 @@ function formatPageIssues(issues: PageIssue[]): string {
     .join("\n");
 }
 
-function formatStructuredValue(
-  value: StructuredDataValue,
-  depth = 0,
-): string {
+function formatStructuredValue(value: StructuredDataValue, depth = 0): string {
   if (value == null) return "";
   if (
     typeof value === "string" ||
@@ -372,7 +374,10 @@ function formatStructuredEntities(entities: StructuredDataEntity[]): string {
       if (entity.url && entity.url !== entity.name) {
         lines.push(`  url: ${entity.url}`);
       }
-      for (const [key, value] of Object.entries(entity.attributes).slice(0, 8)) {
+      for (const [key, value] of Object.entries(entity.attributes).slice(
+        0,
+        8,
+      )) {
         const rendered = formatStructuredValue(value);
         if (rendered) {
           lines.push(`  ${key}: ${rendered}`);
@@ -431,12 +436,36 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
   const lines: string[] = [];
 
   // Fields to omit as too noisy for agents
-  const SKIP = new Set(["@context", "image", "logo", "thumbnail", "potentialAction"]);
+  const SKIP = new Set([
+    "@context",
+    "image",
+    "logo",
+    "thumbnail",
+    "potentialAction",
+  ]);
 
   // Type-specific field priority (shown first)
   const TYPE_FIELDS: Record<string, string[]> = {
-    Recipe: ["name", "url", "description", "recipeYield", "totalTime", "cookTime", "prepTime", "recipeIngredient", "recipeInstructions"],
-    Article: ["headline", "name", "url", "datePublished", "dateModified", "author", "description"],
+    Recipe: [
+      "name",
+      "url",
+      "description",
+      "recipeYield",
+      "totalTime",
+      "cookTime",
+      "prepTime",
+      "recipeIngredient",
+      "recipeInstructions",
+    ],
+    Article: [
+      "headline",
+      "name",
+      "url",
+      "datePublished",
+      "dateModified",
+      "author",
+      "description",
+    ],
     Product: ["name", "url", "description", "offers"],
     BreadcrumbList: ["itemListElement"],
     Organization: ["name", "url", "description"],
@@ -452,18 +481,31 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
     const renderValue = (val: unknown, depth = 0): string => {
       if (val === null || val === undefined) return "";
       if (typeof val === "string") return val;
-      if (typeof val === "number" || typeof val === "boolean") return String(val);
+      if (typeof val === "number" || typeof val === "boolean")
+        return String(val);
       if (Array.isArray(val)) {
-        if (depth > 0) return val.map((v) => renderValue(v, depth + 1)).filter(Boolean).join(", ");
-        return val.map((v, i) => {
-          const s = renderValue(v, depth + 1);
-          return s ? `  ${i + 1}. ${s}` : "";
-        }).filter(Boolean).join("\n");
+        if (depth > 0)
+          return val
+            .map((v) => renderValue(v, depth + 1))
+            .filter(Boolean)
+            .join(", ");
+        return val
+          .map((v, i) => {
+            const s = renderValue(v, depth + 1);
+            return s ? `  ${i + 1}. ${s}` : "";
+          })
+          .filter(Boolean)
+          .join("\n");
       }
       if (typeof val === "object") {
         const obj = val as Record<string, unknown>;
         // Common single-value wrappers
-        const text = obj["@value"] ?? obj["text"] ?? obj["name"] ?? obj["url"] ?? obj["item"];
+        const text =
+          obj["@value"] ??
+          obj["text"] ??
+          obj["name"] ??
+          obj["url"] ??
+          obj["item"];
         if (text) return renderValue(text, depth + 1);
         return Object.entries(obj)
           .filter(([k]) => !SKIP.has(k))
@@ -505,6 +547,25 @@ export type ExtractMode =
   | "visible_only"
   | "results_only";
 
+export function chooseAgentReadMode(page: PageContent): ExtractMode {
+  const pageType = detectPageType(page);
+  switch (pageType) {
+    case "SEARCH_RESULTS":
+    case "PAGINATED_LIST":
+      return "results_only";
+    case "LOGIN":
+    case "SEARCH_READY":
+    case "SHOPPING":
+    case "FORM":
+      return "visible_only";
+    case "ARTICLE":
+      return "summary";
+    case "GENERAL":
+    default:
+      return "visible_only";
+  }
+}
+
 function normalizeComparable(value: string): string {
   return value
     .toLowerCase()
@@ -531,11 +592,7 @@ function getUrlPathSegments(value?: string): string[] {
   try {
     return new URL(value).pathname.split("/").filter(Boolean);
   } catch {
-    return value
-      .split("?")[0]
-      .split("#")[0]
-      .split("/")
-      .filter(Boolean);
+    return value.split("?")[0].split("#")[0].split("/").filter(Boolean);
   }
 }
 
@@ -572,7 +629,9 @@ function collectJsonLdEntityItems(
   const item = input as Record<string, unknown>;
   const type = item["@type"];
   const types = Array.isArray(type) ? type : [type];
-  const typeNames = types.filter((entry): entry is string => typeof entry === "string");
+  const typeNames = types.filter(
+    (entry): entry is string => typeof entry === "string",
+  );
 
   if (
     (typeof item.name === "string" || typeof item.url === "string") &&
@@ -613,7 +672,8 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
 
   const scored = page.interactiveElements
     .filter(
-      (element) => element.type === "link" && element.text?.trim() && element.href,
+      (element) =>
+        element.type === "link" && element.text?.trim() && element.href,
     )
     .map((element) => {
       const text = element.text?.trim() || "";
@@ -631,15 +691,20 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       if (href && entityUrls.has(href)) score += 6;
       if (
         entityItems.some((item) => {
-          const name = typeof item.name === "string" ? normalizeComparable(item.name) : "";
-          return Boolean(name) && (name.includes(comparableText) || comparableText.includes(name));
+          const name =
+            typeof item.name === "string" ? normalizeComparable(item.name) : "";
+          return (
+            Boolean(name) &&
+            (name.includes(comparableText) || comparableText.includes(name))
+          );
         })
       ) {
         score += 4;
       }
 
       if (element.context === "article") score += 3;
-      else if (element.context === "main" || element.context === "content") score += 1;
+      else if (element.context === "main" || element.context === "content")
+        score += 1;
 
       if (href && pageHost) {
         try {
@@ -663,7 +728,11 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
 
       if (/\b(card|tile|result|rating|review)\b/.test(haystack)) score += 1;
-      if (/\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(haystack)) {
+      if (
+        /\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(
+          haystack,
+        )
+      ) {
         score += 1;
       }
       if (text.length >= 12 && text.split(/\s+/).length >= 2) score += 1;
@@ -701,7 +770,10 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
       return score >= 4 || (score >= 3 && element.context === "article");
     })
-    .sort((a, b) => b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0));
+    .sort(
+      (a, b) =>
+        b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0),
+    );
 
   const seen = new Set<string>();
   return scored
@@ -754,8 +826,12 @@ export function buildScopedContext(
       if ((page.structuredData?.length ?? 0) > 0) {
         if (hasOnlyFallbackStructuredData(page)) {
           const rawSources = [
-            (page.jsonLd?.length ?? 0) > 0 ? `${page.jsonLd!.length} JSON-LD` : "",
-            (page.microdata?.length ?? 0) > 0 ? `${page.microdata!.length} microdata` : "",
+            (page.jsonLd?.length ?? 0) > 0
+              ? `${page.jsonLd!.length} JSON-LD`
+              : "",
+            (page.microdata?.length ?? 0) > 0
+              ? `${page.microdata!.length} microdata`
+              : "",
             (page.rdfa?.length ?? 0) > 0 ? `${page.rdfa!.length} RDFa` : "",
           ].filter(Boolean);
           if (rawSources.length > 0) {
@@ -971,7 +1047,9 @@ export function buildScopedContext(
         sections.push(`### Likely Search Results (${resultElements.length})`);
         sections.push(formatInteractiveElements(resultElements));
       } else {
-        sections.push("No likely primary result links were detected on this page.");
+        sections.push(
+          "No likely primary result links were detected on this page.",
+        );
       }
       return sections.join("\n");
     }
@@ -1013,9 +1091,7 @@ export function detectPageType(page: PageContent): PageType {
     page.forms.some((f) =>
       f.fields.some(
         (el) =>
-          el.inputType === "search" ||
-          el.name === "q" ||
-          el.name === "query",
+          el.inputType === "search" || el.name === "q" || el.name === "query",
       ),
     );
   const formCount = page.forms.length;
@@ -1043,7 +1119,8 @@ export function detectPageType(page: PageContent): PageType {
   if (hasCart) return "SHOPPING";
   if (formCount > 0 && !hasPasswordField) return "FORM";
   if (hasPagination) return "PAGINATED_LIST";
-  if (page.content.length > 3000 && page.interactiveElements.length < 10) return "ARTICLE";
+  if (page.content.length > 3000 && page.interactiveElements.length < 10)
+    return "ARTICLE";
   return "GENERAL";
 }
 
@@ -1066,7 +1143,9 @@ function analyzePageIntent(page: PageContent): string {
   switch (pageType) {
     case "LOGIN": {
       hints.push("Page type: LOGIN/SIGNUP");
-      hints.push("Suggested: vessel_login or vessel_fill_form → auto-fills credentials and submits");
+      hints.push(
+        "Suggested: vessel_login or vessel_fill_form → auto-fills credentials and submits",
+      );
       const userField = page.forms
         .flatMap((f) => f.fields)
         .find(
@@ -1077,18 +1156,25 @@ function analyzePageIntent(page: PageContent): string {
             el.autocomplete === "username",
         );
       if (userField) {
-        hints.push(`Username field: #${userField.index} [${userField.label || userField.name || userField.placeholder || "input"}]`);
+        hints.push(
+          `Username field: #${userField.index} [${userField.label || userField.name || userField.placeholder || "input"}]`,
+        );
       }
       break;
     }
     case "SEARCH_READY":
       hints.push("Page type: SEARCH READY");
-      hints.push("Suggested: vessel_search → auto-finds search box, types query, and submits");
+      hints.push(
+        "Suggested: vessel_search → auto-finds search box, types query, and submits",
+      );
       break;
     case "SEARCH_RESULTS":
       hints.push("Page type: SEARCH RESULTS");
-      hints.push("Suggested: click a result link, or vessel_paginate for more results");
-      if (hasPagination) hints.push("Pagination detected — vessel_paginate available");
+      hints.push(
+        "Suggested: click a result link, or vessel_paginate for more results",
+      );
+      if (hasPagination)
+        hints.push("Pagination detected — vessel_paginate available");
       break;
     case "SHOPPING":
       hints.push("Page type: SHOPPING/CHECKOUT");
@@ -1097,7 +1183,9 @@ function analyzePageIntent(page: PageContent): string {
     case "FORM": {
       const formCount = page.forms.length;
       const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
-      hints.push(`Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`);
+      hints.push(
+        `Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`,
+      );
       hints.push("Suggested: vessel_fill_form → fill all fields in one call");
       break;
     }
