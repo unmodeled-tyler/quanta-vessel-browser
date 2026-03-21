@@ -854,7 +854,9 @@ async function clickResolvedSelector(
     if (typeof result === "string" && result.startsWith("Error")) return result;
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const idxOverlay = await detectPostClickOverlay(wc);
+    return idxOverlay ? `${result}\n${idxOverlay}` : result;
   }
 
   // Shadow-piercing selector path
@@ -878,7 +880,9 @@ async function clickResolvedSelector(
     if (typeof result === "string" && result.startsWith("Error")) return result;
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const shadowOverlay = await detectPostClickOverlay(wc);
+    return shadowOverlay ? `${result}\n${shadowOverlay}` : result;
   }
 
   const beforeUrl = wc.getURL();
@@ -911,7 +915,132 @@ async function clickResolvedSelector(
     }
   }
 
+  const overlayHint = await detectPostClickOverlay(wc);
+  if (overlayHint) {
+    return `${clickText} (${clickResult})\n${overlayHint}`;
+  }
+
   return `${clickText} (${clickResult})`;
+}
+
+/**
+ * Lightweight post-click check: did a dialog / cart-drawer appear?
+ * Runs a small DOM query instead of a full extraction so it stays fast.
+ */
+async function detectPostClickOverlay(
+  wc: WebContents,
+): Promise<string | null> {
+  const result = await executePageScript<{
+    found: boolean;
+    label: string;
+    cartLike: boolean;
+  }>(
+    wc,
+    `
+    (function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var vpArea = Math.max(1, vw * vh);
+
+      function isVis(el) {
+        var cs = getComputedStyle(el);
+        return cs.display !== 'none' && cs.visibility !== 'hidden' &&
+          el.getBoundingClientRect().width > 0;
+      }
+
+      function hasFixedAncestor(el) {
+        var cur = el.parentElement;
+        while (cur && cur !== document.body) {
+          var ps = getComputedStyle(cur).position;
+          if (ps === 'fixed' || ps === 'sticky') return true;
+          cur = cur.parentElement;
+        }
+        return false;
+      }
+
+      function effectiveZ(el) {
+        var cur = el;
+        while (cur && cur !== document.body) {
+          var z = parseInt(getComputedStyle(cur).zIndex, 10);
+          if (z > 0) return z;
+          cur = cur.parentElement;
+        }
+        return 0;
+      }
+
+      function edgePad(r) {
+        return r.left <= 24 || r.top <= 24 ||
+          r.right >= vw - 24 || r.bottom >= vh - 24;
+      }
+
+      var cartPhrases = ['added to cart','added to bag','added to basket',
+        'added to your cart','added to your bag','added to your basket'];
+      var cartActions = ['view cart','go to cart','continue shopping',
+        'keep shopping','checkout','view basket','go to basket'];
+
+      // Phase 1: semantic dialog elements
+      var selectors = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+      var candidates = document.querySelectorAll(selectors);
+      var hit = null;
+      for (var j = 0; j < candidates.length; j++) {
+        if (isVis(candidates[j])) { hit = candidates[j]; break; }
+      }
+
+      // Phase 2: positioned drawer-like elements
+      if (!hit) {
+        var els = document.querySelectorAll('*');
+        for (var i = 0; i < els.length; i++) {
+          var s = getComputedStyle(els[i]);
+          if (s.display === 'none' || s.visibility === 'hidden') continue;
+          var pos = s.position;
+          var isFixed = pos === 'fixed' || pos === 'sticky';
+          var isAbs = pos === 'absolute';
+          if (!isFixed && !isAbs) continue;
+          if (isAbs && !hasFixedAncestor(els[i])) continue;
+          if (effectiveZ(els[i]) < 5) continue;
+          var r = els[i].getBoundingClientRect();
+          var area = (r.width * r.height) / vpArea;
+          if (r.width >= 160 && r.height >= 100 && area >= 0.05 && edgePad(r)) {
+            hit = els[i]; break;
+          }
+        }
+      }
+
+      // Phase 3: text-based fallback — any positioned element with cart confirmation text
+      if (!hit) {
+        var els2 = document.querySelectorAll('*');
+        for (var k = 0; k < els2.length; k++) {
+          var s2 = getComputedStyle(els2[k]);
+          if (s2.display === 'none' || s2.visibility === 'hidden') continue;
+          var p2 = s2.position;
+          if (p2 !== 'fixed' && p2 !== 'sticky' && p2 !== 'absolute') continue;
+          var r2 = els2[k].getBoundingClientRect();
+          if (r2.width < 120 || r2.height < 80) continue;
+          var innerText = (els2[k].textContent || '').slice(0, 500).toLowerCase();
+          var hasConfirm = cartPhrases.some(function(ph) { return innerText.indexOf(ph) !== -1; });
+          if (hasConfirm) { hit = els2[k]; break; }
+        }
+      }
+
+      if (!hit) return { found: false, label: '', cartLike: false };
+      var text = (hit.textContent || '').slice(0, 500).toLowerCase();
+      var cartLike = cartPhrases.concat(cartActions).some(function(s) { return text.indexOf(s) !== -1; });
+      var label = (hit.getAttribute('aria-label') || (hit.querySelector('h1,h2,h3,h4') || {}).textContent || '').trim().slice(0, 80);
+      return { found: true, label: label, cartLike: cartLike };
+    })()
+    `,
+    { timeoutMs: 800, label: "post-click overlay check" },
+  );
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT || !result.found) return null;
+
+  if (result.cartLike) {
+    const desc = result.label ? ` ("${result.label}")` : "";
+    return `A cart confirmation dialog appeared${desc}. Call read_page to see available actions — do not click Add to Cart again.`;
+  }
+
+  const desc = result.label ? ` ("${result.label}")` : "";
+  return `A dialog or overlay appeared${desc}. Call read_page to see available actions.`;
 }
 
 async function dismissPopup(wc: WebContents): Promise<string> {

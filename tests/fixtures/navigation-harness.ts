@@ -379,6 +379,124 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/cart-drawer-click") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer-click",
+          `
+            <h1>Book Detail</h1>
+            <button id="add-to-cart" type="button" onclick="document.getElementById('mini-cart').style.display='block'">Add to Cart</button>
+
+            <aside
+              id="mini-cart"
+              style="
+                display: none;
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 320px;
+                height: 100vh;
+                padding: 20px;
+                background: white;
+                border-left: 1px solid #ccc;
+                box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                z-index: 9999;
+              "
+            >
+              <h2>Added to cart</h2>
+              <p>Your basket has been updated.</p>
+              <button id="continue-shopping" type="button">Continue Shopping</button>
+              <a id="view-basket" href="/cart">View Basket</a>
+            </aside>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cart-drawer-absolute") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer-absolute",
+          `
+            <h1>Book Detail</h1>
+            <button id="add-to-cart" type="button" onclick="document.getElementById('cart-wrapper').style.display='block'">Add to Cart</button>
+
+            <div
+              id="cart-wrapper"
+              style="
+                display: none;
+                position: fixed;
+                inset: 0;
+                z-index: 10;
+              "
+            >
+              <div
+                id="cart-backdrop"
+                style="position:absolute;inset:0;background:rgba(0,0,0,0.3);"
+              ></div>
+              <div
+                id="cart-panel"
+                style="
+                  position: absolute;
+                  top: 0;
+                  right: 0;
+                  width: 340px;
+                  height: 100%;
+                  background: white;
+                  padding: 20px;
+                  box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                "
+              >
+                <h2>Added to your cart</h2>
+                <p>1 item added</p>
+                <button id="continue-shopping" type="button">Continue Shopping</button>
+                <a id="view-basket" href="/cart">View Basket</a>
+              </div>
+            </div>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cart-drawer") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer",
+          `
+            <h1>Book Detail</h1>
+            <button id="background-add-to-cart" type="button">Add to Cart</button>
+
+            <aside
+              id="mini-cart-drawer"
+              style="
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 320px;
+                height: 100vh;
+                padding: 20px;
+                background: white;
+                border-left: 1px solid #ccc;
+                box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                z-index: 9999;
+              "
+            >
+              <h2>Added to cart</h2>
+              <p>Your basket has been updated.</p>
+              <button id="continue-shopping" type="button">Continue Shopping</button>
+              <a id="view-basket" href="/cart">View Basket</a>
+            </aside>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/trusted-enter-source") {
       sendHtml(
         res,

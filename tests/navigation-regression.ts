@@ -4,6 +4,8 @@ import process from "node:process";
 
 import { app, BaseWindow } from "electron";
 
+import { buildScopedContext } from "../src/main/ai/context-builder";
+import { extractContent } from "../src/main/content/extractor";
 import {
   clickElementBySelector,
   dismissPopup,
@@ -339,6 +341,92 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "fill_form matches fields by name, label, and placeholder",
+    );
+
+    await runScenario(
+      "side cart drawers are treated like modal actions",
+      async () => {
+        await withTab(`${harness.baseUrl}/cart-drawer`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const page = await extractContent(wc);
+          const context = buildScopedContext(page, "visible_only");
+
+          assert.match(context, /### Immediate Overlay Actions/);
+          assert.match(
+            context,
+            /\[#2\] \[Continue Shopping\] button \(context=dialog\)/,
+          );
+          assert.match(
+            context,
+            /\[#3\] \[View Basket\] link → .*\/cart \(context=dialog\)/,
+          );
+          assert.match(
+            context,
+            /Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout\. Do not click background Add to Cart again\./,
+          );
+          assert.doesNotMatch(context, /\[#1\] \[Add to Cart\]/);
+        });
+      },
+    );
+    completedScenarios.push("side cart drawers are treated like modal actions");
+
+    await runScenario(
+      "click that triggers cart drawer returns overlay hint",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/cart-drawer-click`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(wc, "#add-to-cart");
+            assert.match(result, /Clicked: Add to Cart/);
+            assert.match(
+              result,
+              /cart confirmation dialog appeared/i,
+            );
+            assert.match(
+              result,
+              /do not click Add to Cart again/i,
+            );
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "click that triggers cart drawer returns overlay hint",
+    );
+
+    await runScenario(
+      "absolute-positioned cart drawer detected after click",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/cart-drawer-absolute`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(wc, "#add-to-cart");
+            assert.match(result, /Clicked: Add to Cart/);
+            assert.match(
+              result,
+              /cart confirmation dialog appeared/i,
+            );
+            assert.match(
+              result,
+              /do not click Add to Cart again/i,
+            );
+
+            // Also verify extraction detects the overlay properly
+            const page = await extractContent(wc);
+            const context = buildScopedContext(page, "visible_only");
+            assert.match(context, /### Immediate Overlay Actions/);
+            assert.match(context, /Continue Shopping/);
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "absolute-positioned cart drawer detected after click",
     );
 
     await runScenario(
