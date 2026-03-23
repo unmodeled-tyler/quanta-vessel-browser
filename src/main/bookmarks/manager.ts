@@ -64,8 +64,12 @@ function load(): BookmarksState {
 }
 
 function save(): void {
-  fs.mkdirSync(path.dirname(getBookmarksPath()), { recursive: true });
-  fs.writeFileSync(getBookmarksPath(), JSON.stringify(state, null, 2), "utf-8");
+  try {
+    fs.mkdirSync(path.dirname(getBookmarksPath()), { recursive: true });
+    fs.writeFileSync(getBookmarksPath(), JSON.stringify(state, null, 2), "utf-8");
+  } catch (err) {
+    console.error("[Vessel] Failed to save bookmarks:", err);
+  }
 }
 
 function emit(): void {
@@ -210,21 +214,6 @@ export function searchBookmarks(query: string): Array<{
       (a, b) =>
         b.score - a.score || b.bookmark.savedAt.localeCompare(a.bookmark.savedAt),
     );
-}
-
-export function createFolder(name: string): BookmarkFolder {
-  load();
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error("Folder name cannot be empty");
-  const folder: BookmarkFolder = {
-    id: randomUUID(),
-    name: trimmed,
-    createdAt: new Date().toISOString(),
-  };
-  state!.folders.push(folder);
-  save();
-  emit();
-  return folder;
 }
 
 export function createFolderWithSummary(

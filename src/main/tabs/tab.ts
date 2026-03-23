@@ -7,7 +7,8 @@ import {
   type WebContents,
 } from "electron";
 import path from "path";
-import type { HighlightColor, TabState } from "../../shared/types";
+import type { HighlightColor, TabRole, TabState } from "../../shared/types";
+import { checkDomainPolicy } from "../network/domain-policy";
 
 const MAX_CUSTOM_HISTORY = 50;
 
@@ -49,6 +50,7 @@ export class Tab {
     onChange: () => void,
     options?: {
       adBlockingEnabled?: boolean;
+      role?: TabRole;
       parentWindow?: BaseWindow;
       onOpenUrl?: (request: OpenUrlRequest) => void;
       onPageLoad?: (url: string, wc: WebContents) => void;
@@ -89,6 +91,7 @@ export class Tab {
       canGoForward: false,
       isReaderMode: false,
       adBlockingEnabled: options?.adBlockingEnabled ?? true,
+      role: options?.role,
     };
 
     // Ensure clipboard shortcuts work in tab content
@@ -320,7 +323,7 @@ export class Tab {
     return { ...this._state };
   }
 
-  navigate(url: string): void {
+  navigate(url: string): string | null {
     // Auto-add protocol if missing
     if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
       if (url.includes(".") && !url.includes(" ")) {
@@ -329,7 +332,16 @@ export class Tab {
         url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
       }
     }
+    // Block non-http(s) schemes (javascript:, file:, data:, etc.)
+    if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
+      return `Blocked navigation to disallowed URL scheme: ${url.slice(0, 80)}`;
+    }
+    // Enforce domain policy
+    const policyError = checkDomainPolicy(url);
+    if (policyError) return policyError;
+
     this.view.webContents.loadURL(url);
+    return null;
   }
 
   goBack(): boolean {

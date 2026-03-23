@@ -20,6 +20,7 @@ import {
   formatDeadLinkMessage,
   validateLinkDestination,
 } from "../network/link-validation";
+import { assertSafeURL } from "../network/url-safety";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
@@ -62,6 +63,176 @@ function pageBusyError(action: string): string {
   return `Error: Page is still busy; ${action} timed out waiting for page scripts. Retry in a moment.`;
 }
 
+/**
+ * Ultra-fast viewport scan — shows what a human would see on the screen.
+ * Uses textContent (no layout reflow) and queries only visible-in-viewport
+ * elements. Designed to work even when the page JS thread is saturated
+ * with ads, video players, and tracking scripts.
+ *
+ * Returns: title, URL, visible headings, in-viewport links/buttons/inputs,
+ * and a compact text snapshot of the main content area.
+ */
+async function glanceExtract(wc: WebContents): Promise<string> {
+  const startMs = Date.now();
+  const result = await executePageScript<{
+    title: string;
+    url: string;
+    headings: string[];
+    links: Array<{ text: string; href?: string; index: number }>;
+    buttons: Array<{ text: string; index: number }>;
+    inputs: Array<{ type: string; label: string; placeholder: string; index: number }>;
+    contentSnippet: string;
+    viewportHeight: number;
+    viewportWidth: number;
+    scrollY: number;
+  } | null>(
+    wc,
+    `(function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      var sy = window.scrollY || window.pageYOffset || 0;
+
+      function inViewport(el) {
+        var r = el.getBoundingClientRect();
+        return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw && r.width > 0 && r.height > 0;
+      }
+
+      function label(el) {
+        return (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 120);
+      }
+
+      // Headings visible on screen
+      var headings = [];
+      document.querySelectorAll('h1, h2, h3, h4').forEach(function(h) {
+        if (!inViewport(h)) return;
+        var t = (h.textContent || '').trim();
+        if (t && t.length < 200) headings.push(h.tagName.toLowerCase() + ': ' + t);
+      });
+
+      // Links visible on screen (deduplicated by text)
+      var links = [];
+      var seenLinks = {};
+      var idx = 1;
+      document.querySelectorAll('a[href]').forEach(function(a) {
+        if (!inViewport(a)) return;
+        var t = (a.textContent || '').trim().slice(0, 100);
+        if (!t || t.length < 2 || seenLinks[t]) return;
+        seenLinks[t] = true;
+        links.push({ text: t, href: (a.href || '').slice(0, 200), index: idx++ });
+      });
+
+      // Buttons visible on screen
+      var buttons = [];
+      document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]').forEach(function(b) {
+        if (!inViewport(b)) return;
+        var t = label(b);
+        if (!t || t.length < 1) return;
+        buttons.push({ text: t, index: idx++ });
+      });
+
+      // Input fields visible on screen
+      var inputs = [];
+      document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea').forEach(function(inp) {
+        if (!inViewport(inp)) return;
+        var type = (inp.type || inp.tagName.toLowerCase() || '').toLowerCase();
+        var lbl = (inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || inp.name || '').trim();
+        inputs.push({ type: type, label: lbl.slice(0, 80), placeholder: (inp.getAttribute('placeholder') || '').slice(0, 80), index: idx++ });
+      });
+
+      // Content snapshot from main content area using textContent (instant, no reflow)
+      var roots = ['main', 'article', '[role="main"]', '#content', '.content', '.story-body'];
+      var contentRoot = null;
+      for (var i = 0; i < roots.length; i++) {
+        contentRoot = document.querySelector(roots[i]);
+        if (contentRoot && contentRoot.textContent.trim().length > 50) break;
+        contentRoot = null;
+      }
+      var snippet = '';
+      if (contentRoot) {
+        snippet = contentRoot.textContent.replace(/[ \\t]+/g, ' ').replace(/(\\n\\s*){3,}/g, '\\n\\n').trim().slice(0, 8000);
+      } else {
+        // Fallback: grab text from visible elements only
+        var parts = [];
+        document.querySelectorAll('h1, h2, h3, p, li, td, span, div').forEach(function(el) {
+          if (parts.length > 100 || !inViewport(el)) return;
+          var t = (el.textContent || '').trim();
+          if (t.length > 10 && t.length < 500) parts.push(t);
+        });
+        snippet = parts.join('\\n').slice(0, 8000);
+      }
+
+      return {
+        title: document.title || '',
+        url: location.href,
+        headings: headings.slice(0, 20),
+        links: links.slice(0, 40),
+        buttons: buttons.slice(0, 20),
+        inputs: inputs.slice(0, 15),
+        contentSnippet: snippet,
+        viewportHeight: vh,
+        viewportWidth: vw,
+        scrollY: Math.round(sy),
+      };
+    })()`,
+    { timeoutMs: 2500, label: "glance-extract" },
+  );
+
+  const elapsed = Date.now() - startMs;
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT) {
+    // Even glance timed out — return bare minimum from Electron APIs
+    return [
+      `# ${wc.getTitle() || "(untitled)"}`,
+      `URL: ${wc.getURL()}`,
+      "",
+      "[read_page mode=glance — page JS thread is completely blocked, no content available]",
+      "[Try: click or type_text to interact directly, or wait a few seconds and retry]",
+    ].join("\n");
+  }
+
+  const sections: string[] = [
+    `# ${result.title}`,
+    `URL: ${result.url}`,
+    `Viewport: ${result.viewportWidth}×${result.viewportHeight} scrollY=${result.scrollY}`,
+    `[read_page mode=glance — ${elapsed}ms, showing what's visible on screen]`,
+  ];
+
+  if (result.headings.length > 0) {
+    sections.push("", "## Headings", ...result.headings);
+  }
+
+  if (result.inputs.length > 0) {
+    sections.push("", "## Input Fields");
+    for (const inp of result.inputs) {
+      const desc = inp.label || inp.placeholder || inp.type;
+      sections.push(`  [#${inp.index}] ${inp.type}: ${desc}`);
+    }
+  }
+
+  if (result.buttons.length > 0) {
+    sections.push("", "## Buttons");
+    for (const btn of result.buttons) {
+      sections.push(`  [#${btn.index}] ${btn.text}`);
+    }
+  }
+
+  if (result.links.length > 0) {
+    sections.push("", "## Visible Links");
+    for (const link of result.links) {
+      sections.push(`  [#${link.index}] ${link.text}`);
+    }
+  }
+
+  if (result.contentSnippet) {
+    const truncated = result.contentSnippet.length > 6000
+      ? result.contentSnippet.slice(0, 6000) + "\n[truncated]"
+      : result.contentSnippet;
+    sections.push("", "## Page Content (viewport)", "", truncated);
+  }
+
+  return sections.join("\n");
+}
+
 function normalizeReadPageMode(
   mode: unknown,
   pageContent?: Awaited<ReturnType<typeof extractContent>>,
@@ -69,6 +240,7 @@ function normalizeReadPageMode(
   if (typeof mode === "string") {
     const normalized = mode.trim().toLowerCase();
     if (normalized === "debug") return "debug";
+    if (normalized === "glance") return "glance";
     if (
       normalized === "full" ||
       normalized === "summary" ||
@@ -143,15 +315,9 @@ async function waitForJsReady(wc: WebContents, timeout = 8000): Promise<void> {
       userGesture: true,
       label: "js-ready probe",
     });
-    if (ready === 1) {
-      console.log(`[Vessel] JS thread ready after ${Date.now() - start}ms`);
-      return;
-    }
+    if (ready === 1) return;
     await sleep(250);
   }
-  console.log(
-    `[Vessel] JS thread not ready after ${timeout}ms, continuing anyway`,
-  );
 }
 
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
@@ -265,13 +431,67 @@ function waitForPotentialNavigation(
 }
 
 /**
- * Grab just the page title — no JS execution in the page context at all.
- * Electron exposes getTitle() on WebContents natively, so this never blocks
- * on a busy page JS thread.
+ * Grab the page title and do a fast overlay probe. The probe is fire-and-forget
+ * with a 1.5s timeout so it never blocks the navigate response significantly.
  */
-function getPostNavSummary(wc: WebContents): string {
+async function getPostNavSummary(wc: WebContents): Promise<string> {
   const title = wc.getTitle();
-  return title ? `\nPage title: ${title}` : "";
+  const titleLine = title ? `\nPage title: ${title}` : "";
+
+  // Quick probe: detect blocking overlays via common signals without a full extraction
+  const overlaySignal = await executePageScript<string | null>(
+    wc,
+    `(function() {
+      var signals = [];
+      // Body scroll lock is a strong overlay signal
+      var bodyStyle = window.getComputedStyle(document.body);
+      var htmlStyle = window.getComputedStyle(document.documentElement);
+      if (bodyStyle.overflow === 'hidden' || htmlStyle.overflow === 'hidden') {
+        signals.push('body-scroll-locked');
+      }
+      // Check for known consent manager containers
+      var consentSelectors = [
+        '#onetrust-consent-sdk', '#CybotCookiebotDialog', '[class*="consent-banner"]',
+        '[class*="cookie-banner"]', '[class*="privacy-banner"]', '[id*="consent"]',
+        '[class*="gdpr"]', '[data-testid*="consent"]', '[data-testid*="cookie"]',
+        '.fc-consent-root', '#sp_message_container_', '[id*="trustarc"]',
+        '[class*="cmp-"]', '[id*="cmp-"]'
+      ];
+      for (var i = 0; i < consentSelectors.length; i++) {
+        try {
+          var el = document.querySelector(consentSelectors[i]);
+          if (el && el.offsetHeight > 50) {
+            signals.push('consent-banner:' + consentSelectors[i]);
+            break;
+          }
+        } catch(e) {}
+      }
+      // Check for large fixed/sticky elements covering viewport
+      var vw = window.innerWidth || 0;
+      var vh = window.innerHeight || 0;
+      var vpArea = Math.max(1, vw * vh);
+      var els = document.querySelectorAll('dialog[open], [role="dialog"], [aria-modal="true"]');
+      if (els.length > 0) signals.push('dialog-open');
+      if (signals.length === 0) {
+        var fixed = document.querySelectorAll('div[style*="position: fixed"], div[style*="position:fixed"]');
+        for (var j = 0; j < fixed.length && j < 20; j++) {
+          var r = fixed[j].getBoundingClientRect();
+          if ((r.width * r.height) / vpArea > 0.3) {
+            signals.push('large-fixed-overlay');
+            break;
+          }
+        }
+      }
+      return signals.length > 0 ? signals.join(', ') : null;
+    })()`,
+    { timeoutMs: 1500, label: "overlay-probe" },
+  );
+
+  if (overlaySignal && overlaySignal !== PAGE_SCRIPT_TIMEOUT) {
+    return `${titleLine}\nWARNING: Blocking overlay detected (${overlaySignal}). Call clear_overlays or accept_cookies before reading the page.`;
+  }
+
+  return titleLine;
 }
 
 async function scrollPage(
@@ -826,6 +1046,7 @@ async function restoreLocaleSnapshot(
 
   if (snapshot.url && snapshot.url !== wc.getURL()) {
     try {
+      assertSafeURL(snapshot.url);
       await wc.loadURL(snapshot.url);
       await waitForLoad(wc, 3000);
       return;
@@ -1592,6 +1813,83 @@ async function clickOverlayCandidate(
   return `${action.label || action.selector}: ${result}`;
 }
 
+/**
+ * Try to dismiss consent overlays that live inside iframes (common for
+ * Sourcepoint, OneTrust hosted, TrustArc, etc.). Electron's
+ * executeJavaScript only runs in the main frame, so we iterate over all
+ * child frames looking for accept/dismiss buttons.
+ */
+async function tryDismissConsentIframe(wc: WebContents): Promise<string | null> {
+  try {
+    // Check if body is scroll-locked or a consent container is visible — if not, skip
+    const hasSignal = await executePageScript<boolean>(
+      wc,
+      `(function() {
+        var bs = window.getComputedStyle(document.body);
+        var hs = window.getComputedStyle(document.documentElement);
+        if (bs.overflow === 'hidden' || hs.overflow === 'hidden') return true;
+        var sels = '#onetrust-consent-sdk, [class*="consent"], [class*="cookie-banner"], [id*="consent"], [id*="sp_message"], .fc-consent-root, [class*="cmp-"]';
+        var el = document.querySelector(sels);
+        return !!(el && el.offsetHeight > 20);
+      })()`,
+      { timeoutMs: 1000, label: "iframe-consent-signal" },
+    );
+    if (!hasSignal || hasSignal === PAGE_SCRIPT_TIMEOUT) return null;
+
+    // Iterate child frames and try to click consent buttons inside them
+    const frames = wc.mainFrame.framesInSubtree;
+    for (const frame of frames) {
+      if (frame === wc.mainFrame) continue; // skip main frame, already handled
+      try {
+        const result = await frame.executeJavaScript(`
+          (function() {
+            var selectors = [
+              'button[title*="Accept"], button[title*="Agree"], button[title*="OK"]',
+              '[class*="accept"], [class*="agree"], [class*="consent-accept"]',
+              'button[aria-label*="accept" i], button[aria-label*="agree" i]',
+              '.sp_choice_type_11', '.message-component.message-button',
+            ];
+            // Try selectors first
+            for (var i = 0; i < selectors.length; i++) {
+              try {
+                var els = document.querySelectorAll(selectors[i]);
+                for (var j = 0; j < els.length; j++) {
+                  var el = els[j];
+                  if (!(el instanceof HTMLElement)) continue;
+                  var text = (el.textContent || '').trim().toLowerCase();
+                  if (/accept|agree|consent|got it|ok|continue|i understand/i.test(text) || el.offsetHeight > 0) {
+                    el.click();
+                    return 'Clicked iframe consent button: ' + text.slice(0, 60);
+                  }
+                }
+              } catch(e) {}
+            }
+            // Text-match fallback on all buttons
+            var buttons = document.querySelectorAll('button, [role="button"], a.message-component');
+            for (var k = 0; k < buttons.length; k++) {
+              var btn = buttons[k];
+              var label = (btn.textContent || '').trim().toLowerCase();
+              if (/^(accept|agree|accept all|i agree|i accept|ok|got it|allow|continue|yes)$/i.test(label) ||
+                  /accept all|agree and|accept & continue|accept and continue/i.test(label)) {
+                btn.click();
+                return 'Clicked iframe consent button: ' + label.slice(0, 60);
+              }
+            }
+            return null;
+          })()
+        `);
+        if (result) return result;
+      } catch {
+        // Frame may be cross-origin or destroyed — skip
+        continue;
+      }
+    }
+  } catch {
+    // framesInSubtree may not be available on older Electron
+  }
+  return null;
+}
+
 export async function clearOverlays(
   wc: WebContents,
   strategy: "auto" | "interactive" = "auto",
@@ -1608,7 +1906,16 @@ export async function clearOverlays(
     );
 
     if (blockingOverlays.length === 0) {
-      if (cleared === 0) return "No blocking overlays detected";
+      // No blocking overlays in main frame — check for iframe-based consent
+      if (cleared === 0) {
+        const iframeResult = await tryDismissConsentIframe(wc);
+        if (iframeResult) {
+          steps.push(`Iframe consent: ${iframeResult}`);
+          await sleep(500);
+          return steps.join("\n");
+        }
+        return "No blocking overlays detected";
+      }
       steps.push(`Overlays remaining: ${beforeState.total}`);
       steps.push("Page still blocked: false");
       return steps.join("\n");
@@ -2614,6 +2921,7 @@ async function submitForm(
     if (formInfo.params) {
       url.search = formInfo.params;
     }
+    assertSafeURL(url.toString());
     wc.loadURL(url.toString());
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -3004,7 +3312,7 @@ export async function executeAction(
           const created = ctx.tabManager.getActiveTab();
           if (created) {
             await waitForLoad(created.view.webContents);
-            return `Created tab ${createdId}${getPostNavSummary(created.view.webContents)}`;
+            return `Created tab ${createdId}${await getPostNavSummary(created.view.webContents)}`;
           }
           return `Created tab ${createdId}`;
         }
@@ -3017,7 +3325,7 @@ export async function executeAction(
           }
           ctx.tabManager.navigateTab(tabId, args.url);
           await waitForLoad(wc);
-          return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
+          return `Navigated to ${wc.getURL()}${await getPostNavSummary(wc)}`;
         }
 
         case "go_back": {
@@ -3030,7 +3338,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went back to ${afterUrl}${getPostNavSummary(wc)}`
+            ? `Went back to ${afterUrl}${await getPostNavSummary(wc)}`
             : `Back action completed but page stayed on ${afterUrl}`;
         }
 
@@ -3044,7 +3352,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went forward to ${afterUrl}${getPostNavSummary(wc)}`
+            ? `Went forward to ${afterUrl}${await getPostNavSummary(wc)}`
             : `Forward action completed but page stayed on ${afterUrl}`;
         }
 
@@ -3192,6 +3500,18 @@ export async function executeAction(
         case "read_page": {
           if (!wc) return "Error: No active tab";
 
+          // Glance mode: ultra-fast viewport scan using textContent (no layout
+          // reflow). Shows what a human would see — headings, links, buttons,
+          // inputs in the viewport. Ideal for heavy pages where full extraction
+          // times out. Always available as an explicit mode, and used as the
+          // automatic fallback when full extraction fails.
+          const requestedGlance =
+            typeof args.mode === "string" && args.mode.trim().toLowerCase() === "glance";
+
+          if (requestedGlance) {
+            return glanceExtract(wc);
+          }
+
           // Try full extraction first; if the page JS thread is busy
           // (common on heavy SPAs after navigation), fall back to a
           // lightweight native-only read so the agent isn't blocked.
@@ -3214,7 +3534,37 @@ export async function executeAction(
             `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
           );
 
-          if (content) {
+          // If extraction failed or returned empty content, try a quick iframe
+          // consent dismiss (2s budget) then fall through to emergency extraction.
+          // We intentionally avoid calling clearOverlays here because it does
+          // another full extractContent internally which will also time out on
+          // heavy pages, adding 10+ seconds of dead time.
+          if (!content || content.content.length === 0) {
+            console.log("[Vessel read_page] content empty/null, trying quick iframe dismiss");
+            try {
+              const iframeResult = await Promise.race([
+                tryDismissConsentIframe(wc),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+              ]);
+              if (iframeResult) {
+                console.log(`[Vessel read_page] iframe dismiss: ${iframeResult}`);
+                await sleep(500);
+                // Quick retry — only 3s budget since we don't want to block long
+                try {
+                  content = await Promise.race([
+                    extractContent(wc),
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+                  ]);
+                } catch {
+                  content = null;
+                }
+              }
+            } catch {
+              // iframe dismiss failed — fall through to emergency extraction
+            }
+          }
+
+          if (content && content.content.length > 0) {
             const liveSelectionSection = formatLiveSelectionSection(
               await captureLiveHighlightSnapshot(
                 wc,
@@ -3248,17 +3598,10 @@ export async function executeAction(
               .join("\n\n");
           }
 
-          // Fallback: native Electron APIs only — no executeJavaScript
-          const title = wc.getTitle() || "(untitled)";
-          const url = wc.getURL();
-          return [
-            `# ${title}`,
-            `URL: ${url}`,
-            "",
-            "[Page content extraction timed out — the page JS thread is busy.]",
-            "[Use the search tool to search the site, or type_text/click to interact directly.]",
-            "[You can retry read_page in a few seconds once the page finishes loading.]",
-          ].join("\n");
+          // Full extraction failed — fall back to glance mode which uses
+          // textContent (no layout reflow) and can work on blocked JS threads
+          console.log("[Vessel read_page] falling back to glance mode");
+          return glanceExtract(wc);
         }
 
         case "wait_for": {
@@ -4132,6 +4475,7 @@ export async function executeAction(
             try {
               const url = new URL(searchInfo.formAction);
               url.searchParams.set(searchInfo.inputName || "q", query);
+              assertSafeURL(url.toString());
               wc.loadURL(url.toString());
               await waitForPotentialNavigation(wc, beforeUrl);
               afterUrl = wc.getURL();
@@ -4215,9 +4559,20 @@ export async function executeAction(
                 '[aria-label="Accept cookies"]',
                 '[aria-label="Accept all cookies"]',
                 '[data-testid="cookie-accept"]',
+                // CNN / WarnerMedia / common consent SDKs
+                '[data-testid="consent-accept"]',
+                '[data-testid="accept-all"]',
+                'button[class*="consent"][class*="accept"]',
+                'button[class*="privacy"][class*="accept"]',
+                '.fc-cta-consent',
+                '#sp_choice_button_accept',
+                '.message-component.message-button.no-children.focusable.sp_choice_type_11',
+                '[class*="truste"] [class*="accept"]',
+                '[id*="consent-accept"]',
+                '[class*="cmp-accept"]',
               ];
               // Also try text-matching on buttons
-              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'consent'];
+              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'i accept', 'consent', 'continue', 'accept and continue', 'accept & continue'];
               for (var i = 0; i < selectors.length; i++) {
                 var el = document.querySelector(selectors[i]);
                 if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
@@ -4243,10 +4598,13 @@ export async function executeAction(
           if (dismissed === PAGE_SCRIPT_TIMEOUT) {
             return pageBusyError("accept_cookies");
           }
-          return (
-            dismissed ||
-            "No cookie consent banner detected. Try dismiss_popup for other overlays."
-          );
+          if (dismissed) return dismissed;
+
+          // Main frame selectors didn't match — try iframe-based consent (Sourcepoint, etc.)
+          const iframeResult = await tryDismissConsentIframe(wc);
+          if (iframeResult) return iframeResult;
+
+          return "No cookie consent banner detected. Try dismiss_popup for other overlays.";
         }
 
         case "extract_table": {

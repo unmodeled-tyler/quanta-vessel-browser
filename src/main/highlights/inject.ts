@@ -360,6 +360,211 @@ export async function highlightOnPage(
   return "Error: No element or text to highlight";
 }
 
+export interface BatchHighlightEntry {
+  selector?: string | null;
+  text?: string;
+  label?: string;
+  color?: HighlightColor | null;
+}
+
+/**
+ * Reapply multiple highlights in a single executeJavaScript call.
+ * Avoids N separate IPC round-trips when restoring highlights on page load.
+ */
+export async function highlightBatchOnPage(
+  wc: WebContents,
+  entries: BatchHighlightEntry[],
+): Promise<void> {
+  if (entries.length === 0) return;
+
+  // Serialize entries with resolved colors
+  const serialized = entries
+    .filter((e) => e.selector || e.text)
+    .map((e) => ({
+      selector: e.selector ?? null,
+      text: e.text ?? null,
+      label: e.label ?? null,
+      color: resolveColor(e.color),
+    }));
+
+  if (serialized.length === 0) return;
+
+  // First ensure the style/manager infrastructure is injected (same setup as highlightOnPage)
+  // Then process all entries in a single call
+  await wc.executeJavaScript(`
+    (function() {
+      if (!document.getElementById('__vessel-highlight-styles')) {
+        var s = document.createElement('style');
+        s.id = '__vessel-highlight-styles';
+        s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
+        document.head.appendChild(s);
+      }
+      var entries = ${JSON.stringify(serialized)};
+      var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
+      var contentRoots = ['main', 'article', '[role="main"]', '#mw-content-text', '.mw-parser-output', '#content', '.post-content', '.entry-content', '.article-body'];
+      var NAV_ANCESTORS = 'nav, aside, footer, header, [role="navigation"], [role="complementary"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';
+      var contentRoot = null;
+      for (var cr = 0; cr < contentRoots.length; cr++) {
+        contentRoot = document.querySelector(contentRoots[cr]);
+        if (contentRoot) break;
+      }
+
+      function collectMatches(root, searchText, foldedSearchText, limit) {
+        var matches = [];
+        var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(n) {
+            var p = n.parentElement;
+            if (!p) return NodeFilter.FILTER_REJECT;
+            if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+            if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
+            if (p.closest(NAV_ANCESTORS)) return NodeFilter.FILTER_REJECT;
+            var style = window.getComputedStyle(p);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
+            if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
+        var n;
+        while ((n = w.nextNode())) {
+          var haystack = n.textContent || '';
+          var idx = haystack.indexOf(searchText);
+          if (idx === -1 && foldedSearchText) {
+            idx = haystack.toLowerCase().indexOf(foldedSearchText);
+          }
+          if (idx !== -1) {
+            matches.push({ node: n, idx: idx });
+            if (matches.length >= limit) break;
+          }
+        }
+        return matches;
+      }
+
+      for (var e = 0; e < entries.length; e++) {
+        var entry = entries[e];
+        var c = entry.color;
+        if (entry.text) {
+          var searchText = (entry.text || '').trim();
+          var foldedSearchText = searchText.toLowerCase();
+          var textNodes = contentRoot ? collectMatches(contentRoot, searchText, foldedSearchText, 20) : [];
+          if (textNodes.length === 0) {
+            textNodes = collectMatches(document.body, searchText, foldedSearchText, 20);
+          }
+          for (var i = 0; i < textNodes.length; i++) {
+            try {
+              var match = textNodes[i];
+              var range = document.createRange();
+              range.setStart(match.node, match.idx);
+              range.setEnd(match.node, match.idx + searchText.length);
+              var mark = document.createElement('mark');
+              mark.className = '__vessel-highlight-text';
+              mark.style.setProperty('background', c.bg, 'important');
+              mark.style.setProperty('border-bottom-color', c.solid, 'important');
+              mark.setAttribute('data-vessel-highlight', 'true');
+              range.surroundContents(mark);
+            } catch (_e) {}
+          }
+        } else if (entry.selector) {
+          try {
+            var el = document.querySelector(entry.selector);
+            if (el) {
+              el.classList.add('__vessel-highlight');
+              el.style.setProperty('background', c.bg, 'important');
+              el.style.setProperty('outline-color', c.solid, 'important');
+              el.style.setProperty('box-shadow', '0 0 8px ' + c.glow, 'important');
+            }
+          } catch (_e) {}
+        }
+      }
+    })()
+  `);
+}
+
+// --- Highlight navigation helpers (used by IPC handlers) ---
+
+const HIGHLIGHT_SELECTOR =
+  "'.__vessel-highlight, .__vessel-highlight-text'";
+
+export async function getHighlightCount(wc: WebContents): Promise<number> {
+  return wc.executeJavaScript(
+    `document.querySelectorAll(${HIGHLIGHT_SELECTOR}).length`,
+  );
+}
+
+export async function scrollToHighlight(
+  wc: WebContents,
+  index: number,
+): Promise<boolean> {
+  const safeIndex = Math.floor(Number(index));
+  return wc.executeJavaScript(`
+    (function() {
+      var highlights = document.querySelectorAll(${HIGHLIGHT_SELECTOR});
+      if (${safeIndex} < 0 || ${safeIndex} >= highlights.length) return false;
+      highlights.forEach(function(h) { h.style.removeProperty('outline'); h.style.removeProperty('outline-offset'); });
+      var target = highlights[${safeIndex}];
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.style.setProperty('outline', '2px solid rgba(255, 255, 255, 0.9)', 'important');
+      target.style.setProperty('outline-offset', '2px', 'important');
+      return true;
+    })()
+  `);
+}
+
+export async function removeHighlightAtIndex(
+  wc: WebContents,
+  index: number,
+): Promise<boolean> {
+  const safeIndex = Math.floor(Number(index));
+  return wc.executeJavaScript(`
+    (function() {
+      var highlights = document.querySelectorAll(${HIGHLIGHT_SELECTOR});
+      if (${safeIndex} < 0 || ${safeIndex} >= highlights.length) return false;
+      var el = highlights[${safeIndex}];
+      document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+        if (b.__vesselAnchor === el) b.remove();
+      });
+      if (el.tagName === 'MARK' && el.classList.contains('__vessel-highlight-text')) {
+        var parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+        parent.normalize();
+      } else {
+        el.classList.remove('__vessel-highlight');
+        el.style.removeProperty('background');
+        el.style.removeProperty('outline-color');
+        el.style.removeProperty('box-shadow');
+        el.style.removeProperty('outline');
+        el.style.removeProperty('outline-offset');
+      }
+      return true;
+    })()
+  `);
+}
+
+export async function clearAllHighlightElements(
+  wc: WebContents,
+): Promise<boolean> {
+  return wc.executeJavaScript(`
+    (function() {
+      document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
+      document.querySelectorAll('.__vessel-highlight-text').forEach(function(mark) {
+        var parent = mark.parentNode;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+      document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
+        el.classList.remove('__vessel-highlight');
+        el.style.removeProperty('background');
+        el.style.removeProperty('outline-color');
+        el.style.removeProperty('box-shadow');
+        el.style.removeProperty('outline');
+        el.style.removeProperty('outline-offset');
+      });
+      return true;
+    })()
+  `);
+}
+
 export async function clearHighlights(wc: WebContents): Promise<string> {
   return wc.executeJavaScript(`
     (function() {

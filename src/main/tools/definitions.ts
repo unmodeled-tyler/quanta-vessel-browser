@@ -278,6 +278,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       mode: z
         .enum([
+          "glance",
           "summary",
           "interactives_only",
           "forms_only",
@@ -289,7 +290,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         ])
         .optional()
         .describe(
-          "Read mode: visible_only/results_only/forms_only/summary/text_only for narrow reads, full/debug for the complete page dump",
+          "Read mode: glance (fastest — viewport snapshot, no JS extraction, ideal for heavy pages), visible_only/results_only/forms_only/summary/text_only for narrow reads, full/debug for the complete page dump",
         ),
     },
     tier: 0,

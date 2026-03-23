@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { AIMessage } from "../../../shared/types";
 
 const MAX_RECENT_QUERIES = 5;
+const MAX_MESSAGE_HISTORY = 200;
 const [messages, setMessages] = createSignal<AIMessage[]>([]);
 const [streamingText, setStreamingText] = createSignal("");
 const [isStreaming, setIsStreaming] = createSignal(false);
@@ -15,7 +16,10 @@ function init() {
   if (initialized) return;
   initialized = true;
   window.vessel.ai.onStreamStart((prompt: string) => {
-    setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+    setMessages((prev) => {
+      const next = [...prev, { role: "user" as const, content: prompt }];
+      return next.length > MAX_MESSAGE_HISTORY ? next.slice(-MAX_MESSAGE_HISTORY) : next;
+    });
     setStreamingText("");
     setIsStreaming(true);
     setHasFirstChunk(false);
@@ -30,10 +34,10 @@ function init() {
   window.vessel.ai.onStreamEnd(() => {
     const finalText = streamingText();
     if (finalText) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: finalText },
-      ]);
+      setMessages((prev) => {
+        const next = [...prev, { role: "assistant" as const, content: finalText }];
+        return next.length > MAX_MESSAGE_HISTORY ? next.slice(-MAX_MESSAGE_HISTORY) : next;
+      });
     }
     setStreamingText("");
     setIsStreaming(false);

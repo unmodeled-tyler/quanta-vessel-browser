@@ -69,6 +69,24 @@ export const Channels = {
   // DevTools panel
   DEVTOOLS_PANEL_TOGGLE: "devtools-panel:toggle",
   DEVTOOLS_PANEL_STATE: "devtools-panel:state",
+  DEVTOOLS_PANEL_RESIZE: "devtools-panel:resize",
+
+  // Find in page
+  FIND_IN_PAGE_START: "find:start",
+  FIND_IN_PAGE_NEXT: "find:next",
+  FIND_IN_PAGE_STOP: "find:stop",
+  FIND_IN_PAGE_RESULT: "find:result",
+
+  // Browsing history
+  HISTORY_GET: "history:get",
+  HISTORY_SEARCH: "history:search",
+  HISTORY_CLEAR: "history:clear",
+  HISTORY_UPDATE: "history:update",
+
+  // Downloads
+  DOWNLOAD_STARTED: "download:started",
+  DOWNLOAD_PROGRESS: "download:progress",
+  DOWNLOAD_DONE: "download:done",
 
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",

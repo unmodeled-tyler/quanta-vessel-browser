@@ -13,13 +13,17 @@ import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
 import { setDevToolsPanelListener } from "./devtools/tools";
 import { installAdBlocking } from "./network/ad-blocking";
+import { installDownloadHandler } from "./network/downloads";
 import * as bookmarkManager from "./bookmarks/manager";
+import * as historyManager from "./history/manager";
 import {
   getRuntimeHealth,
   initializeRuntimeHealth,
   setStartupIssues,
 } from "./health/runtime-health";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
+
+let runtime: AgentRuntime | null = null;
 
 function rendererUrlFor(view: "chrome" | "sidebar" | "devtools"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
@@ -120,8 +124,6 @@ async function bootstrap(): Promise<void> {
   if (settings.clearBookmarksOnLaunch) {
     bookmarkManager.clearAll();
   }
-  let runtime: AgentRuntime | null = null;
-
   const windowState = createMainWindow((tabs, activeId) => {
     windowState.chromeView.webContents.send(
       Channels.TAB_STATE_UPDATE,
@@ -149,15 +151,10 @@ async function bootstrap(): Promise<void> {
   const registerHighlightShortcut = () => {
     globalShortcut.unregister("CommandOrControl+H");
     const success = globalShortcut.register("CommandOrControl+H", () => {
-      console.log("[Vessel] Ctrl+H shortcut triggered");
       const activeTab = tabManager.getActiveTab();
-      if (!activeTab) {
-        console.log("[Vessel] No active tab");
-        return;
-      }
+      if (!activeTab) return;
       tabManager.captureHighlightFromActiveTab();
     });
-    console.log("[Vessel] Ctrl+H shortcut registered:", success);
     if (!success) {
       console.warn("[Vessel] Failed to register Ctrl+H shortcut");
     }
@@ -188,6 +185,13 @@ async function bootstrap(): Promise<void> {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
     sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
   });
+
+  historyManager.subscribe((state) => {
+    chromeView.webContents.send(Channels.HISTORY_UPDATE, state);
+    sidebarView.webContents.send(Channels.HISTORY_UPDATE, state);
+  });
+
+  installDownloadHandler(chromeView);
 
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");
@@ -236,6 +240,7 @@ app.whenReady().then(bootstrap).catch((error) => {
 
 app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
+  runtime?.flushPersist();
   void stopMcpServer().finally(() => {
     app.quit();
   });

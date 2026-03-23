@@ -8,6 +8,7 @@ import type {
   Bookmark,
   BookmarkFolder,
   BookmarksState,
+  HistoryState,
   RuntimeHealthState,
   SessionSnapshot,
   VesselSettings,
@@ -157,7 +158,7 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     getHealth: (): Promise<RuntimeHealthState> =>
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
-    set: (key: string, value: any) =>
+    set: (key: string, value: unknown) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
     onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {
       const handler = (_: unknown, settings: VesselSettings) => cb(settings);
@@ -213,12 +214,41 @@ const api = {
     toggle: (): Promise<{ open: boolean }> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     resize: (height: number) =>
-      ipcRenderer.invoke("devtools-panel:resize", height),
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
     onStateUpdate: (cb: (state: any) => void): (() => void) => {
       const handler = (_: any, state: any) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
+    },
+  },
+  find: {
+    start: (text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_START, text, options),
+    next: (forward?: boolean) =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_NEXT, forward),
+    stop: (action?: "clearSelection" | "keepSelection" | "activateSelection") =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_STOP, action),
+    onResult: (
+      cb: (result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, result: any) => cb(result);
+      ipcRenderer.on(Channels.FIND_IN_PAGE_RESULT, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.FIND_IN_PAGE_RESULT, handler);
+    },
+  },
+  history: {
+    get: (): Promise<HistoryState> =>
+      ipcRenderer.invoke(Channels.HISTORY_GET),
+    search: (query: string) =>
+      ipcRenderer.invoke(Channels.HISTORY_SEARCH, query),
+    clear: () => ipcRenderer.invoke(Channels.HISTORY_CLEAR),
+    onUpdate: (cb: (state: HistoryState) => void): (() => void) => {
+      const handler = (_: unknown, state: HistoryState) => cb(state);
+      ipcRenderer.on(Channels.HISTORY_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.HISTORY_UPDATE, handler);
     },
   },
   window: {
