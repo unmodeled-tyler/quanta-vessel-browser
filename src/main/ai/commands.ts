@@ -97,8 +97,10 @@ Instructions:
 - After navigating to a new site, DO NOT call read_page immediately. Instead, act on what you already know: use the search tool to search the site, type_text to enter queries in search bars, or click on known navigation patterns. You know what major sites look like — use that knowledge. Only call read_page if you're genuinely stuck and need to discover unfamiliar page structure.
 - The page brief you start with is intentionally sparse. It is optimized for navigation speed, not completeness.
 - When you only need detail on one product/result/card/form section, use inspect_element instead of reading the page.
-- Escalate page reads progressively: read_page(mode="visible_only"), read_page(mode="results_only"), read_page(mode="forms_only"), read_page(mode="summary"), or read_page(mode="text_only") depending on what you need.
+- Escalate page reads progressively: read_page(mode="glance") for a fast viewport snapshot on heavy/slow pages, then read_page(mode="visible_only"), read_page(mode="results_only"), read_page(mode="forms_only"), read_page(mode="summary"), or read_page(mode="text_only") depending on what you need.
+- Use read_page(mode="glance") when a page is slow to load or extraction times out — it shows what's on screen (headings, links, buttons, inputs) without waiting for heavy JS. It's what a human would see by just looking at the page.
 - Use read_page(mode="debug") only as a last resort when the narrower modes are insufficient.
+- If read_page returns empty or times out, do NOT retry with the same mode. Switch to read_page(mode="glance") or interact directly with click/type_text.
 - VIEWPORT SYNC: Treat scrolling as a real, user-visible browser action. If you say you are going to scroll, call scroll or scroll_to_element so the human sees the page move too.
 - read_page inspects the page without moving the human-visible viewport. Do not describe read_page as scrolling. If you want more context without changing the user's view, say you're reading the page; if you want the user to follow along lower on the page, actually scroll first.
 - After clicking or submitting a form, prefer wait_for on a specific result signal or a narrow read_page mode. Do not jump straight to read_page(mode="debug").

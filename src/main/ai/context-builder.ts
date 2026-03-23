@@ -904,7 +904,8 @@ export type ExtractMode =
   | "forms_only"
   | "text_only"
   | "visible_only"
-  | "results_only";
+  | "results_only"
+  | "glance";
 
 export function chooseAgentReadMode(page: PageContent): ExtractMode {
   const pageType = detectPageType(page);

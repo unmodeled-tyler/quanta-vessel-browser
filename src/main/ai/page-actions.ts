@@ -63,6 +63,176 @@ function pageBusyError(action: string): string {
   return `Error: Page is still busy; ${action} timed out waiting for page scripts. Retry in a moment.`;
 }
 
+/**
+ * Ultra-fast viewport scan — shows what a human would see on the screen.
+ * Uses textContent (no layout reflow) and queries only visible-in-viewport
+ * elements. Designed to work even when the page JS thread is saturated
+ * with ads, video players, and tracking scripts.
+ *
+ * Returns: title, URL, visible headings, in-viewport links/buttons/inputs,
+ * and a compact text snapshot of the main content area.
+ */
+async function glanceExtract(wc: WebContents): Promise<string> {
+  const startMs = Date.now();
+  const result = await executePageScript<{
+    title: string;
+    url: string;
+    headings: string[];
+    links: Array<{ text: string; href?: string; index: number }>;
+    buttons: Array<{ text: string; index: number }>;
+    inputs: Array<{ type: string; label: string; placeholder: string; index: number }>;
+    contentSnippet: string;
+    viewportHeight: number;
+    viewportWidth: number;
+    scrollY: number;
+  } | null>(
+    wc,
+    `(function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      var sy = window.scrollY || window.pageYOffset || 0;
+
+      function inViewport(el) {
+        var r = el.getBoundingClientRect();
+        return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw && r.width > 0 && r.height > 0;
+      }
+
+      function label(el) {
+        return (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 120);
+      }
+
+      // Headings visible on screen
+      var headings = [];
+      document.querySelectorAll('h1, h2, h3, h4').forEach(function(h) {
+        if (!inViewport(h)) return;
+        var t = (h.textContent || '').trim();
+        if (t && t.length < 200) headings.push(h.tagName.toLowerCase() + ': ' + t);
+      });
+
+      // Links visible on screen (deduplicated by text)
+      var links = [];
+      var seenLinks = {};
+      var idx = 1;
+      document.querySelectorAll('a[href]').forEach(function(a) {
+        if (!inViewport(a)) return;
+        var t = (a.textContent || '').trim().slice(0, 100);
+        if (!t || t.length < 2 || seenLinks[t]) return;
+        seenLinks[t] = true;
+        links.push({ text: t, href: (a.href || '').slice(0, 200), index: idx++ });
+      });
+
+      // Buttons visible on screen
+      var buttons = [];
+      document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]').forEach(function(b) {
+        if (!inViewport(b)) return;
+        var t = label(b);
+        if (!t || t.length < 1) return;
+        buttons.push({ text: t, index: idx++ });
+      });
+
+      // Input fields visible on screen
+      var inputs = [];
+      document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea').forEach(function(inp) {
+        if (!inViewport(inp)) return;
+        var type = (inp.type || inp.tagName.toLowerCase() || '').toLowerCase();
+        var lbl = (inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || inp.name || '').trim();
+        inputs.push({ type: type, label: lbl.slice(0, 80), placeholder: (inp.getAttribute('placeholder') || '').slice(0, 80), index: idx++ });
+      });
+
+      // Content snapshot from main content area using textContent (instant, no reflow)
+      var roots = ['main', 'article', '[role="main"]', '#content', '.content', '.story-body'];
+      var contentRoot = null;
+      for (var i = 0; i < roots.length; i++) {
+        contentRoot = document.querySelector(roots[i]);
+        if (contentRoot && contentRoot.textContent.trim().length > 50) break;
+        contentRoot = null;
+      }
+      var snippet = '';
+      if (contentRoot) {
+        snippet = contentRoot.textContent.replace(/[ \\t]+/g, ' ').replace(/(\\n\\s*){3,}/g, '\\n\\n').trim().slice(0, 8000);
+      } else {
+        // Fallback: grab text from visible elements only
+        var parts = [];
+        document.querySelectorAll('h1, h2, h3, p, li, td, span, div').forEach(function(el) {
+          if (parts.length > 100 || !inViewport(el)) return;
+          var t = (el.textContent || '').trim();
+          if (t.length > 10 && t.length < 500) parts.push(t);
+        });
+        snippet = parts.join('\\n').slice(0, 8000);
+      }
+
+      return {
+        title: document.title || '',
+        url: location.href,
+        headings: headings.slice(0, 20),
+        links: links.slice(0, 40),
+        buttons: buttons.slice(0, 20),
+        inputs: inputs.slice(0, 15),
+        contentSnippet: snippet,
+        viewportHeight: vh,
+        viewportWidth: vw,
+        scrollY: Math.round(sy),
+      };
+    })()`,
+    { timeoutMs: 2500, label: "glance-extract" },
+  );
+
+  const elapsed = Date.now() - startMs;
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT) {
+    // Even glance timed out — return bare minimum from Electron APIs
+    return [
+      `# ${wc.getTitle() || "(untitled)"}`,
+      `URL: ${wc.getURL()}`,
+      "",
+      "[read_page mode=glance — page JS thread is completely blocked, no content available]",
+      "[Try: click or type_text to interact directly, or wait a few seconds and retry]",
+    ].join("\n");
+  }
+
+  const sections: string[] = [
+    `# ${result.title}`,
+    `URL: ${result.url}`,
+    `Viewport: ${result.viewportWidth}×${result.viewportHeight} scrollY=${result.scrollY}`,
+    `[read_page mode=glance — ${elapsed}ms, showing what's visible on screen]`,
+  ];
+
+  if (result.headings.length > 0) {
+    sections.push("", "## Headings", ...result.headings);
+  }
+
+  if (result.inputs.length > 0) {
+    sections.push("", "## Input Fields");
+    for (const inp of result.inputs) {
+      const desc = inp.label || inp.placeholder || inp.type;
+      sections.push(`  [#${inp.index}] ${inp.type}: ${desc}`);
+    }
+  }
+
+  if (result.buttons.length > 0) {
+    sections.push("", "## Buttons");
+    for (const btn of result.buttons) {
+      sections.push(`  [#${btn.index}] ${btn.text}`);
+    }
+  }
+
+  if (result.links.length > 0) {
+    sections.push("", "## Visible Links");
+    for (const link of result.links) {
+      sections.push(`  [#${link.index}] ${link.text}`);
+    }
+  }
+
+  if (result.contentSnippet) {
+    const truncated = result.contentSnippet.length > 6000
+      ? result.contentSnippet.slice(0, 6000) + "\n[truncated]"
+      : result.contentSnippet;
+    sections.push("", "## Page Content (viewport)", "", truncated);
+  }
+
+  return sections.join("\n");
+}
+
 function normalizeReadPageMode(
   mode: unknown,
   pageContent?: Awaited<ReturnType<typeof extractContent>>,
@@ -70,6 +240,7 @@ function normalizeReadPageMode(
   if (typeof mode === "string") {
     const normalized = mode.trim().toLowerCase();
     if (normalized === "debug") return "debug";
+    if (normalized === "glance") return "glance";
     if (
       normalized === "full" ||
       normalized === "summary" ||
@@ -3329,6 +3500,18 @@ export async function executeAction(
         case "read_page": {
           if (!wc) return "Error: No active tab";
 
+          // Glance mode: ultra-fast viewport scan using textContent (no layout
+          // reflow). Shows what a human would see — headings, links, buttons,
+          // inputs in the viewport. Ideal for heavy pages where full extraction
+          // times out. Always available as an explicit mode, and used as the
+          // automatic fallback when full extraction fails.
+          const requestedGlance =
+            typeof args.mode === "string" && args.mode.trim().toLowerCase() === "glance";
+
+          if (requestedGlance) {
+            return glanceExtract(wc);
+          }
+
           // Try full extraction first; if the page JS thread is busy
           // (common on heavy SPAs after navigation), fall back to a
           // lightweight native-only read so the agent isn't blocked.
@@ -3415,72 +3598,10 @@ export async function executeAction(
               .join("\n\n");
           }
 
-          // Lightweight emergency extraction — uses textContent (no layout reflow)
-          // instead of innerText to avoid blocking on heavy pages like CNN
-          console.log("[Vessel read_page] trying lightweight textContent extraction");
-          const emergencyContent = await executePageScript<{
-            title: string;
-            text: string;
-            headings: string[];
-          } | null>(
-            wc,
-            `(function() {
-              var roots = ['main', 'article', '[role="main"]', '#content', '.content',
-                '#mw-content-text', '.post-content', '.article-body', '.story-body'];
-              var root = null;
-              for (var i = 0; i < roots.length; i++) {
-                root = document.querySelector(roots[i]);
-                if (root && root.textContent.trim().length > 100) break;
-                root = null;
-              }
-              var source = root || document.body;
-              if (!source) return null;
-              // textContent is instant — no layout reflow unlike innerText
-              var raw = source.textContent || '';
-              // Clean up: collapse whitespace, remove long runs of spaces
-              var text = raw.replace(/[ \\t]+/g, ' ').replace(/(\\n\\s*){3,}/g, '\\n\\n').trim();
-              if (text.length > 25000) text = text.slice(0, 25000) + '\\n[truncated]';
-              var headings = [];
-              document.querySelectorAll('h1, h2, h3').forEach(function(h) {
-                var t = (h.textContent || '').trim();
-                if (t && t.length < 200) headings.push(h.tagName + ': ' + t);
-              });
-              return { title: document.title || '', text: text, headings: headings.slice(0, 30) };
-            })()`,
-            { timeoutMs: 2000, label: "emergency-extract" },
-          );
-
-          const fallbackTitle = wc.getTitle() || "(untitled)";
-          const fallbackUrl = wc.getURL();
-
-          if (
-            emergencyContent &&
-            emergencyContent !== PAGE_SCRIPT_TIMEOUT &&
-            emergencyContent.text.length > 50
-          ) {
-            console.log(`[Vessel read_page] emergency extraction got ${emergencyContent.text.length} chars`);
-            const headingSection = emergencyContent.headings.length > 0
-              ? `\n## Headings\n${emergencyContent.headings.join("\n")}\n`
-              : "";
-            return [
-              `# ${emergencyContent.title || fallbackTitle}`,
-              `URL: ${fallbackUrl}`,
-              "",
-              "[read_page mode=emergency — full extraction timed out, showing textContent]",
-              headingSection,
-              "## Page Content",
-              "",
-              emergencyContent.text,
-            ].join("\n");
-          }
-
-          return [
-            `# ${fallbackTitle}`,
-            `URL: ${fallbackUrl}`,
-            "",
-            "[Page content extraction timed out — the page JS thread is busy.]",
-            "[Try: wait a few seconds then retry read_page, or use click/type_text to interact directly.]",
-          ].join("\n");
+          // Full extraction failed — fall back to glance mode which uses
+          // textContent (no layout reflow) and can work on blocked JS threads
+          console.log("[Vessel read_page] falling back to glance mode");
+          return glanceExtract(wc);
         }
 
         case "wait_for": {
