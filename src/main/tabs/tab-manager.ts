@@ -3,7 +3,7 @@ import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
 import * as highlightsManager from "../highlights/manager";
-import { highlightOnPage } from "../highlights/inject";
+import { highlightOnPage, highlightBatchOnPage } from "../highlights/inject";
 import { destroySession, destroyAllSessions } from "../devtools/manager";
 
 export type HighlightCaptureResult = {
@@ -228,16 +228,16 @@ export class TabManager {
     this.lastReapply.set(wcId, { url: normalized, at: now });
 
     const highlights = highlightsManager.getHighlightsForUrl(url);
-    for (const h of highlights) {
-      if (!h.selector && !h.text) continue;
-      void highlightOnPage(
-        wc,
-        h.selector ?? null,
-        h.text,
-        h.label,
-        undefined,
-        h.color,
-      ).catch(() => {});
+    const entries = highlights
+      .filter((h) => h.selector || h.text)
+      .map((h) => ({
+        selector: h.selector ?? null,
+        text: h.text,
+        label: h.label,
+        color: h.color,
+      }));
+    if (entries.length > 0) {
+      void highlightBatchOnPage(wc, entries).catch(() => {});
     }
   }
 

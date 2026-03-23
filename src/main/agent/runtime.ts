@@ -26,6 +26,7 @@ const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
 const MAX_TRANSCRIPT_ENTRIES = 40;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
+const PERSIST_DEBOUNCE_MS = 500;
 
 interface RuntimePersistenceShape {
   session: SessionSnapshot | null;
@@ -457,7 +458,15 @@ export class AgentRuntime {
     }
   }
 
-  private persist(): void {
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistDirty = false;
+
+  private persistNow(): void {
+    this.persistDirty = false;
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
     const persisted: RuntimePersistenceShape = {
       session: this.state.session,
       supervisor: {
@@ -469,16 +478,34 @@ export class AgentRuntime {
       checkpoints: this.state.checkpoints.slice(-MAX_CHECKPOINTS),
     };
 
-    fs.mkdirSync(path.dirname(getRuntimeStatePath()), { recursive: true });
-    fs.writeFileSync(
-      getRuntimeStatePath(),
-      JSON.stringify(persisted, null, 2),
-      "utf-8",
-    );
+    try {
+      fs.mkdirSync(path.dirname(getRuntimeStatePath()), { recursive: true });
+      fs.writeFileSync(
+        getRuntimeStatePath(),
+        JSON.stringify(persisted, null, 2),
+        "utf-8",
+      );
+    } catch (err) {
+      console.error("[Vessel] Failed to persist runtime state:", err);
+    }
+  }
+
+  private schedulePersist(): void {
+    this.persistDirty = true;
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      if (this.persistDirty) this.persistNow();
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  /** Flush any pending debounced persist to disk immediately. Call on shutdown. */
+  flushPersist(): void {
+    if (this.persistDirty) this.persistNow();
   }
 
   private emit(): void {
-    this.persist();
+    this.schedulePersist();
     this.updateListener?.(this.getState());
   }
 

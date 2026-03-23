@@ -21,6 +21,8 @@ import {
 } from "./health/runtime-health";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 
+let runtime: AgentRuntime | null = null;
+
 function rendererUrlFor(view: "chrome" | "sidebar" | "devtools"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
   const url = new URL(process.env.ELECTRON_RENDERER_URL);
@@ -120,8 +122,6 @@ async function bootstrap(): Promise<void> {
   if (settings.clearBookmarksOnLaunch) {
     bookmarkManager.clearAll();
   }
-  let runtime: AgentRuntime | null = null;
-
   const windowState = createMainWindow((tabs, activeId) => {
     windowState.chromeView.webContents.send(
       Channels.TAB_STATE_UPDATE,
@@ -236,6 +236,7 @@ app.whenReady().then(bootstrap).catch((error) => {
 
 app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
+  runtime?.flushPersist();
   void stopMcpServer().finally(() => {
     app.quit();
   });
