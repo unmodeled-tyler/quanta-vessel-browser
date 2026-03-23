@@ -13,7 +13,9 @@ import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
 import { setDevToolsPanelListener } from "./devtools/tools";
 import { installAdBlocking } from "./network/ad-blocking";
+import { installDownloadHandler } from "./network/downloads";
 import * as bookmarkManager from "./bookmarks/manager";
+import * as historyManager from "./history/manager";
 import {
   getRuntimeHealth,
   initializeRuntimeHealth,
@@ -183,6 +185,13 @@ async function bootstrap(): Promise<void> {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
     sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
   });
+
+  historyManager.subscribe((state) => {
+    chromeView.webContents.send(Channels.HISTORY_UPDATE, state);
+    sidebarView.webContents.send(Channels.HISTORY_UPDATE, state);
+  });
+
+  installDownloadHandler(chromeView);
 
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");

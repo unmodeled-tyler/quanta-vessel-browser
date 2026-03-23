@@ -8,6 +8,7 @@ import type {
   Bookmark,
   BookmarkFolder,
   BookmarksState,
+  HistoryState,
   RuntimeHealthState,
   SessionSnapshot,
   VesselSettings,
@@ -219,6 +220,35 @@ const api = {
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
+    },
+  },
+  find: {
+    start: (text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_START, text, options),
+    next: (forward?: boolean) =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_NEXT, forward),
+    stop: (action?: "clearSelection" | "keepSelection" | "activateSelection") =>
+      ipcRenderer.invoke(Channels.FIND_IN_PAGE_STOP, action),
+    onResult: (
+      cb: (result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, result: any) => cb(result);
+      ipcRenderer.on(Channels.FIND_IN_PAGE_RESULT, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.FIND_IN_PAGE_RESULT, handler);
+    },
+  },
+  history: {
+    get: (): Promise<HistoryState> =>
+      ipcRenderer.invoke(Channels.HISTORY_GET),
+    search: (query: string) =>
+      ipcRenderer.invoke(Channels.HISTORY_SEARCH, query),
+    clear: () => ipcRenderer.invoke(Channels.HISTORY_CLEAR),
+    onUpdate: (cb: (state: HistoryState) => void): (() => void) => {
+      const handler = (_: unknown, state: HistoryState) => cb(state);
+      ipcRenderer.on(Channels.HISTORY_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.HISTORY_UPDATE, handler);
     },
   },
   window: {

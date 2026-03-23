@@ -1,3 +1,5 @@
+export type TabRole = "primary" | "research" | "auth" | "scratch";
+
 export interface TabState {
   id: string;
   title: string;
@@ -8,6 +10,7 @@ export interface TabState {
   canGoForward: boolean;
   isReaderMode: boolean;
   adBlockingEnabled: boolean;
+  role?: TabRole;
 }
 
 export interface SelectOption {
@@ -384,6 +387,21 @@ export interface ProviderModelsResult {
   error?: string;
 }
 
+export interface DomainPolicy {
+  allowedDomains: string[];
+  blockedDomains: string[];
+}
+
+export interface HistoryEntry {
+  url: string;
+  title: string;
+  visitedAt: string;
+}
+
+export interface HistoryState {
+  entries: HistoryEntry[];
+}
+
 export interface VesselSettings {
   defaultUrl: string;
   theme: "dark";
@@ -396,6 +414,8 @@ export interface VesselSettings {
   agentTranscriptMode: AgentTranscriptDisplayMode;
   chatProvider: ProviderConfig | null;
   maxToolIterations: number;
+  domainPolicy: DomainPolicy;
+  downloadPath: string;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

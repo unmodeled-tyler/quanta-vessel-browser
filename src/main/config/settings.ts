@@ -15,6 +15,8 @@ const defaults: VesselSettings = {
   agentTranscriptMode: "summary",
   chatProvider: null,
   maxToolIterations: 200,
+  domainPolicy: { allowedDomains: [], blockedDomains: [] },
+  downloadPath: "",
 };
 
 /** Allowlist of setting keys accepted via IPC. */

@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
+import * as historyManager from "../history/manager";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
@@ -395,6 +396,67 @@ export function registerIpcHandlers(
     } catch {
       return false;
     }
+  });
+
+  // --- Find in page ---
+
+  let findWiredWcId: number | null = null;
+
+  function wireFindEvents(wc: Electron.WebContents): void {
+    if (findWiredWcId === wc.id) return;
+    // Clean up previous listener
+    if (findWiredWcId !== null) {
+      const prev = tabManager.findTabByWebContentsId(findWiredWcId);
+      if (prev) prev.view.webContents.removeAllListeners("found-in-page");
+    }
+    findWiredWcId = wc.id;
+    wc.on("found-in-page", (_event, result) => {
+      if (!chromeView.webContents.isDestroyed()) {
+        chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
+      }
+    });
+  }
+
+  ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return null;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return null;
+    wireFindEvents(wc);
+    return wc.findInPage(text, {
+      forward: options?.forward ?? true,
+      findNext: options?.findNext ?? false,
+    });
+  });
+
+  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (_, forward?: boolean) => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return null;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return null;
+    return wc.findInPage("", { forward: forward ?? true, findNext: true });
+  });
+
+  ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (_, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return;
+    wc.stopFindInPage(action ?? "clearSelection");
+  });
+
+  // --- Browsing history ---
+
+  ipcMain.handle(Channels.HISTORY_GET, () => {
+    return historyManager.getState();
+  });
+
+  ipcMain.handle(Channels.HISTORY_SEARCH, (_, query: string) => {
+    return historyManager.search(query);
+  });
+
+  ipcMain.handle(Channels.HISTORY_CLEAR, () => {
+    historyManager.clearAll();
   });
 
   // --- DevTools panel ---

@@ -8,6 +8,7 @@ import {
   captureSelectionHighlight,
   type HighlightCaptureResult,
 } from "../highlights/capture";
+import * as historyManager from "../history/manager";
 import { destroySession, destroyAllSessions } from "../devtools/manager";
 
 export type { HighlightCaptureResult };
@@ -42,7 +43,10 @@ export class TabManager {
       onOpenUrl: ({ url: requestedUrl, background, adBlockingEnabled }) => {
         this.createTab(requestedUrl, { background, adBlockingEnabled });
       },
-      onPageLoad: (pageUrl, wc) => this.reapplyHighlights(pageUrl, wc),
+      onPageLoad: (pageUrl, wc) => {
+        this.reapplyHighlights(pageUrl, wc);
+        historyManager.addEntry(pageUrl, wc.getTitle());
+      },
       onHighlightSelection: (wc) => this.captureHighlightFromPage(wc),
       onHighlightRemove: (url, text) => this.removeHighlightByText(url, text),
       onHighlightRecolor: (url, text, color) =>
