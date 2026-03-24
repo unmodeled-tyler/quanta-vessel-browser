@@ -36,11 +36,7 @@ export async function handleAIQuery(
   // Use agent path when provider supports tools and we have a tab manager
   if (provider.streamAgentQuery && tabManager && activeWebContents && runtime) {
     try {
-      const extractStart = Date.now();
       const pageContent = await extractContent(activeWebContents);
-      console.log(
-        `[Vessel Agent] initial extractContent completed in ${Date.now() - extractStart}ms, contentLen=${pageContent.content.length}`,
-      );
       const pageType = detectPageType(pageContent);
       const defaultReadMode = chooseAgentReadMode(pageContent);
       const structuredContext = buildScopedContext(

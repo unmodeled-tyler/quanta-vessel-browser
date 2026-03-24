@@ -82,7 +82,6 @@ export class AnthropicProvider implements AIProvider {
         iterationsUsed = i + 1;
         const msgTokenEstimate = JSON.stringify(messages).length;
         const sysTokenEstimate = systemPrompt.length;
-        console.log(`[Vessel Agent] iteration=${i} messages=${messages.length} msgChars=${msgTokenEstimate} sysChars=${sysTokenEstimate} tools=${tools.length}`);
         const streamStartTime = Date.now();
         const stream = this.client.messages.stream(
           {
@@ -161,9 +160,7 @@ export class AnthropicProvider implements AIProvider {
           if (idleTimer) clearTimeout(idleTimer);
         }
 
-        console.log(`[Vessel Agent] stream complete in ${Date.now() - streamStartTime}ms, toolCalls=${toolUseBlocks.length} textLen=${textContent.length}`);
         const finalMessage = await stream.finalMessage();
-        console.log(`[Vessel Agent] finalMessage received, stop_reason=${finalMessage.stop_reason}`);
 
         // Build assistant message content for history
         const assistantContent: Anthropic.ContentBlockParam[] = [];
@@ -191,14 +188,11 @@ export class AnthropicProvider implements AIProvider {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           let result: string;
-          const toolStartTime = Date.now();
-          console.log(`[Vessel Agent] executing tool: ${tb.name}`);
           try {
             result = await onToolCall(tb.name, tb.input);
           } catch (toolErr: any) {
             result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
           }
-          console.log(`[Vessel Agent] tool ${tb.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
 
           // Check if the result contains rich content (images)
           let parsedRich: RichToolResult | null = null;

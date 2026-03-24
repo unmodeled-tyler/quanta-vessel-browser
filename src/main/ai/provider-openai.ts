@@ -101,7 +101,6 @@ export class OpenAICompatProvider implements AIProvider {
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         const msgTokenEstimate = JSON.stringify(messages).length;
-        console.log(`[Vessel Agent OpenAI] iteration=${i} messages=${messages.length} msgChars=${msgTokenEstimate} tools=${openAITools.length}`);
         const streamStartTime = Date.now();
         // Accumulate text and tool calls across streamed chunks
         let textAccum = '';
@@ -144,7 +143,6 @@ export class OpenAICompatProvider implements AIProvider {
           }
         }
 
-        console.log(`[Vessel Agent OpenAI] stream complete in ${Date.now() - streamStartTime}ms, toolCalls=${Object.keys(toolCallAccums).length} textLen=${textAccum.length} finishReason=${finishReason}`);
         const toolCalls = Object.values(toolCallAccums);
 
         // Ensure every tool call has an ID (some providers like Ollama omit them)
@@ -198,14 +196,11 @@ export class OpenAICompatProvider implements AIProvider {
           const argSummary = args.url || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           let result: string;
-          const toolStartTime = Date.now();
-          console.log(`[Vessel Agent OpenAI] executing tool: ${tc.name}`);
           try {
             result = await onToolCall(tc.name, args);
           } catch (toolErr: any) {
             result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
           }
-          console.log(`[Vessel Agent OpenAI] tool ${tc.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
 
           // OpenAI doesn't support image content in tool results — extract text only
           let toolContent = result;
