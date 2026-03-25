@@ -427,6 +427,7 @@ export interface VesselSettings {
   domainPolicy: DomainPolicy;
   downloadPath: string;
   premium: PremiumState;
+  telemetryEnabled: boolean;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

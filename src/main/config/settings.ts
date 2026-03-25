@@ -17,6 +17,7 @@ const defaults: VesselSettings = {
   maxToolIterations: 200,
   domainPolicy: { allowedDomains: [], blockedDomains: [] },
   downloadPath: "",
+  telemetryEnabled: true,
   premium: {
     status: "free",
     customerId: "",

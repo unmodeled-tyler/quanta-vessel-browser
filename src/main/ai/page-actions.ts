@@ -24,6 +24,7 @@ import { assertSafeURL } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import { makeImageResult } from "./tool-result";
 import { isToolGated, isFeatureGated } from "../premium/manager";
+import { trackToolCall } from "../telemetry/posthog";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
@@ -3230,6 +3231,9 @@ export async function executeAction(
   ) {
     return "Error: No active tab";
   }
+
+  // Track tool usage (anonymous, name only)
+  trackToolCall(name);
 
   // Premium feature gate — return a helpful upgrade message for gated tools
   if (isToolGated(name)) {

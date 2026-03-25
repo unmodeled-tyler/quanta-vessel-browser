@@ -13,6 +13,7 @@ import {
   getPortalUrl,
   resetPremium,
 } from "../premium/manager";
+import { trackProviderConfigured } from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
@@ -107,6 +108,7 @@ export function registerIpcHandlers(
 
     try {
       activeChatProvider = createProvider(chatConfig);
+      trackProviderConfigured(chatConfig.id);
       const activeTab = tabManager.getActiveTab();
       await handleAIQuery(
         query,

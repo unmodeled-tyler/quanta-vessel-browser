@@ -15,6 +15,7 @@ import { setDevToolsPanelListener } from "./devtools/tools";
 import { installAdBlocking } from "./network/ad-blocking";
 import { installDownloadHandler } from "./network/downloads";
 import { startBackgroundRevalidation, stopBackgroundRevalidation } from "./premium/manager";
+import { startTelemetry, stopTelemetry } from "./telemetry/posthog";
 import * as bookmarkManager from "./bookmarks/manager";
 import * as historyManager from "./history/manager";
 import {
@@ -194,6 +195,7 @@ async function bootstrap(): Promise<void> {
 
   installDownloadHandler(chromeView);
   startBackgroundRevalidation();
+  startTelemetry();
 
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");
@@ -242,6 +244,7 @@ app.whenReady().then(bootstrap).catch((error) => {
 
 app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
+  stopTelemetry();
   stopBackgroundRevalidation();
   runtime?.flushPersist();
   void stopMcpServer().finally(() => {

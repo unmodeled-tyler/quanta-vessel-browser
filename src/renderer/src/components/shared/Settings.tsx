@@ -44,6 +44,9 @@ const Settings: Component = () => {
     text: string;
   } | null>(null);
 
+  // Telemetry
+  const [telemetryEnabled, setTelemetryEnabled] = createSignal(true);
+
   // Premium subscription
   const [premiumState, setPremiumState] = createSignal<PremiumState>({
     status: "free",
@@ -143,6 +146,7 @@ const Settings: Component = () => {
       setChatModel(cp.model);
       setChatBaseUrl(cp.baseUrl ?? "");
     }
+    setTelemetryEnabled(settings.telemetryEnabled !== false);
     // Load premium state
     try {
       const ps = await window.vessel.premium.getState();
@@ -202,6 +206,7 @@ const Settings: Component = () => {
         "agentTranscriptMode",
         agentTranscriptMode(),
       );
+      await window.vessel.settings.set("telemetryEnabled", telemetryEnabled());
       const chatConfig: ProviderConfig | null = chatEnabled()
         ? {
             id: chatProviderId(),
@@ -709,6 +714,29 @@ const Settings: Component = () => {
                 </div>
               </div>
             </Show>
+          </div>
+
+          <div class="settings-section-divider" />
+
+          <div class="settings-field">
+            <label class="settings-toggle">
+              <button
+                type="button"
+                class="toggle-switch"
+                classList={{ on: telemetryEnabled() }}
+                onClick={() => setTelemetryEnabled(!telemetryEnabled())}
+                role="switch"
+                aria-checked={telemetryEnabled()}
+              >
+                <span class="toggle-switch-thumb" />
+              </button>
+              <span>Anonymous Usage Analytics</span>
+            </label>
+            <p class="settings-hint">
+              Help improve Vessel by sending anonymous usage data (tool popularity,
+              session duration, provider type). No URLs, page content, queries, or
+              personal data is ever collected.
+            </p>
           </div>
 
           <div class="settings-actions">
