@@ -27,3 +27,4 @@ tests/bookmark-context.test.ts
 docs/AUTOMATION-CHALLENGE-POSTMORTEM.md
 docs/TEST-CHALLENGE-URLS.md
 docs/improvement-roadmap.md
+src/main/telemetry/trace-logger.ts

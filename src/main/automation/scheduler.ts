@@ -11,6 +11,7 @@ import type { AgentRuntime } from "../agent/runtime";
 
 let jobs: ScheduledJob[] = [];
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+let alignStartTimeout: ReturnType<typeof setTimeout> | null = null;
 let broadcastFn: ((channel: string, ...args: unknown[]) => void) | null = null;
 
 function getJobsPath(): string {
@@ -174,7 +175,15 @@ export function registerScheduleHandlers(
 ): void {
   broadcastFn = sendToAll;
   loadJobs();
-  pollInterval = setInterval(() => tick(windowState, runtime), 60_000);
+
+  // Align the first tick to the top of the next minute so jobs fire at :00 seconds.
+  const now = new Date();
+  const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  alignStartTimeout = setTimeout(() => {
+    alignStartTimeout = null;
+    tick(windowState, runtime);
+    pollInterval = setInterval(() => tick(windowState, runtime), 60_000);
+  }, msToNextMinute);
 
   ipcMain.handle(Channels.SCHEDULE_GET_ALL, () => jobs);
 
@@ -201,11 +210,17 @@ export function registerScheduleHandlers(
     const job = jobs.find((j) => j.id === id);
     if (!job) return null;
     if (updates && typeof updates === "object") {
-      const u = updates as Partial<Pick<ScheduledJob, "enabled" | "schedule">>;
+      const u = updates as Partial<Pick<ScheduledJob, "enabled" | "schedule" | "renderedPrompt" | "fieldValues">>;
       if (u.enabled !== undefined) job.enabled = u.enabled;
       if (u.schedule !== undefined && isValidScheduleConfig(u.schedule)) {
         job.schedule = u.schedule;
         job.nextRunAt = computeNextRun(u.schedule).toISOString();
+      }
+      if (typeof u.renderedPrompt === "string" && u.renderedPrompt.length > 0) {
+        job.renderedPrompt = u.renderedPrompt;
+      }
+      if (u.fieldValues !== undefined && typeof u.fieldValues === "object") {
+        job.fieldValues = u.fieldValues as Record<string, string>;
       }
     }
     saveJobs();
@@ -225,6 +240,10 @@ export function registerScheduleHandlers(
 }
 
 export function stopScheduler(): void {
+  if (alignStartTimeout) {
+    clearTimeout(alignStartTimeout);
+    alignStartTimeout = null;
+  }
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;

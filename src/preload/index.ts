@@ -318,7 +318,7 @@ const api = {
       ipcRenderer.invoke(Channels.SCHEDULE_CREATE, job),
     update: (
       id: string,
-      updates: Partial<Pick<ScheduledJob, "enabled" | "schedule">>,
+      updates: Partial<Pick<ScheduledJob, "enabled" | "schedule" | "renderedPrompt" | "fieldValues">>,
     ): Promise<ScheduledJob | null> =>
       ipcRenderer.invoke(Channels.SCHEDULE_UPDATE, id, updates),
     delete: (id: string): Promise<boolean> =>

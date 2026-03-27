@@ -106,6 +106,9 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
   // Context menu state — tracks which job's menu is open by id
   const [openMenuJobId, setOpenMenuJobId] = createSignal<string | null>(null);
 
+  // Tracks a job being fully re-edited (task fields + schedule); null = creating new
+  const [editingTaskJobId, setEditingTaskJobId] = createSignal<string | null>(null);
+
   // Edit schedule modal state
   const [editingJob, setEditingJob] = createSignal<ScheduledJob | null>(null);
   const [editType, setEditType] = createSignal<ScheduleType>("daily");
@@ -170,6 +173,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     setSchedDayOfWeek(1);
     setSchedRunAt("");
     setScheduleError(null);
+    setEditingTaskJobId(null);
   };
 
   const setField = (key: string, value: string) => {
@@ -228,17 +232,28 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     }
 
     try {
-      await window.vessel.schedule.create({
-        kitId: kit.id,
-        kitName: kit.name,
-        kitIcon: kit.icon,
-        renderedPrompt: prompt,
-        schedule,
-        enabled: true,
-      });
+      const existingId = editingTaskJobId();
+      if (existingId) {
+        await window.vessel.schedule.update(existingId, {
+          renderedPrompt: prompt,
+          fieldValues: fieldValues(),
+          schedule,
+        });
+        setEditingTaskJobId(null);
+      } else {
+        await window.vessel.schedule.create({
+          kitId: kit.id,
+          kitName: kit.name,
+          kitIcon: kit.icon,
+          renderedPrompt: prompt,
+          fieldValues: fieldValues(),
+          schedule,
+          enabled: true,
+        });
+      }
       setSelectedKit(null);
     } catch (err) {
-      setScheduleError(err instanceof Error ? err.message : "Failed to create schedule.");
+      setScheduleError(err instanceof Error ? err.message : "Failed to save schedule.");
     }
   };
 
@@ -272,6 +287,23 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
   const handleDeleteJob = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     await window.vessel.schedule.delete(id);
+  };
+
+  const handleOpenEditTask = (job: ScheduledJob) => {
+    const kit = allKits().find((k) => k.id === job.kitId);
+    if (!kit) return;
+    selectKit(kit); // resets all form state to defaults
+    // Restore stored field values if available, otherwise keep defaults
+    if (job.fieldValues) setFieldValues(job.fieldValues);
+    // Pre-fill schedule so the user can adjust timing too
+    setScheduleEnabled(true);
+    setSchedType(job.schedule.type);
+    setSchedHour(job.schedule.hour ?? 9);
+    setSchedMinute(job.schedule.minute ?? 0);
+    setSchedDayOfWeek(job.schedule.dayOfWeek ?? 1);
+    setSchedRunAt(job.schedule.runAt ? toLocalDateTimeInput(job.schedule.runAt) : "");
+    setEditingTaskJobId(job.id);
+    setOpenMenuJobId(null);
   };
 
   const handleOpenEditSchedule = (job: ScheduledJob) => {
@@ -351,7 +383,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
       {/* ── Kit list ── */}
       <Show when={isPremium() && selectedKit() === null}>
         <div class="kit-list-header">
-          <span class="agent-panel-title">Automation Kits</span>
+          <span class="agent-panel-title">Automation Kits <span class="kit-beta-tag">Beta</span></span>
           <div class="kit-list-header-actions">
             <span class="kit-list-count">{allKits().length} kits</span>
             <button
@@ -489,6 +521,13 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                       <button
                         class="sched-ctx-item"
                         type="button"
+                        onClick={() => handleOpenEditTask(job)}
+                      >
+                        Edit task
+                      </button>
+                      <button
+                        class="sched-ctx-item"
+                        type="button"
                         onClick={() => handleOpenEditSchedule(job)}
                       >
                         Edit schedule
@@ -530,7 +569,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
             <button
               class="kit-back-btn"
               type="button"
-              onClick={() => setSelectedKit(null)}
+              onClick={() => { setSelectedKit(null); setEditingTaskJobId(null); }}
               title="Back to kits"
             >
               <svg
@@ -726,7 +765,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                   disabled={!canSchedule()}
                   onClick={() => void handleSchedule()}
                 >
-                  Schedule Kit
+                  {editingTaskJobId() ? "Save Changes" : "Schedule Kit"}
                 </button>
               </div>
             </Show>

@@ -239,25 +239,6 @@ const NetworkView: Component<{ entries: NetworkEntry[] }> = (props) => {
 };
 
 const ActivityView: Component<{ entries: ActivityEntry[] }> = (props) => {
-  let scrollRef: HTMLDivElement | undefined;
-  let autoScroll = true;
-
-  const onScroll = () => {
-    if (!scrollRef) return;
-    const atBottom =
-      scrollRef.scrollHeight - scrollRef.scrollTop - scrollRef.clientHeight < 30;
-    autoScroll = atBottom;
-  };
-
-  createEffect(() => {
-    props.entries.length;
-    if (autoScroll && scrollRef) {
-      requestAnimationFrame(() => {
-        scrollRef!.scrollTop = scrollRef!.scrollHeight;
-      });
-    }
-  });
-
   return (
     <Show
       when={props.entries.length > 0}
@@ -267,8 +248,8 @@ const ActivityView: Component<{ entries: ActivityEntry[] }> = (props) => {
         </div>
       }
     >
-      <div class="devtools-activity" ref={scrollRef} onScroll={onScroll}>
-        <For each={props.entries}>
+      <div class="devtools-activity">
+        <For each={[...props.entries].reverse()}>
           {(entry) => (
             <div class="activity-entry">
               <span class="activity-time">

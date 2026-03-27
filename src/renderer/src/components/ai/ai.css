@@ -2089,6 +2089,21 @@
     gap: 8px;
 }
 
+.kit-beta-tag {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent, #c4a05a);
+    background: rgba(196, 160, 90, 0.12);
+    border: 1px solid rgba(196, 160, 90, 0.25);
+    border-radius: 4px;
+    padding: 1px 5px;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+}
+
 .kit-list-count {
     font-size: 10px;
     font-weight: 600;

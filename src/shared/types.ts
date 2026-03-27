@@ -530,6 +530,8 @@ export interface ScheduledJob {
   kitIcon: string;
   /** Pre-rendered prompt ready to pass directly to the agent */
   renderedPrompt: string;
+  /** Original kit field values — stored so the user can re-edit the task later */
+  fieldValues?: Record<string, string>;
   schedule: ScheduleConfig;
   enabled: boolean;
   createdAt: string;
