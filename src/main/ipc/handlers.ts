@@ -15,7 +15,14 @@ import {
 } from "../premium/manager";
 import * as vaultManager from "../vault/manager";
 import { readAuditLog } from "../vault/audit";
-import { trackProviderConfigured } from "../telemetry/posthog";
+import {
+  trackProviderConfigured,
+  trackSettingChanged,
+  trackApprovalModeChanged,
+  trackBookmarkAction,
+  trackVaultAction,
+  trackPremiumFunnel,
+} from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
@@ -250,6 +257,7 @@ export function registerIpcHandlers(
     }
     const settingsKey = key as keyof VesselSettings;
     const updatedSettings = setSetting(settingsKey, value as VesselSettings[typeof settingsKey]);
+    trackSettingChanged(key);
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
     }
@@ -276,6 +284,7 @@ export function registerIpcHandlers(
       if (!VALID_APPROVAL_MODES.has(mode)) {
         throw new Error(`Invalid approval mode: ${mode}`);
       }
+      trackApprovalModeChanged(mode);
       setSetting("approvalMode", mode);
       return runtime.setApprovalMode(mode);
     },
@@ -314,21 +323,26 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.FOLDER_CREATE,
     (_, name: string, summary?: string) => {
+      trackBookmarkAction("folder_create");
       return bookmarkManager.createFolderWithSummary(name, summary);
     },
   );
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
-    (_, url: string, title: string, folderId?: string, note?: string) =>
-      bookmarkManager.saveBookmark(url, title, folderId, note),
+    (_, url: string, title: string, folderId?: string, note?: string) => {
+      trackBookmarkAction("save");
+      return bookmarkManager.saveBookmark(url, title, folderId, note);
+    },
   );
 
   ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
+    trackBookmarkAction("remove");
     return bookmarkManager.removeBookmark(id);
   });
 
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
+    trackBookmarkAction("folder_remove");
     return bookmarkManager.removeFolder(id);
   });
 
@@ -523,14 +537,19 @@ export function registerIpcHandlers(
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return { ok: false, state: getPremiumState(), error: "Invalid email format" };
     }
+    trackPremiumFunnel("activation_attempted");
     const result = await activateWithEmail(email);
     if (result.ok) {
+      trackPremiumFunnel("activation_succeeded", { status: result.state.status });
       sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
+    } else {
+      trackPremiumFunnel("activation_failed", { status: result.state.status });
     }
     return result;
   });
 
   ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
+    trackPremiumFunnel("checkout_clicked");
     const result = await getCheckoutUrl(email);
     if (result.ok && result.url) {
       tabManager.createTab(result.url);
@@ -539,12 +558,14 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.PREMIUM_RESET, () => {
+    trackPremiumFunnel("reset");
     const state = resetPremium();
     sendToRendererViews(Channels.PREMIUM_UPDATE, state);
     return state;
   });
 
   ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
+    trackPremiumFunnel("portal_opened");
     const result = await getPortalUrl();
     if (result.ok && result.url) {
       tabManager.createTab(result.url);
@@ -571,6 +592,7 @@ export function registerIpcHandlers(
       }
       assertOptionalString(entry.totpSecret, "totpSecret");
       assertOptionalString(entry.notes, "notes");
+      trackVaultAction("credential_added");
       const created = vaultManager.addEntry(entry);
       return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
     },
@@ -587,6 +609,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
     assertString(id, "id");
+    trackVaultAction("credential_removed");
     return vaultManager.removeEntry(id);
   });
 

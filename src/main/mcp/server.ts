@@ -63,6 +63,7 @@ import { captureScreenshot } from "../content/screenshot";
 import * as vaultManager from "../vault/manager";
 import { requestConsent } from "../vault/consent";
 import { appendAuditEntry } from "../vault/audit";
+import { trackVaultAction } from "../telemetry/posthog";
 
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
@@ -5423,6 +5424,7 @@ function registerTools(
 
       // Record usage
       vaultManager.recordUsage(match.id);
+      trackVaultAction("login_fill");
 
       // Optionally submit
       if (submit_after && submit_index != null) {
@@ -5540,6 +5542,7 @@ function registerTools(
       );
 
       vaultManager.recordUsage(match.id);
+      trackVaultAction("totp_fill");
 
       const results = [`2FA code filled: ${fillResult.replace(/Typed into:.*/, "Typed into: [2FA field]")}`];
 

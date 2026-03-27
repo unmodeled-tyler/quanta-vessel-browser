@@ -2,6 +2,7 @@ import type { WebContents } from "electron";
 import type { PageContent } from "../../shared/types";
 import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
+import { trackExtractionFailed } from "../telemetry/posthog";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -1152,11 +1153,16 @@ export async function extractContent(
         ),
       ),
     ]);
-  } catch {
+  } catch (err) {
+    const url = webContents.getURL() || "";
+    let domain = "unknown";
+    try { domain = new URL(url).hostname; } catch { /* invalid URL */ }
+    const reason = err instanceof Error ? err.message : "unknown";
+    trackExtractionFailed(domain, reason);
     return {
       ...EMPTY_PAGE_CONTENT,
       title: webContents.getTitle() || "",
-      url: webContents.getURL() || "",
+      url,
     };
   }
 }
