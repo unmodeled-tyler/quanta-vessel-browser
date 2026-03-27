@@ -19,19 +19,27 @@ const [runtimeState, setRuntimeState] = createSignal<AgentRuntimeState>(
 );
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (initPromise) return initPromise;
   if (initialized) return;
-  try {
-    const initial = await window.vessel.ai.getRuntime();
-    setRuntimeState(initial);
-    window.vessel.ai.onRuntimeUpdate((state) => {
-      setRuntimeState(state);
-    });
-    initialized = true;
-  } catch (error) {
-    console.error("Failed to initialize runtime store", error);
-  }
+  initialized = true;
+  initPromise = (async () => {
+    try {
+      const initial = await window.vessel.ai.getRuntime();
+      setRuntimeState(initial);
+      window.vessel.ai.onRuntimeUpdate((state) => {
+        setRuntimeState(state);
+      });
+    } catch (error) {
+      initialized = false;
+      console.error("Failed to initialize runtime store", error);
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
 }
 
 export function useRuntime() {

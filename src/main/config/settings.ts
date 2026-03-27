@@ -33,8 +33,15 @@ export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults))
 let settings: VesselSettings | null = null;
 let settingsIssues: RuntimeHealthIssue[] = [];
 
+function getUserDataPath(): string {
+  if (typeof app?.getPath === "function") {
+    return app.getPath("userData");
+  }
+  return path.join(process.cwd(), ".vessel-test-data");
+}
+
 export function getSettingsPath(): string {
-  return path.join(app.getPath("userData"), "vessel-settings.json");
+  return path.join(getUserDataPath(), "vessel-settings.json");
 }
 
 export function getSettingsLoadIssues(): RuntimeHealthIssue[] {

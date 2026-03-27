@@ -137,8 +137,7 @@ export class Tab {
       this.onChange();
     };
 
-    // Track URL changes for custom history
-    wc.on("did-navigate", (_event, url) => {
+    const recordNavigation = (url: string) => {
       if (this.navigatingViaHistory) {
         // Back/forward already managed the stacks — just update committed URL
         this.navigatingViaHistory = false;
@@ -160,6 +159,11 @@ export class Tab {
       }
       this.lastCommittedUrl = url;
       syncNavigationState();
+    };
+
+    // Track URL changes for custom history
+    wc.on("did-navigate", (_event, url) => {
+      recordNavigation(url);
     });
 
     wc.on("page-title-updated", (_, title) => {
@@ -177,8 +181,9 @@ export class Tab {
       syncNavigationState();
     });
 
-    wc.on("did-navigate-in-page", () => {
-      syncNavigationState();
+    wc.on("did-navigate-in-page", (_event, url, isMainFrame) => {
+      if (!isMainFrame) return;
+      recordNavigation(url);
       this.onPageLoad?.(wc.getURL(), wc);
     });
 

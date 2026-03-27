@@ -6,17 +6,25 @@ const INITIAL: HistoryState = { entries: [] };
 const [historyState, setHistoryState] = createSignal<HistoryState>(INITIAL);
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (initPromise) return initPromise;
   if (initialized) return;
-  try {
-    const state = await window.vessel.history.get();
-    setHistoryState(state);
-    window.vessel.history.onUpdate((s) => setHistoryState(s));
-    initialized = true;
-  } catch (error) {
-    console.error("Failed to initialize history store", error);
-  }
+  initialized = true;
+  initPromise = (async () => {
+    try {
+      const state = await window.vessel.history.get();
+      setHistoryState(state);
+      window.vessel.history.onUpdate((s) => setHistoryState(s));
+    } catch (error) {
+      initialized = false;
+      console.error("Failed to initialize history store", error);
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
 }
 
 export function useHistory() {

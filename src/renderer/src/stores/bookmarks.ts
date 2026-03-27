@@ -7,17 +7,25 @@ const [bookmarksState, setBookmarksState] =
   createSignal<BookmarksState>(INITIAL);
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 async function init() {
+  if (initPromise) return initPromise;
   if (initialized) return;
-  try {
-    const state = await window.vessel.bookmarks.get();
-    setBookmarksState(state);
-    window.vessel.bookmarks.onUpdate((s) => setBookmarksState(s));
-    initialized = true;
-  } catch (error) {
-    console.error("Failed to initialize bookmarks store", error);
-  }
+  initialized = true;
+  initPromise = (async () => {
+    try {
+      const state = await window.vessel.bookmarks.get();
+      setBookmarksState(state);
+      window.vessel.bookmarks.onUpdate((s) => setBookmarksState(s));
+    } catch (error) {
+      initialized = false;
+      console.error("Failed to initialize bookmarks store", error);
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
 }
 
 export function useBookmarks() {
