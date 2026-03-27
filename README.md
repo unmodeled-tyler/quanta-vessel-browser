@@ -68,16 +68,22 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands
-- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across four tabs: Supervisor, Bookmarks, Checkpoints, and Chat
+- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across five tabs: Supervisor, Bookmarks, Checkpoints, Chat, and Automate
 - **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
+- **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
 - **Named Session Persistence** — save cookies, localStorage, and current tab layout under a reusable name, then reload it after a restart
+- **Page Highlights** — agents can visually highlight text or elements on any page with labeled, color-coded markers that persist across navigation; highlight count and navigation controls appear in the sidebar; cleared explicitly or via tool call
+- **Agent Transcript Dock** — floating transcript overlay anchored to the browser chrome; configurable display modes (off, summary, full) set in Settings; shows live agent thinking and status updates without occupying sidebar space
+- **Workflow Flow Tracking** — agents can declare a named multi-step workflow at runtime using `flow_start`; progress is tracked step-by-step with `flow_advance` and visible in the sidebar throughout execution
 - **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
+- **Domain Policy** — allowlist or blocklist domains globally in Settings; agents cannot navigate to blocked domains
 - **Agent Credential Vault** (Premium) — encrypted credential storage for agent-driven logins; credentials are filled directly into login forms via a "blind fill" pattern and are never sent to AI providers; user consent dialog before every use; TOTP 2FA support; domain-scoped access; append-only audit log
-- **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
+- **Screenshot & Visual Analysis** (Premium) — take a full-page screenshot and pass the image directly to the AI for visual layout analysis; useful when text extraction fails on heavy or canvas-rendered pages
+- **Obsidian Memory Hooks** (Premium) — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
 - **Runtime Health Checks** — startup warnings for MCP port conflicts, unreadable settings, and user-data write failures
 - **Reader Mode** — extract article content into a clean, distraction-free view; toggle on and off from the address bar
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
@@ -112,13 +118,16 @@ That means the product should optimize for:
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
 ├── AgentRuntime (session + supervision)  ├── CommandBar (secondary surface)
-├── MCP server for external agents        ├── AI Sidebar (Supervisor/Bookmarks/Checkpoints/Chat)
+├── MCP server for external agents        ├── AI Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate)
 ├── AI providers (Anthropic + OAI-compat) ├── DevTools Panel (Console/Network/Activity)
-├── Supervision, bookmarks, checkpoints   └── Signal stores (tabs, ai, ui)
+├── Supervision, bookmarks, checkpoints   ├── Agent Transcript Dock
+└── IPC Handlers ◄──contextBridge──► ──► └── Signal stores (tabs, ai, ui)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
 
 Each browser tab is a separate `WebContentsView` managed by the main process. The browser chrome (SolidJS) runs in its own view layered on top. All communication between renderer and main goes through typed IPC channels via `contextBridge`.
+
+The sidebar Automate tab renders kit forms entirely in the renderer and passes the rendered prompt to the built-in agent via the same `query()` path used by the Chat tab — no additional IPC surface is needed.
 
 ## Getting Started
 
@@ -229,6 +238,23 @@ Page interaction and recovery tools exposed today include:
 - `vessel_dismiss_popup`
 - `vessel_set_ad_blocking`
 - `vessel_wait_for`
+- `vessel_screenshot` (Premium) — capture the full page as an image for visual AI analysis
+
+Page highlight tools:
+
+- `vessel_highlight` — visually mark text or an element on the page with a labeled, color-coded overlay; persists until cleared
+- `vessel_clear_highlights` — remove all highlights from the current page
+
+Workflow tracking tools:
+
+- `vessel_flow_start` — begin a named multi-step workflow and declare its steps upfront; progress appears in the sidebar throughout execution
+- `vessel_flow_advance` — mark the current step complete and advance to the next
+- `vessel_flow_status` — check current workflow progress
+- `vessel_flow_end` — clear the active workflow tracker
+
+Data extraction tools (Premium):
+
+- `vessel_extract_table` — extract a page table as structured JSON rows with column headers
 
 Named session tools exposed today include:
 
@@ -244,6 +270,10 @@ Agent Credential Vault tools (Premium):
 - `vessel_vault_status` — check whether stored credentials exist for a domain (returns labels/usernames, never passwords)
 - `vessel_vault_login` — fill a login form using stored credentials (blind fill — credentials go directly into the page, never into the AI conversation)
 - `vessel_vault_totp` — generate and fill a TOTP 2FA code from a stored secret
+
+Session performance tools (Premium):
+
+- `vessel_metrics` — show per-tool call counts, average durations, error rates, and total session stats
 
 Vault security model:
 
@@ -365,13 +395,24 @@ src/
 ├── main/                 # Electron main process
 │   ├── ai/               # Agent tools, query flow, and AI provider implementations
 │   ├── tabs/             # Tab + TabManager (WebContentsView)
-│   ├── agent/            # Agent runtime, checkpoints, supervision
-│   ├── content/          # Readability extraction, reader mode
+│   ├── agent/            # Agent runtime, checkpoints, supervision, flow tracking
+│   ├── content/          # Readability extraction, reader mode, screenshot
 │   ├── config/           # Settings persistence
 │   ├── ipc/              # IPC handler registry
 │   ├── vault/            # Agent Credential Vault (encrypted storage, consent, audit)
 │   ├── mcp/              # MCP server for external agent control
 │   ├── devtools/         # CDP session management for Dev Tools panel
+│   ├── highlights/       # Page highlight capture, injection, and persistence
+│   ├── health/           # Runtime health monitoring (MCP, settings, ports)
+│   ├── premium/          # Subscription management, feature gating, Stripe integration
+│   ├── bookmarks/        # Bookmark and folder persistence
+│   ├── history/          # Browse history
+│   ├── memory/           # Obsidian vault hooks
+│   ├── network/          # Ad blocking, URL safety, link validation, downloads
+│   ├── sessions/         # Named session save/load/delete
+│   ├── startup/          # App initialization, menu, shortcuts, renderer bootstrap
+│   ├── telemetry/        # PostHog analytics (opt-in)
+│   ├── tools/            # Tool definitions, input coercion, pruning
 │   ├── window.ts         # Window layout manager
 │   └── index.ts          # App entry point
 ├── preload/              # contextBridge scripts
@@ -380,13 +421,13 @@ src/
 ├── renderer/             # SolidJS browser UI
 │   └── src/
 │       ├── components/
-│       │   ├── chrome/   # TitleBar, TabBar, AddressBar
-│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat)
+│       │   ├── chrome/   # TitleBar, TabBar, AddressBar, AgentTranscriptDock
+│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate)
 │       │   ├── devtools/ # DevTools panel (Console, Network, Activity)
 │       │   └── shared/   # Settings panel
-│       ├── stores/       # SolidJS signal stores
+│       ├── stores/       # SolidJS signal stores (tabs, ai, ui, runtime, bookmarks, etc.)
 │       ├── styles/       # Theme, global CSS
-│       └── lib/          # Keybindings
+│       └── lib/          # Keybindings, markdown, automation kits registry
 └── shared/               # Types + IPC channel constants
 ```
 
