@@ -73,6 +73,12 @@ function formatNextRun(isoStr: string): string {
   });
 }
 
+function toLocalDateTimeInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 interface AutomationTabProps {
   /** Called after launching a kit so the parent can switch to the supervisor tab */
   onRun: () => void;
@@ -97,10 +103,35 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
   // Scheduled jobs
   const [scheduledJobs, setScheduledJobs] = createSignal<ScheduledJob[]>([]);
 
+  // Context menu state — tracks which job's menu is open by id
+  const [openMenuJobId, setOpenMenuJobId] = createSignal<string | null>(null);
+
+  // Edit schedule modal state
+  const [editingJob, setEditingJob] = createSignal<ScheduledJob | null>(null);
+  const [editType, setEditType] = createSignal<ScheduleType>("daily");
+  const [editHour, setEditHour] = createSignal(9);
+  const [editMinute, setEditMinute] = createSignal(0);
+  const [editDayOfWeek, setEditDayOfWeek] = createSignal(1);
+  const [editRunAt, setEditRunAt] = createSignal("");
+  const [editError, setEditError] = createSignal<string | null>(null);
+
   onMount(() => {
     void window.vessel.schedule.getAll().then(setScheduledJobs);
     const cleanup = window.vessel.schedule.onJobsUpdate(setScheduledJobs);
     onCleanup(cleanup);
+
+    const closeMenu = () => setOpenMenuJobId(null);
+    document.addEventListener("click", closeMenu);
+    onCleanup(() => document.removeEventListener("click", closeMenu));
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpenMenuJobId(null);
+        setEditingJob(null);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
   });
 
   const [premiumData] = createResource(() =>
@@ -243,6 +274,48 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     await window.vessel.schedule.delete(id);
   };
 
+  const handleOpenEditSchedule = (job: ScheduledJob) => {
+    setEditingJob(job);
+    setEditType(job.schedule.type);
+    setEditHour(job.schedule.hour ?? 9);
+    setEditMinute(job.schedule.minute ?? 0);
+    setEditDayOfWeek(job.schedule.dayOfWeek ?? 1);
+    setEditRunAt(job.schedule.runAt ? toLocalDateTimeInput(job.schedule.runAt) : "");
+    setEditError(null);
+    setOpenMenuJobId(null);
+  };
+
+  const handleSaveEditSchedule = async () => {
+    const job = editingJob();
+    if (!job) return;
+    const schedule: ScheduleConfig = { type: editType() };
+    if (editType() === "once") {
+      const d = new Date(editRunAt());
+      if (isNaN(d.getTime())) { setEditError("Please enter a valid date and time."); return; }
+      if (d <= new Date()) { setEditError("Scheduled time must be in the future."); return; }
+      schedule.runAt = d.toISOString();
+    } else if (editType() === "daily" || editType() === "weekly") {
+      schedule.hour = editHour();
+      schedule.minute = editMinute();
+      if (editType() === "weekly") schedule.dayOfWeek = editDayOfWeek();
+    }
+    try {
+      await window.vessel.schedule.update(job.id, { schedule });
+      setEditingJob(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to update schedule.");
+    }
+  };
+
+  const editTimeValue = () =>
+    `${String(editHour()).padStart(2, "0")}:${String(editMinute()).padStart(2, "0")}`;
+
+  const parseEditTimeInput = (val: string) => {
+    const [h, m] = val.split(":").map(Number);
+    setEditHour(isNaN(h) ? 0 : h);
+    setEditMinute(isNaN(m) ? 0 : m);
+  };
+
   const parseTimeInput = (val: string) => {
     const [h, m] = val.split(":").map(Number);
     setSchedHour(isNaN(h) ? 0 : h);
@@ -372,7 +445,15 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
           <div class="kit-sched-list">
             <For each={scheduledJobs()}>
               {(job) => (
-                <div class="kit-sched-card" classList={{ "kit-sched-disabled": !job.enabled }}>
+                <div
+                  class="kit-sched-card"
+                  classList={{ "kit-sched-disabled": !job.enabled }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpenMenuJobId(job.id);
+                  }}
+                >
                   <span class="kit-card-icon kit-sched-icon" aria-hidden="true">
                     <KitIcon name={job.kitIcon} size={14} />
                   </span>
@@ -403,6 +484,38 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                       ×
                     </button>
                   </div>
+                  <Show when={openMenuJobId() === job.id}>
+                    <div class="sched-context-menu" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        class="sched-ctx-item"
+                        type="button"
+                        onClick={() => handleOpenEditSchedule(job)}
+                      >
+                        Edit schedule
+                      </button>
+                      <div class="sched-ctx-divider" />
+                      <button
+                        class="sched-ctx-item"
+                        type="button"
+                        onClick={(e) => {
+                          void handleToggleJob(e, job);
+                          setOpenMenuJobId(null);
+                        }}
+                      >
+                        {job.enabled ? "Pause" : "Resume"}
+                      </button>
+                      <button
+                        class="sched-ctx-item sched-ctx-danger"
+                        type="button"
+                        onClick={(e) => {
+                          void handleDeleteJob(e, job.id);
+                          setOpenMenuJobId(null);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               )}
             </For>
@@ -619,6 +732,93 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
             </Show>
           </div>
         </>
+      </Show>
+
+      {/* ── Edit schedule modal ── */}
+      <Show when={editingJob() !== null}>
+        <div class="sched-edit-backdrop" onClick={() => setEditingJob(null)}>
+          <div class="sched-edit-panel" onClick={(e) => e.stopPropagation()}>
+            <div class="sched-edit-header">
+              <span class="sched-edit-title">Edit schedule</span>
+              <span class="sched-edit-job-name">{editingJob()!.kitName}</span>
+            </div>
+
+            <div class="kit-schedule-types">
+              <For each={["once", "hourly", "daily", "weekly"] as ScheduleType[]}>
+                {(t) => (
+                  <label class="kit-schedule-type-option">
+                    <input
+                      type="radio"
+                      name="edit-sched-type"
+                      value={t}
+                      checked={editType() === t}
+                      onChange={() => setEditType(t)}
+                    />
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </label>
+                )}
+              </For>
+            </div>
+
+            <Show when={editType() === "once"}>
+              <div class="kit-schedule-row">
+                <label>Run at</label>
+                <input
+                  type="datetime-local"
+                  class="kit-form-input kit-schedule-time"
+                  value={editRunAt()}
+                  onInput={(e) => setEditRunAt(e.currentTarget.value)}
+                />
+              </div>
+            </Show>
+            <Show when={editType() === "daily" || editType() === "weekly"}>
+              <Show when={editType() === "weekly"}>
+                <div class="kit-schedule-row">
+                  <label>Day</label>
+                  <select
+                    class="kit-form-input kit-schedule-time"
+                    value={editDayOfWeek()}
+                    onChange={(e) => setEditDayOfWeek(Number(e.currentTarget.value))}
+                  >
+                    <For each={DAY_NAMES}>
+                      {(name, i) => <option value={i()}>{name}</option>}
+                    </For>
+                  </select>
+                </div>
+              </Show>
+              <div class="kit-schedule-row">
+                <label>Time</label>
+                <input
+                  type="time"
+                  class="kit-form-input kit-schedule-time"
+                  value={editTimeValue()}
+                  onInput={(e) => parseEditTimeInput(e.currentTarget.value)}
+                />
+              </div>
+            </Show>
+
+            <Show when={editError()}>
+              <p class="kit-schedule-error">{editError()}</p>
+            </Show>
+
+            <div class="sched-edit-actions">
+              <button
+                class="kit-back-btn"
+                type="button"
+                onClick={() => setEditingJob(null)}
+              >
+                Cancel
+              </button>
+              <button
+                class="agent-primary-button"
+                type="button"
+                onClick={() => void handleSaveEditSchedule()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
     </section>
   );
