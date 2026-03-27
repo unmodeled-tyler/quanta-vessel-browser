@@ -13,6 +13,8 @@ import {
   getPortalUrl,
   resetPremium,
 } from "../premium/manager";
+import * as vaultManager from "../vault/manager";
+import { readAuditLog } from "../vault/audit";
 import { trackProviderConfigured } from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
@@ -517,6 +519,35 @@ export function registerIpcHandlers(
       tabManager.createTab(result.url);
     }
     return result;
+  });
+
+  // --- Agent Credential Vault ---
+
+  ipcMain.handle(Channels.VAULT_LIST, () => {
+    return vaultManager.listEntries();
+  });
+
+  ipcMain.handle(
+    Channels.VAULT_ADD,
+    (_, entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }) => {
+      const created = vaultManager.addEntry(entry);
+      return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
+    },
+  );
+
+  ipcMain.handle(
+    Channels.VAULT_UPDATE,
+    (_, id: string, updates: Partial<{ label: string; domainPattern: string; username: string; password: string; totpSecret: string; notes: string }>) => {
+      return vaultManager.updateEntry(id, updates) !== null;
+    },
+  );
+
+  ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
+    return vaultManager.removeEntry(id);
+  });
+
+  ipcMain.handle(Channels.VAULT_AUDIT_LOG, (_, limit?: number) => {
+    return readAuditLog(limit);
   });
 
   // --- Window controls ---
