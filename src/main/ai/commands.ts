@@ -1,6 +1,6 @@
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
-import { createTraceSession } from "../telemetry/trace-logger";
+import { createTraceSession } from "../telemetry/dev-trace";
 import {
   buildSummarizePrompt,
   buildQuestionPrompt,

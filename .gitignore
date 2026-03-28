@@ -28,3 +28,4 @@ docs/AUTOMATION-CHALLENGE-POSTMORTEM.md
 docs/TEST-CHALLENGE-URLS.md
 docs/improvement-roadmap.md
 src/main/telemetry/trace-logger.ts
+src/main/telemetry/trace-logger.local.cjs
