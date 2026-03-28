@@ -28,6 +28,8 @@ const [automationActivities, setAutomationActivities] = createSignal<
 >([]);
 
 let initialized = false;
+let pendingDrainScheduled = false;
+let listenerCleanups: Array<() => void> = [];
 
 function trimMessages(next: AIMessage[]): AIMessage[] {
   return next.length > MAX_MESSAGE_HISTORY ? next.slice(-MAX_MESSAGE_HISTORY) : next;
@@ -61,10 +63,31 @@ async function dispatchQueuedPrompt(prompt: string): Promise<void> {
   }
 }
 
+function schedulePendingDrain(): void {
+  if (pendingDrainScheduled || isStreaming()) return;
+  if (pendingQueries().length === 0) {
+    setQueueNotice(null);
+    return;
+  }
+
+  pendingDrainScheduled = true;
+  queueMicrotask(() => {
+    pendingDrainScheduled = false;
+    if (isStreaming()) return;
+
+    const next = dequeuePendingPrompt(pendingQueries());
+    setPendingQueries(next.queue);
+    setQueueNotice(next.notice);
+    if (next.nextPrompt) {
+      void dispatchQueuedPrompt(next.nextPrompt);
+    }
+  });
+}
+
 function init() {
   if (initialized) return;
   initialized = true;
-  window.vessel.ai.onStreamStart((prompt: string) => {
+  listenerCleanups.push(window.vessel.ai.onStreamStart((prompt: string) => {
     setMessages((prev) => {
       const next = [...prev, { role: "user" as const, content: prompt }];
       return trimMessages(next);
@@ -73,14 +96,14 @@ function init() {
     setIsStreaming(true);
     setHasFirstChunk(false);
     setStreamStartedAt(Date.now());
-  });
-  window.vessel.ai.onStreamChunk((chunk: string) => {
+  }));
+  listenerCleanups.push(window.vessel.ai.onStreamChunk((chunk: string) => {
     if (!hasFirstChunk()) {
       setHasFirstChunk(true);
     }
     setStreamingText((prev) => prev + chunk);
-  });
-  window.vessel.ai.onStreamEnd(() => {
+  }));
+  listenerCleanups.push(window.vessel.ai.onStreamEnd(() => {
     const finalText = streamingText();
     if (finalText) {
       setMessages((prev) => {
@@ -92,35 +115,42 @@ function init() {
     setIsStreaming(false);
     setHasFirstChunk(false);
     setStreamStartedAt(null);
-
-    const pending = pendingQueries();
-    if (pending.length === 0) {
-      setQueueNotice(null);
-      return;
-    }
-
-    const next = dequeuePendingPrompt(pending);
-    setPendingQueries(next.queue);
-    setQueueNotice(next.notice);
-    queueMicrotask(() => {
-      if (next.nextPrompt) {
-        void dispatchQueuedPrompt(next.nextPrompt);
-      }
-    });
-  });
-  window.vessel.ai.onAutomationActivityStart((entry) => {
+    schedulePendingDrain();
+  }));
+  listenerCleanups.push(window.vessel.ai.onStreamIdle(() => {
+    schedulePendingDrain();
+  }));
+  listenerCleanups.push(window.vessel.ai.onAutomationActivityStart((entry) => {
     setAutomationActivities((prev) => startAutomationActivity(prev, entry));
-  });
-  window.vessel.ai.onAutomationActivityChunk(({ id, chunk }) => {
+  }));
+  listenerCleanups.push(window.vessel.ai.onAutomationActivityChunk(({ id, chunk }) => {
     setAutomationActivities((prev) =>
       appendAutomationActivityChunk(prev, id, chunk),
     );
-  });
-  window.vessel.ai.onAutomationActivityEnd(({ id, status, finishedAt }) => {
+  }));
+  listenerCleanups.push(window.vessel.ai.onAutomationActivityEnd(({ id, status, finishedAt }) => {
     setAutomationActivities((prev) =>
       finishAutomationActivity(prev, id, status, finishedAt),
     );
-  });
+  }));
+}
+
+export function resetAIStoreForTests(): void {
+  for (const cleanup of listenerCleanups) {
+    cleanup();
+  }
+  listenerCleanups = [];
+  initialized = false;
+  pendingDrainScheduled = false;
+  setMessages([]);
+  setStreamingText("");
+  setIsStreaming(false);
+  setHasFirstChunk(false);
+  setStreamStartedAt(null);
+  setRecentQueries([]);
+  setPendingQueries([]);
+  setQueueNotice(null);
+  setAutomationActivities([]);
 }
 
 export function useAI() {

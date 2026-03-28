@@ -63,6 +63,11 @@ const api = {
       ipcRenderer.on(Channels.AI_STREAM_END, handler);
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
+    onStreamIdle: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(Channels.AI_STREAM_IDLE, handler);
+      return () => ipcRenderer.removeListener(Channels.AI_STREAM_IDLE, handler);
+    },
     onAutomationActivityStart: (
       cb: (entry: AutomationActivityEntry) => void,
     ): (() => void) => {

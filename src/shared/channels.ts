@@ -14,6 +14,7 @@ export const Channels = {
   AI_STREAM_START: "ai:stream-start",
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
+  AI_STREAM_IDLE: "ai:stream-idle",
   AUTOMATION_ACTIVITY_START: "automation:activity-start",
   AUTOMATION_ACTIVITY_CHUNK: "automation:activity-chunk",
   AUTOMATION_ACTIVITY_END: "automation:activity-end",

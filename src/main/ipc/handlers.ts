@@ -29,7 +29,7 @@ import {
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
-import { endAIStream, tryBeginAIStream } from "../ai/stream-lock";
+import { endAIStream, onAIStreamIdle, tryBeginAIStream } from "../ai/stream-lock";
 import type {
   AIMessage,
   ApprovalMode,
@@ -109,6 +109,10 @@ export function registerIpcHandlers(
 
   onRuntimeHealthChange((health) => {
     sendToRendererViews(Channels.SETTINGS_HEALTH_UPDATE, health);
+  });
+
+  onAIStreamIdle(() => {
+    sendToRendererViews(Channels.AI_STREAM_IDLE);
   });
 
   // --- Tab handlers ---
