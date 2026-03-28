@@ -1,4 +1,9 @@
-![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
+<div align="center">
+  
+![quanta-intellect-logo-transparent](https://cdn-uploads.huggingface.co/production/uploads/686c460ba3fc457ad14ab6f8/gB6J60f9Yeyb3Thop2dUa.png)
+
+</div>
+
 
 # Vessel: Your Agent's Browser
 
