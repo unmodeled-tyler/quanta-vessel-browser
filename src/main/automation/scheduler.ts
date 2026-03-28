@@ -78,6 +78,15 @@ function normalizeJobs(now: Date = new Date()): boolean {
   return changed;
 }
 
+function isIntegerInRange(value: unknown, min: number, max: number): value is number {
+  return Number.isInteger(value) && Number(value) >= min && Number(value) <= max;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.values(value).every((entry) => typeof entry === "string");
+}
+
 export function computeNextRun(schedule: ScheduleConfig, from: Date = new Date()): Date {
   switch (schedule.type) {
     case "once":
@@ -112,13 +121,16 @@ function isValidScheduleConfig(s: unknown): s is ScheduleConfig {
   if (!s || typeof s !== "object") return false;
   const sc = s as Record<string, unknown>;
   if (!["once", "hourly", "daily", "weekly"].includes(sc.type as string)) return false;
-  if (sc.type === "once" && typeof sc.runAt !== "string") return false;
+  if (sc.type === "once") {
+    if (typeof sc.runAt !== "string") return false;
+    if (Number.isNaN(new Date(sc.runAt).getTime())) return false;
+  }
   if (
     (sc.type === "daily" || sc.type === "weekly") &&
-    (typeof sc.hour !== "number" || typeof sc.minute !== "number")
+    (!isIntegerInRange(sc.hour, 0, 23) || !isIntegerInRange(sc.minute, 0, 59))
   )
     return false;
-  if (sc.type === "weekly" && typeof sc.dayOfWeek !== "number") return false;
+  if (sc.type === "weekly" && !isIntegerInRange(sc.dayOfWeek, 0, 6)) return false;
   return true;
 }
 
@@ -135,6 +147,7 @@ function isValidJobData(
     typeof j.kitIcon === "string" &&
     typeof j.renderedPrompt === "string" &&
     j.renderedPrompt.length > 0 &&
+    (j.fieldValues === undefined || isStringRecord(j.fieldValues)) &&
     isValidScheduleConfig(j.schedule) &&
     typeof j.enabled === "boolean"
   );
@@ -163,7 +176,7 @@ async function fireJob(
   }
 
   console.log(`[scheduler] Firing scheduled job: ${job.kitName} (${job.id})`);
-  send(Channels.AI_STREAM_START, job.renderedPrompt);
+  send(Channels.AI_STREAM_START, `[Scheduled Automation Kit] ${job.kitName}`);
   try {
     const provider = createProvider(settings.chatProvider);
     const activeTab = tabManager.getActiveTab();
@@ -273,8 +286,8 @@ export function registerScheduleHandlers(
       if (typeof u.renderedPrompt === "string" && u.renderedPrompt.length > 0) {
         job.renderedPrompt = u.renderedPrompt;
       }
-      if (u.fieldValues !== undefined && typeof u.fieldValues === "object") {
-        job.fieldValues = u.fieldValues as Record<string, string>;
+      if (u.fieldValues !== undefined && isStringRecord(u.fieldValues)) {
+        job.fieldValues = u.fieldValues;
       }
       if ((u.schedule !== undefined || (u.enabled === true && !wasEnabled)) && job.enabled) {
         normalizeJob(job);

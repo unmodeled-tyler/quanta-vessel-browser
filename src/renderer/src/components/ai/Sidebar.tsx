@@ -45,6 +45,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     isStreaming,
     hasFirstChunk,
     streamStartedAt,
+    pendingQueryCount,
+    pendingQueryLimit,
+    queueNotice,
     clearHistory,
     query,
     cancel,
@@ -196,9 +199,11 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
   const handleChatSend = async () => {
     const prompt = chatInput().trim();
-    if (!prompt || isStreaming()) return;
-    setChatInput("");
-    await query(prompt);
+    if (!prompt) return;
+    const result = await query(prompt);
+    if (result !== "rejected") {
+      setChatInput("");
+    }
   };
 
   const handleRetry = () => {
@@ -1662,11 +1667,16 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </button>
             </div>
           </Show>
+          <Show when={queueNotice() !== null || pendingQueryCount() > 0}>
+            <div class="chat-queue-status">
+              <span>{queueNotice() ?? `Queued ${pendingQueryCount()}/${pendingQueryLimit}.`}</span>
+            </div>
+          </Show>
           <div class="sidebar-input-area">
             <textarea
               class="sidebar-input"
               rows={2}
-              placeholder="Ask anything..."
+              placeholder={isStreaming() ? "Send now to queue the next prompt..." : "Ask anything..."}
               ref={chatInputRef}
               value={chatInput()}
               onInput={(e) => setChatInput(e.currentTarget.value)}
@@ -1679,10 +1689,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             />
             <button
               class="sidebar-send"
-              disabled={!chatInput().trim() || isStreaming()}
+              disabled={!chatInput().trim()}
               onClick={() => void handleChatSend()}
             >
-              Send
+              {isStreaming() ? "Queue" : "Send"}
             </button>
           </div>
         </Show>

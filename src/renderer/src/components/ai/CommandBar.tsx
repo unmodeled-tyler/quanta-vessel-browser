@@ -18,11 +18,12 @@ const CommandBar: Component = () => {
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     const val = input().trim();
-    if (!val || isStreaming()) return;
+    if (!val) return;
+    const result = await query(val);
+    if (result === 'rejected') return;
     setInput('');
     closeCommandBar();
     await toggleSidebar();
-    await query(val);
   };
 
   const handleRecentClick = async (q: string) => {

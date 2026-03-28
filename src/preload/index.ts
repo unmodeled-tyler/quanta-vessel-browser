@@ -42,7 +42,9 @@ const api = {
   },
   ai: {
     query: (prompt: string, history?: AIMessage[]) =>
-      ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "busy" }
+      >(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
       const handler = (_: unknown, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);

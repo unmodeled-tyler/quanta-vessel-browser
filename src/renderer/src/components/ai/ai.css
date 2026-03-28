@@ -1851,6 +1851,12 @@
     align-items: flex-end;
 }
 
+.chat-queue-status {
+    padding: 10px 14px 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 .sidebar-input {
     flex: 1;
     background: var(--bg-tertiary);

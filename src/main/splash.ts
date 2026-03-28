@@ -168,8 +168,16 @@ export function createSplashWindow(): BrowserWindow {
   // file and use loadFile() — avoids all URL-length limits that break data: URLs.
   const iconSrc = findIconBase64();
   const html = buildSplashHTML(iconSrc);
-  const tmpPath = path.join(os.tmpdir(), "vessel-splash.html");
   try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-splash-"));
+    const tmpPath = path.join(tmpDir, "index.html");
+    splash.once("closed", () => {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup only.
+      }
+    });
     fs.writeFileSync(tmpPath, html, "utf-8");
     void splash.loadFile(tmpPath);
   } catch (err) {

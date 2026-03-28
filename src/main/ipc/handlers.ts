@@ -163,11 +163,11 @@ export function registerIpcHandlers(
         "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
       );
       sendToRendererViews(Channels.AI_STREAM_END);
-      return;
+      return { accepted: true as const };
     }
 
     if (!tryBeginAIStream("manual")) {
-      return;
+      return { accepted: false as const, reason: "busy" as const };
     }
 
     sendToRendererViews(Channels.AI_STREAM_START, query);
@@ -194,6 +194,8 @@ export function registerIpcHandlers(
       activeChatProvider = null;
       endAIStream("manual");
     }
+
+    return { accepted: true as const };
   });
 
   ipcMain.handle(Channels.AI_CANCEL, () => {
