@@ -205,6 +205,7 @@ export function createMainWindow(
     minWidth: 800,
     minHeight: 600,
     frame: false,
+    show: false,
     backgroundColor: "#1a1a1e",
     icon: getWindowIconPath(),
   });
@@ -257,7 +258,7 @@ export function createMainWindow(
 
   const settings = loadSettings();
   const uiState: UIState = {
-    sidebarOpen: false,
+    sidebarOpen: true,
     sidebarWidth: settings.sidebarWidth,
     focusMode: false,
     settingsOpen: false,

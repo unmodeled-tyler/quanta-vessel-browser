@@ -1,16 +1,16 @@
 import { createSignal } from "solid-js";
 
-const DEFAULT_SIDEBAR_WIDTH = 340;
+const DEFAULT_SIDEBAR_WIDTH = 400;
 const MIN_SIDEBAR = 240;
 const MAX_SIDEBAR = 800;
 
-const [sidebarOpen, setSidebarOpen] = createSignal(false);
+const [sidebarOpen, setSidebarOpen] = createSignal(true);
 const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
 
 // Sync initial sidebar width from persisted settings so the sidebar view
 // (a separate WebContentsView) renders at the correct width on first open
 // instead of using the hardcoded default.
-window.vessel?.settings?.get().then((settings: any) => {
+window.vessel?.settings?.get().then((settings: { sidebarWidth?: number }) => {
   if (settings?.sidebarWidth && typeof settings.sidebarWidth === "number") {
     setSidebarWidth(
       Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, settings.sidebarWidth)),

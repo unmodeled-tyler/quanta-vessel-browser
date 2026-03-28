@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
+import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { useTabs } from "../../stores/tabs";
@@ -21,6 +22,7 @@ import {
 import type { BookmarkFolder } from "../../../../shared/types";
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
+import AutomationTab from "./AutomationTab";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
 
@@ -43,6 +45,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     isStreaming,
     hasFirstChunk,
     streamStartedAt,
+    pendingQueries,
+    pendingQueryCount,
+    pendingQueryLimit,
+    queueNotice,
+    removePendingQuery,
+    clearPendingQueries,
     clearHistory,
     query,
     cancel,
@@ -74,29 +82,46 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat"
+    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
   const [highlightIndex, setHighlightIndex] = createSignal(-1);
 
-  // Poll for highlight count when chat tab is active
-  createEffect(() => {
-    if (sidebarTab() !== "chat") return;
-    const poll = async () => {
-      try {
-        const count =
-          (await window.vessel.highlights.getCount()) ?? 0;
-        setHighlightCount(count);
-        // Reset index if highlights were cleared
-        if (count === 0 && highlightIndex() >= 0) setHighlightIndex(-1);
-      } catch {
-        /* ignore */
+  const syncHighlightCount = async () => {
+    try {
+      const count = (await window.vessel.highlights.getCount()) ?? 0;
+      setHighlightCount(count);
+      if (count === 0) {
+        setHighlightIndex(-1);
+        return;
       }
-    };
-    void poll();
-    const id = setInterval(poll, 2000);
-    onCleanup(() => clearInterval(id));
+      if (highlightIndex() >= count) {
+        setHighlightIndex(count - 1);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  createEffect(() => {
+    if (sidebarTab() === "chat") {
+      void syncHighlightCount();
+    }
+  });
+
+  createEffect(() => {
+    const unsubscribe = window.vessel.highlights.onCountUpdate((count) => {
+      setHighlightCount(count);
+      if (count === 0) {
+        setHighlightIndex(-1);
+        return;
+      }
+      if (highlightIndex() >= count) {
+        setHighlightIndex(count - 1);
+      }
+    });
+    onCleanup(unsubscribe);
   });
 
   const scrollToHighlight = async (idx: number) => {
@@ -111,14 +136,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const idx = highlightIndex();
     if (idx < 0) return;
     await window.vessel.highlights.remove(idx);
-    const newCount =
-      (await window.vessel.highlights.getCount()) ?? 0;
-    setHighlightCount(newCount);
-    if (newCount === 0) {
+    const nextCount = highlightCount();
+    if (nextCount === 0) {
       setHighlightIndex(-1);
-    } else if (idx >= newCount) {
-      setHighlightIndex(newCount - 1);
-      await window.vessel.highlights.scrollTo(newCount - 1);
+    } else if (idx >= nextCount) {
+      setHighlightIndex(nextCount - 1);
+      await window.vessel.highlights.scrollTo(nextCount - 1);
     }
   };
 
@@ -179,9 +202,11 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
   const handleChatSend = async () => {
     const prompt = chatInput().trim();
-    if (!prompt || isStreaming()) return;
-    setChatInput("");
-    await query(prompt);
+    if (!prompt) return;
+    const result = await query(prompt);
+    if (result !== "rejected") {
+      setChatInput("");
+    }
   };
 
   const handleRetry = () => {
@@ -214,7 +239,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [actionsExpanded, setActionsExpanded] = createSignal(false);
   const [checkpointsExpanded, setCheckpointsExpanded] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
-  const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
+  const now = useNow();
   let messagesContainerRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let chatInputRef: HTMLTextAreaElement | undefined;
@@ -339,23 +364,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     });
   });
 
-  createEffect(() => {
-    if (!isStreaming() || !streamStartedAt()) {
-      setElapsedSeconds(0);
-      return;
-    }
-
-    const tick = () => {
-      const startedAt = streamStartedAt();
-      if (!startedAt) return;
-      setElapsedSeconds(
-        Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
-      );
-    };
-
-    tick();
-    const intervalId = window.setInterval(tick, 1000);
-    onCleanup(() => window.clearInterval(intervalId));
+  const elapsedSeconds = createMemo(() => {
+    const startedAt = streamStartedAt();
+    if (!isStreaming() || !startedAt) return 0;
+    return Math.max(0, Math.floor((now() - startedAt) / 1000));
   });
 
   const startResize = (e: PointerEvent) => {
@@ -552,6 +564,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             onClick={() => setSidebarTab("chat")}
           >
             Chat
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "automation" }}
+            role="tab"
+            aria-selected={sidebarTab() === "automation"}
+            onClick={() => setSidebarTab("automation")}
+          >
+            Automate
           </button>
         </div>
 
@@ -1081,6 +1102,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 </Show>
               </div>
             </section>
+          </Show>
+
+          <Show when={sidebarTab() === "automation"}>
+            <AutomationTab onRun={() => setSidebarTab("supervisor")} />
           </Show>
 
           <Show when={sidebarTab() === "chat"}>
@@ -1645,11 +1670,48 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </button>
             </div>
           </Show>
+          <Show when={queueNotice() !== null || pendingQueryCount() > 0}>
+            <div class="chat-queue-status">
+              <div class="chat-queue-status-row">
+                <span>{queueNotice() ?? `Queued ${pendingQueryCount()}/${pendingQueryLimit}.`}</span>
+                <Show when={pendingQueryCount() > 0}>
+                  <button
+                    class="chat-queue-clear"
+                    type="button"
+                    onClick={() => clearPendingQueries()}
+                  >
+                    Clear queue
+                  </button>
+                </Show>
+              </div>
+              <Show when={pendingQueries().length > 0}>
+                <div class="chat-queue-list">
+                  <For each={pendingQueries()}>
+                    {(pendingPrompt, index) => (
+                      <div class="chat-queue-item">
+                        <span class="chat-queue-text" title={pendingPrompt}>
+                          {pendingPrompt}
+                        </span>
+                        <button
+                          class="chat-queue-remove"
+                          type="button"
+                          aria-label={`Remove queued prompt ${index() + 1}`}
+                          onClick={() => removePendingQuery(index())}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
           <div class="sidebar-input-area">
             <textarea
               class="sidebar-input"
               rows={2}
-              placeholder="Ask anything..."
+              placeholder={isStreaming() ? "Send now to queue the next prompt..." : "Ask anything..."}
               ref={chatInputRef}
               value={chatInput()}
               onInput={(e) => setChatInput(e.currentTarget.value)}
@@ -1662,10 +1724,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             />
             <button
               class="sidebar-send"
-              disabled={!chatInput().trim() || isStreaming()}
+              disabled={!chatInput().trim()}
               onClick={() => void handleChatSend()}
             >
-              Send
+              {isStreaming() ? "Queue" : "Send"}
             </button>
           </div>
         </Show>

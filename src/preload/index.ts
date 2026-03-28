@@ -3,17 +3,23 @@ import { Channels } from "../shared/channels";
 import type {
   AgentCheckpoint,
   AgentRuntimeState,
+  AutomationActivityEntry,
   AIMessage,
   ApprovalMode,
+  AutomationKit,
   Bookmark,
   BookmarkFolder,
   BookmarksState,
   HistoryState,
   PremiumState,
+  ProviderConfig,
   RuntimeHealthState,
+  ScheduledJob,
   SessionSnapshot,
+  TabState,
   VesselSettings,
 } from "../shared/types";
+import type { DevToolsPanelState } from "../main/devtools/types";
 
 const api = {
   tabs: {
@@ -26,9 +32,9 @@ const api = {
     forward: (id: string) => ipcRenderer.invoke(Channels.TAB_FORWARD, id),
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
     onStateUpdate: (
-      cb: (tabs: any[], activeId: string) => void,
+      cb: (tabs: TabState[], activeId: string) => void,
     ): (() => void) => {
-      const handler = (_: any, tabs: any[], activeId: string) =>
+      const handler = (_: unknown, tabs: TabState[], activeId: string) =>
         cb(tabs, activeId);
       ipcRenderer.on(Channels.TAB_STATE_UPDATE, handler);
       return () =>
@@ -37,15 +43,17 @@ const api = {
   },
   ai: {
     query: (prompt: string, history?: AIMessage[]) =>
-      ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "busy" }
+      >(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
-      const handler = (_: any, prompt: string) => cb(prompt);
+      const handler = (_: unknown, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AI_STREAM_START, handler);
     },
     onStreamChunk: (cb: (chunk: string) => void): (() => void) => {
-      const handler = (_: any, chunk: string) => cb(chunk);
+      const handler = (_: unknown, chunk: string) => cb(chunk);
       ipcRenderer.on(Channels.AI_STREAM_CHUNK, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AI_STREAM_CHUNK, handler);
@@ -55,6 +63,47 @@ const api = {
       ipcRenderer.on(Channels.AI_STREAM_END, handler);
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
+    onStreamIdle: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(Channels.AI_STREAM_IDLE, handler);
+      return () => ipcRenderer.removeListener(Channels.AI_STREAM_IDLE, handler);
+    },
+    onAutomationActivityStart: (
+      cb: (entry: AutomationActivityEntry) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, entry: AutomationActivityEntry) => cb(entry);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_START, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_START, handler);
+    },
+    onAutomationActivityChunk: (
+      cb: (payload: { id: string; chunk: string }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, payload: { id: string; chunk: string }) =>
+        cb(payload);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_CHUNK, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_CHUNK, handler);
+    },
+    onAutomationActivityEnd: (
+      cb: (payload: {
+        id: string;
+        status: "completed" | "failed";
+        finishedAt: string;
+      }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        payload: {
+          id: string;
+          status: "completed" | "failed";
+          finishedAt: string;
+        },
+      ) => cb(payload);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_END, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_END, handler);
+    },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
     fetchModels: (
       config: ProviderConfig,
@@ -63,7 +112,7 @@ const api = {
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
     onRuntimeUpdate: (cb: (state: AgentRuntimeState) => void): (() => void) => {
-      const handler = (_: any, state: AgentRuntimeState) => cb(state);
+      const handler = (_: unknown, state: AgentRuntimeState) => cb(state);
       ipcRenderer.on(Channels.AGENT_RUNTIME_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AGENT_RUNTIME_UPDATE, handler);
@@ -112,13 +161,19 @@ const api = {
         message?: string;
       }) => void,
     ): (() => void) => {
-      const handler = (_: any, result: any) => cb(result);
+      const handler = (_: unknown, result: { success: boolean; text?: string; message?: string }) => cb(result);
       ipcRenderer.on(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
       return () =>
         ipcRenderer.removeListener(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
     },
     getCount: (): Promise<number> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_COUNT),
+    onCountUpdate: (cb: (count: number) => void): (() => void) => {
+      const handler = (_: unknown, count: number) => cb(count);
+      ipcRenderer.on(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
+    },
     scrollTo: (index: number): Promise<boolean> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_SCROLL, index),
     remove: (index: number): Promise<boolean> =>
@@ -159,6 +214,14 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     getHealth: (): Promise<RuntimeHealthState> =>
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
+    onHealthUpdate: (
+      cb: (health: RuntimeHealthState) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, health: RuntimeHealthState) => cb(health);
+      ipcRenderer.on(Channels.SETTINGS_HEALTH_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SETTINGS_HEALTH_UPDATE, handler);
+    },
     set: (key: string, value: unknown) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
     onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {
@@ -216,8 +279,8 @@ const api = {
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     resize: (height: number) =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
-    onStateUpdate: (cb: (state: any) => void): (() => void) => {
-      const handler = (_: any, state: any) => cb(state);
+    onStateUpdate: (cb: (state: DevToolsPanelState) => void): (() => void) => {
+      const handler = (_: unknown, state: DevToolsPanelState) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
@@ -233,7 +296,7 @@ const api = {
     onResult: (
       cb: (result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void,
     ): (() => void) => {
-      const handler = (_: unknown, result: any) => cb(result);
+      const handler = (_: unknown, result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => cb(result);
       ipcRenderer.on(Channels.FIND_IN_PAGE_RESULT, handler);
       return () =>
         ipcRenderer.removeListener(Channels.FIND_IN_PAGE_RESULT, handler);
@@ -281,6 +344,35 @@ const api = {
       ipcRenderer.invoke(Channels.VAULT_REMOVE, id),
     auditLog: (limit?: number): Promise<Array<{ timestamp: string; credentialLabel: string; domain: string; action: string; approved: boolean }>> =>
       ipcRenderer.invoke(Channels.VAULT_AUDIT_LOG, limit),
+  },
+  automation: {
+    getInstalled: (): Promise<AutomationKit[]> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_GET_INSTALLED),
+    installFromFile: (): Promise<{ ok: boolean; kit?: AutomationKit; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_INSTALL_FROM_FILE),
+    uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_UNINSTALL, id),
+  },
+  schedule: {
+    getAll: (): Promise<ScheduledJob[]> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_GET_ALL),
+    create: (
+      job: Omit<ScheduledJob, "id" | "createdAt" | "nextRunAt">,
+    ): Promise<ScheduledJob> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_CREATE, job),
+    update: (
+      id: string,
+      updates: Partial<Pick<ScheduledJob, "enabled" | "schedule" | "renderedPrompt" | "fieldValues">>,
+    ): Promise<ScheduledJob | null> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_UPDATE, id, updates),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_DELETE, id),
+    onJobsUpdate: (cb: (jobs: ScheduledJob[]) => void): (() => void) => {
+      const handler = (_: unknown, updatedJobs: ScheduledJob[]) => cb(updatedJobs);
+      ipcRenderer.on(Channels.SCHEDULE_JOBS_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SCHEDULE_JOBS_UPDATE, handler);
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),

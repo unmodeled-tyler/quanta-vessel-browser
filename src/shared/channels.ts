@@ -14,6 +14,10 @@ export const Channels = {
   AI_STREAM_START: "ai:stream-start",
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
+  AI_STREAM_IDLE: "ai:stream-idle",
+  AUTOMATION_ACTIVITY_START: "automation:activity-start",
+  AUTOMATION_ACTIVITY_CHUNK: "automation:activity-chunk",
+  AUTOMATION_ACTIVITY_END: "automation:activity-end",
   AI_CANCEL: "ai:cancel",
   AI_FETCH_MODELS: "ai:fetch-models",
   AGENT_RUNTIME_GET: "agent-runtime:get",
@@ -45,6 +49,7 @@ export const Channels = {
   SETTINGS_SET: "settings:set",
   SETTINGS_UPDATE: "settings:update",
   SETTINGS_HEALTH_GET: "settings:health:get",
+  SETTINGS_HEALTH_UPDATE: "settings:health:update",
 
   // Bookmarks
   BOOKMARKS_GET: "bookmarks:get",
@@ -61,6 +66,7 @@ export const Channels = {
   HIGHLIGHT_CAPTURE_RESULT: "highlights:capture-result",
   HIGHLIGHT_SELECTION: "vessel:highlight-selection",
   HIGHLIGHT_NAV_COUNT: "highlights:nav-count",
+  HIGHLIGHT_COUNT_UPDATE: "highlights:count-update",
   HIGHLIGHT_NAV_SCROLL: "highlights:nav-scroll",
   HIGHLIGHT_NAV_REMOVE: "highlights:nav-remove",
   HIGHLIGHT_NAV_CLEAR: "highlights:nav-clear",
@@ -102,6 +108,18 @@ export const Channels = {
   VAULT_UPDATE: "vault:update",
   VAULT_REMOVE: "vault:remove",
   VAULT_AUDIT_LOG: "vault:audit-log",
+
+  // Automation kits
+  AUTOMATION_GET_INSTALLED: "automation:get-installed",
+  AUTOMATION_INSTALL_FROM_FILE: "automation:install-from-file",
+  AUTOMATION_UNINSTALL: "automation:uninstall",
+
+  // Scheduled jobs
+  SCHEDULE_GET_ALL: "schedule:get-all",
+  SCHEDULE_CREATE: "schedule:create",
+  SCHEDULE_UPDATE: "schedule:update",
+  SCHEDULE_DELETE: "schedule:delete",
+  SCHEDULE_JOBS_UPDATE: "schedule:jobs-update",
 
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",

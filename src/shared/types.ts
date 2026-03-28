@@ -189,6 +189,19 @@ export interface AIMessage {
   content: string;
 }
 
+export type AutomationActivityStatus = "running" | "completed" | "failed";
+
+export interface AutomationActivityEntry {
+  id: string;
+  source: "scheduled";
+  title: string;
+  icon?: string;
+  status: AutomationActivityStatus;
+  startedAt: string;
+  finishedAt?: string;
+  output: string;
+}
+
 export type ApprovalMode = "auto" | "confirm-dangerous" | "manual";
 
 export type ActionSource = "ai" | "mcp" | "user" | "system";
@@ -474,6 +487,70 @@ export interface BookmarkFolder {
 export interface BookmarksState {
   folders: BookmarkFolder[];
   bookmarks: Bookmark[];
+}
+
+// --- Automation Kits ---
+
+export type KitInputType = "text" | "url" | "number" | "textarea";
+
+export type KitCategory = "research" | "shopping" | "productivity" | "forms";
+
+export interface KitInput {
+  key: string;
+  label: string;
+  type: KitInputType;
+  placeholder?: string;
+  /** Short helper text shown below the field */
+  hint?: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
+export interface AutomationKit {
+  id: string;
+  name: string;
+  description: string;
+  category: KitCategory;
+  /** Lucide icon name shown in the kit card (e.g. "BookOpen") */
+  icon: string;
+  inputs: KitInput[];
+  /** Prompt template using {{key}} placeholders matching input keys */
+  promptTemplate: string;
+  /** Rough time estimate shown in the UI (minutes) */
+  estimatedMinutes?: number;
+}
+
+// --- Scheduled Jobs ---
+
+export type ScheduleType = "once" | "hourly" | "daily" | "weekly";
+
+export interface ScheduleConfig {
+  type: ScheduleType;
+  /** ISO datetime string — only for "once" */
+  runAt?: string;
+  /** Hour of day (0–23) — used for "daily" and "weekly" */
+  hour?: number;
+  /** Minute (0–59) — used for "daily" and "weekly" */
+  minute?: number;
+  /** Day of week (0 = Sunday … 6 = Saturday) — only for "weekly" */
+  dayOfWeek?: number;
+}
+
+export interface ScheduledJob {
+  id: string;
+  kitId: string;
+  kitName: string;
+  kitIcon: string;
+  /** Pre-rendered prompt ready to pass directly to the agent */
+  renderedPrompt: string;
+  /** Original kit field values — stored so the user can re-edit the task later */
+  fieldValues?: Record<string, string>;
+  schedule: ScheduleConfig;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt?: string;
+  /** ISO datetime of the next scheduled execution */
+  nextRunAt: string;
 }
 
 // --- Highlights ---

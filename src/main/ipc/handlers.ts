@@ -5,7 +5,10 @@ import * as historyManager from "../history/manager";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
-import { getRuntimeHealth } from "../health/runtime-health";
+import {
+  getRuntimeHealth,
+  onRuntimeHealthChange,
+} from "../health/runtime-health";
 import {
   getPremiumState,
   activateWithEmail,
@@ -26,6 +29,7 @@ import {
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
+import { endAIStream, onAIStreamIdle, tryBeginAIStream } from "../ai/stream-lock";
 import type {
   AIMessage,
   ApprovalMode,
@@ -45,6 +49,12 @@ import {
 } from "../highlights/inject";
 import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
+import {
+  getInstalledKits,
+  installKitFromFile,
+  uninstallKit,
+} from "../automation/kit-registry";
+import { registerScheduleHandlers } from "../automation/scheduler";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -76,8 +86,33 @@ export function registerIpcHandlers(
     devtoolsPanelView.webContents.send(channel, ...args);
   };
 
+  const getActiveHighlightCountSafe = async (): Promise<number> => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return 0;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return 0;
+    try {
+      return (await getHighlightCount(wc)) ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const emitHighlightCount = async (): Promise<void> => {
+    const count = await getActiveHighlightCountSafe();
+    sendToRendererViews(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+  };
+
   runtime.setUpdateListener((state: AgentRuntimeState) => {
     sendToRendererViews(Channels.AGENT_RUNTIME_UPDATE, state);
+  });
+
+  onRuntimeHealthChange((health) => {
+    sendToRendererViews(Channels.SETTINGS_HEALTH_UPDATE, health);
+  });
+
+  onAIStreamIdle(() => {
+    sendToRendererViews(Channels.AI_STREAM_IDLE);
   });
 
   // --- Tab handlers ---
@@ -125,16 +160,21 @@ export function registerIpcHandlers(
     const settings = loadSettings();
     const chatConfig = settings.chatProvider;
 
-    sendToRendererViews(Channels.AI_STREAM_START, query);
-
     if (!chatConfig) {
+      sendToRendererViews(Channels.AI_STREAM_START, query);
       sendToRendererViews(
         Channels.AI_STREAM_CHUNK,
         "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
       );
       sendToRendererViews(Channels.AI_STREAM_END);
-      return;
+      return { accepted: true as const };
     }
+
+    if (!tryBeginAIStream("manual")) {
+      return { accepted: false as const, reason: "busy" as const };
+    }
+
+    sendToRendererViews(Channels.AI_STREAM_START, query);
 
     try {
       activeChatProvider = createProvider(chatConfig);
@@ -156,7 +196,10 @@ export function registerIpcHandlers(
       sendToRendererViews(Channels.AI_STREAM_END);
     } finally {
       activeChatProvider = null;
+      endAIStream("manual");
     }
+
+    return { accepted: true as const };
   });
 
   ipcMain.handle(Channels.AI_CANCEL, () => {
@@ -369,6 +412,7 @@ export function registerIpcHandlers(
       const result = await captureSelectionHighlight(wc);
       if (result.success && result.text) {
         await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
+        await emitHighlightCount();
       }
       return result;
     } catch {
@@ -378,6 +422,9 @@ export function registerIpcHandlers(
 
   // Forward context-menu highlight captures to the chrome view for toast
   tabManager.onHighlightCapture((result) => {
+    if (result.success) {
+      void emitHighlightCount();
+    }
     if (!chromeView.webContents.isDestroyed()) {
       chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
     }
@@ -395,6 +442,7 @@ export function registerIpcHandlers(
 
       void persistAndMarkHighlight(wc, text).then((result) => {
         if (result.success && !chromeView.webContents.isDestroyed()) {
+          void emitHighlightCount();
           chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
         }
       });
@@ -406,15 +454,7 @@ export function registerIpcHandlers(
   // --- Highlight navigation ---
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, () => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return 0;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return 0;
-    try {
-      return getHighlightCount(wc);
-    } catch {
-      return 0;
-    }
+    return getActiveHighlightCountSafe();
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
@@ -429,25 +469,33 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, (_, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (_, index: number) => {
     const tab = tabManager.getActiveTab();
     if (!tab) return false;
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return removeHighlightAtIndex(wc, index);
+      const removed = await removeHighlightAtIndex(wc, index);
+      if (removed) {
+        await emitHighlightCount();
+      }
+      return removed;
     } catch {
       return false;
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, () => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async () => {
     const tab = tabManager.getActiveTab();
     if (!tab) return false;
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return clearAllHighlightElements(wc);
+      const cleared = await clearAllHighlightElements(wc);
+      if (cleared) {
+        await emitHighlightCount();
+      }
+      return cleared;
     } catch {
       return false;
     }
@@ -637,4 +685,23 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.WINDOW_CLOSE, () => {
     mainWindow.close();
   });
+
+  // --- Automation kits ---
+
+  ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, () => {
+    return getInstalledKits();
+  });
+
+  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async () => {
+    return await installKitFromFile();
+  });
+
+  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (_event, id: unknown) => {
+    assertString(id, "id");
+    return uninstallKit(id);
+  });
+
+  // --- Scheduled jobs ---
+
+  registerScheduleHandlers(windowState, runtime, sendToRendererViews);
 }

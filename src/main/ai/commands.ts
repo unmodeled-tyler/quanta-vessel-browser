@@ -1,5 +1,6 @@
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
+import { createTraceSession } from "../telemetry/dev-trace";
 import {
   buildSummarizePrompt,
   buildQuestionPrompt,
@@ -125,13 +126,46 @@ Instructions:
         query,
       );
 
+      const trace = createTraceSession(query, activeTabUrl, activeTabTitle);
+
+      let accumulatedResponse = "";
+      const tracedOnChunk = (text: string) => {
+        accumulatedResponse += text;
+        onChunk(text);
+      };
+
+      const tracedOnEnd = () => {
+        trace.end(accumulatedResponse);
+        onEnd();
+      };
+
+      const tracedExecuteAction = async (
+        name: string,
+        args: Record<string, unknown>,
+      ): Promise<string> => {
+        const t0 = Date.now();
+        let output = "";
+        let isError = false;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          output = await executeAction(name, args as Record<string, any>, actionCtx);
+        } catch (err) {
+          isError = true;
+          output = err instanceof Error ? err.message : String(err);
+          throw err;
+        } finally {
+          trace.logToolCall(name, args, output, Date.now() - t0, isError);
+        }
+        return output;
+      };
+
       await provider.streamAgentQuery(
         systemPrompt,
         query,
         contextualTools,
-        onChunk,
-        (name, args) => executeAction(name, args, actionCtx),
-        onEnd,
+        tracedOnChunk,
+        tracedExecuteAction,
+        tracedOnEnd,
         history,
       );
       return;

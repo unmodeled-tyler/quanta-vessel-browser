@@ -5,6 +5,7 @@ import { createMainWindow, layoutViews } from "./window";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { Channels } from "../shared/channels";
 import {
+  flushPersist as flushSettingsPersist,
   getSettingsLoadIssues,
   getSettingsPath,
   loadSettings,
@@ -28,7 +29,10 @@ import {
   setupAppMenu,
   loadRenderers,
 } from "./startup";
+import { createSplashWindow, closeSplash } from "./splash";
+import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
+import * as highlightsManager from "./highlights/manager";
 
 let runtime: AgentRuntime | null = null;
 
@@ -113,6 +117,7 @@ async function maybeShowStartupHealthDialog(
 }
 
 async function bootstrap(): Promise<void> {
+  const splash = createSplashWindow();
   const settings = loadSettings();
   const userDataPath = app.getPath("userData");
   initializeRuntimeHealth({
@@ -124,15 +129,57 @@ async function bootstrap(): Promise<void> {
   if (settings.clearBookmarksOnLaunch) {
     bookmarkManager.clearAll();
   }
+  const syncActiveHighlightCount = async (
+    state: ReturnType<typeof createMainWindow>,
+  ): Promise<void> => {
+    const activeTab = state.tabManager.getActiveTab();
+    const wc = activeTab?.view.webContents;
+    let count = 0;
+    if (wc && !wc.isDestroyed()) {
+      try {
+        count = (await getHighlightCount(wc)) ?? 0;
+      } catch {
+        count = 0;
+      }
+    }
+    if (!state.chromeView.webContents.isDestroyed()) {
+      state.chromeView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    }
+    if (!state.sidebarView.webContents.isDestroyed()) {
+      state.sidebarView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    }
+    if (!state.devtoolsPanelView.webContents.isDestroyed()) {
+      state.devtoolsPanelView.webContents.send(
+        Channels.HIGHLIGHT_COUNT_UPDATE,
+        count,
+      );
+    }
+  };
   const windowState = createMainWindow((tabs, activeId) => {
     windowState.chromeView.webContents.send(
       Channels.TAB_STATE_UPDATE,
       tabs,
       activeId,
     );
+    void syncActiveHighlightCount(windowState);
     layoutViews(windowState);
     runtime?.onTabStateChanged();
   });
+
+  let didRevealMainWindow = false;
+  const revealMainWindow = () => {
+    if (didRevealMainWindow) return;
+    didRevealMainWindow = true;
+    windowState.mainWindow.show();
+    closeSplash(splash, 0);
+  };
+
+  // Safety valve: never leave both the splash and the main window hidden.
+  const splashTimeout = setTimeout(() => {
+    console.warn("[bootstrap] Renderer did not finish loading before splash timeout");
+    revealMainWindow();
+  }, 8000);
+
 
   const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
@@ -170,10 +217,8 @@ async function bootstrap(): Promise<void> {
   // Load renderer views
   loadRenderers(chromeView, sidebarView, devtoolsPanelView);
 
-  // Start MCP server for external agent integration
-  await startMcpServer(tabManager, runtime, settings.mcpPort);
-
-  // Restore previous session, or open the default tab once chrome is ready
+  // Register did-finish-load BEFORE any awaits so we never miss the event
+  // if the renderer finishes loading while something else is still starting.
   chromeView.webContents.once("did-finish-load", () => {
     const savedSession = runtime.getState().session;
     if (settings.autoRestoreSession && savedSession?.tabs.length) {
@@ -184,7 +229,32 @@ async function bootstrap(): Promise<void> {
     }
     layoutViews(windowState);
     setImmediate(() => layoutViews(windowState));
+
+    clearTimeout(splashTimeout);
+    revealMainWindow();
+
     void maybeShowStartupHealthDialog(windowState);
+  });
+
+  chromeView.webContents.once(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      console.error(
+        "[bootstrap] Chrome renderer failed to load:",
+        errorCode,
+        errorDescription,
+        validatedURL,
+      );
+      clearTimeout(splashTimeout);
+      revealMainWindow();
+    },
+  );
+
+  // Start MCP server in parallel — it doesn't need to be ready before the
+  // renderer shows, and awaiting it was blocking did-finish-load registration.
+  startMcpServer(tabManager, runtime, settings.mcpPort).catch((err: unknown) => {
+    console.error("[bootstrap] MCP server failed to start:", err);
   });
 }
 
@@ -209,12 +279,19 @@ app.whenReady().then(bootstrap).catch((error) => {
   app.quit();
 });
 
-app.on("window-all-closed", () => {
+  app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
   stopTelemetry();
   stopBackgroundRevalidation();
-  runtime?.flushPersist();
-  void stopMcpServer().finally(() => {
-    app.quit();
+  void Promise.all([
+    runtime?.flushPersist() ?? Promise.resolve(),
+    bookmarkManager.flushPersist(),
+    historyManager.flushPersist(),
+    highlightsManager.flushPersist(),
+    flushSettingsPersist(),
+  ]).finally(() => {
+    void stopMcpServer().finally(() => {
+      app.quit();
+    });
   });
 });

@@ -83,6 +83,12 @@ export class TabManager {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
+    // Clean up lastReapply entry to prevent memory leak
+    const wcId = tab.webContentsId;
+    if (wcId !== undefined) {
+      this.lastReapply.delete(wcId);
+    }
+
     destroySession(id);
     this.window.contentView.removeChildView(tab.view);
     tab.destroy();
