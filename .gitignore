@@ -36,3 +36,6 @@ hf-space/entrypoint.sh
 hf-space/Dockerfile
 hf-space/.dockerignore
 hf-space/README.md
+.claude/settings.json
+.gitignore
+.security-audit-ignore
