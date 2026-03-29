@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>ai.vessel.browser</id>
+  <id>com.quantaintellect.vessel</id>
   <name>Vessel Browser</name>
   <summary>AI-native web browser for Linux</summary>
   <metadata_license>MIT</metadata_license>
@@ -19,7 +19,7 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">ai.vessel.browser.desktop</launchable>
+  <launchable type="desktop-id">com.quantaintellect.vessel.desktop</launchable>
 
   <url type="homepage">https://quantaintellect.com</url>
   <url type="bugtracker">https://github.com/unmodeled-tyler/vessel-browser/issues</url>

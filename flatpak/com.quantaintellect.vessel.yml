@@ -1,4 +1,4 @@
-app-id: ai.vessel.browser
+app-id: com.quantaintellect.vessel
 runtime: org.freedesktop.Platform
 runtime-version: "24.08"
 sdk: org.freedesktop.Sdk
@@ -22,9 +22,9 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 vessel /app/bin/vessel
-      - install -Dm644 ai.vessel.browser.desktop /app/share/applications/ai.vessel.browser.desktop
-      - install -Dm644 ai.vessel.browser.metainfo.xml /app/share/metainfo/ai.vessel.browser.metainfo.xml
-      - install -Dm644 vessel-icon.png /app/share/icons/hicolor/256x256/apps/ai.vessel.browser.png
+      - install -Dm644 com.quantaintellect.vessel.desktop /app/share/applications/com.quantaintellect.vessel.desktop
+      - install -Dm644 com.quantaintellect.vessel.metainfo.xml /app/share/metainfo/com.quantaintellect.vessel.metainfo.xml
+      - install -Dm644 vessel-icon.png /app/share/icons/hicolor/256x256/apps/com.quantaintellect.vessel.png
       - cp -r resources/* /app/resources/
     sources:
       - type: archive
@@ -32,9 +32,9 @@ modules:
         sha256: 867a1f903016a4c61c3f8d235aba7aa915140ca013389d1c96940003669d5bf3
         dest-filename: vessel.AppImage
       - type: file
-        path: ai.vessel.browser.desktop
+        path: com.quantaintellect.vessel.desktop
       - type: file
-        path: ai.vessel.browser.metainfo.xml
+        path: com.quantaintellect.vessel.metainfo.xml
       - type: file
         url: https://raw.githubusercontent.com/unmodeled-tyler/vessel-browser/main/resources/vessel-icon.png
         sha256: f393b8b0bb651c49b6654e4a73003f64f766bc224cd22cdb207ad63a3779a76c

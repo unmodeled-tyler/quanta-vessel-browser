@@ -66,7 +66,7 @@ jobs:
       - name: Check out Flathub repo
         uses: actions/checkout@v4
         with:
-          repository: flathub/ai.vessel.browser
+          repository: flathub/com.quantaintellect.vessel
           token: ${{ secrets.FLATHUB_TOKEN }}
           path: flathub-repo
 
@@ -78,12 +78,12 @@ jobs:
         run: |
           cd flathub-repo
           # Update the source URL and checksum in the manifest
-          sed -i "s|url: https://github.com/.*/Vessel-.*\.AppImage|url: ${URL}|" ai.vessel.browser.yml
-          sed -i "s|sha256: .*|sha256: ${SHA256}|" ai.vessel.browser.yml
+          sed -i "s|url: https://github.com/.*/Vessel-.*\.AppImage|url: ${URL}|" com.quantaintellect.vessel.yml
+          sed -i "s|sha256: .*|sha256: ${SHA256}|" com.quantaintellect.vessel.yml
 
           # Update release version in metainfo
-          sed -i "s|<release version=\"[^\"]*\"|<release version=\"${VERSION}\"|" ai.vessel.browser.metainfo.xml
-          sed -i "s|date=\"[^\"]*\"|date=\"$(date +%Y-%m-%d)\"|" ai.vessel.browser.metainfo.xml
+          sed -i "s|<release version=\"[^\"]*\"|<release version=\"${VERSION}\"|" com.quantaintellect.vessel.metainfo.xml
+          sed -i "s|date=\"[^\"]*\"|date=\"$(date +%Y-%m-%d)\"|" com.quantaintellect.vessel.metainfo.xml
 
       - name: Create PR on Flathub repo
         env:

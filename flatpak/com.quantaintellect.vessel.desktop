@@ -2,7 +2,7 @@
 Name=Vessel Browser
 Comment=AI-native web browser for Linux
 Exec=vessel %U
-Icon=ai.vessel.browser
+Icon=com.quantaintellect.vessel
 Type=Application
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
