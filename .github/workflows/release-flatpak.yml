@@ -1,0 +1,105 @@
+name: Release Flatpak
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.2.3). Defaults to latest tag."
+        required: false
+
+jobs:
+  flatpak:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Determine tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          tag="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for GitHub Release asset
+        id: asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          asset_name="Vessel-${VERSION}-amd64.AppImage"
+          echo "Waiting for asset: $asset_name"
+          for i in $(seq 1 30); do
+            url=$(gh api "repos/${REPO}/releases/tags/v${VERSION}" \
+              --jq ".assets[] | select(.name == \"${asset_name}\") | .browser_download_url" 2>/dev/null || true)
+            if [ -n "$url" ]; then
+              echo "Found asset: $url"
+              echo "url=$url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Attempt $i/30 — asset not ready, waiting 60s..."
+            sleep 60
+          done
+          echo "::error::Timed out waiting for release asset"
+          exit 1
+
+      - name: Download AppImage and compute SHA256
+        id: checksum
+        env:
+          ASSET_URL: ${{ steps.asset.outputs.url }}
+        run: |
+          curl -fsSL -o vessel.AppImage "$ASSET_URL"
+          sha=$(sha256sum vessel.AppImage | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "SHA256: $sha"
+
+      - name: Check out Flathub repo
+        uses: actions/checkout@v4
+        with:
+          repository: flathub/ai.vessel.browser
+          token: ${{ secrets.FLATHUB_TOKEN }}
+          path: flathub-repo
+
+      - name: Update Flatpak manifest
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+          URL: ${{ steps.asset.outputs.url }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          cd flathub-repo
+          # Update the source URL and checksum in the manifest
+          sed -i "s|url: https://github.com/.*/Vessel-.*\.AppImage|url: ${URL}|" ai.vessel.browser.yml
+          sed -i "s|sha256: .*|sha256: ${SHA256}|" ai.vessel.browser.yml
+
+          # Update release version in metainfo
+          sed -i "s|<release version=\"[^\"]*\"|<release version=\"${VERSION}\"|" ai.vessel.browser.metainfo.xml
+          sed -i "s|date=\"[^\"]*\"|date=\"$(date +%Y-%m-%d)\"|" ai.vessel.browser.metainfo.xml
+
+      - name: Create PR on Flathub repo
+        env:
+          GH_TOKEN: ${{ secrets.FLATHUB_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          cd flathub-repo
+          branch="update-v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "Update Vessel Browser to v${VERSION}"
+          git push origin "$branch"
+          gh pr create \
+            --title "Update Vessel Browser to v${VERSION}" \
+            --body "Automated update from vessel-browser release pipeline." \
+            --base master \
+            --head "$branch"
