@@ -1,6 +1,6 @@
 ---
 title: Vessel Browser
-emoji: "\U0001F6A2"
+emoji: 🚢
 colorFrom: blue
 colorTo: indigo
 sdk: docker

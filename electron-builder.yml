@@ -1,4 +1,4 @@
-appId: ai.vessel.browser
+appId: com.quantaintellect.vessel
 productName: Vessel
 asar: true
 
@@ -17,10 +17,14 @@ extraResources:
 linux:
   target:
     - AppImage
+    - deb
   category: Network;WebBrowser;
   executableName: vessel
   icon: resources/vessel-icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}
+
+deb:
+  packageName: vessel
 
 win:
   target:
