@@ -1,10 +1,13 @@
 <div align="center">
   
 ![quanta-intellect-logo-transparent](https://cdn-uploads.huggingface.co/production/uploads/686c460ba3fc457ad14ab6f8/gB6J60f9Yeyb3Thop2dUa.png)
+
+<a href="https://snapcraft.io/vessel-browser">
+    <img alt="Get it from the Snap Store" src=https://snapcraft.io/en/dark/install.svg />
+  </a>
+
 # Vessel: Your Agent's Browser
 </div>
-
-
 
 
 Open-source browser runtime for persistent web agents on Linux.
