@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ai.vessel.browser</id>
+  <name>Vessel Browser</name>
+  <summary>AI-native web browser for Linux</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Vessel is an AI-native web browser — a persistent browser runtime for
+      autonomous agents with human supervision. Built on Electron and SolidJS,
+      it provides MCP (Model Context Protocol) integration for AI agent
+      browser automation.
+    </p>
+    <p>
+      Features include persistent browser sessions, human-in-the-loop supervision,
+      content extraction, and seamless integration with AI coding assistants.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">ai.vessel.browser.desktop</launchable>
+
+  <url type="homepage">https://quantaintellect.com</url>
+  <url type="bugtracker">https://github.com/unmodeled-tyler/quanta-vessel-browser/issues</url>
+  <url type="vcs-browser">https://github.com/unmodeled-tyler/quanta-vessel-browser</url>
+
+  <developer id="ai.vessel">
+    <name>Quanta Intellect</name>
+  </developer>
+
+  <provides>
+    <binary>vessel</binary>
+  </provides>
+
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-03-28">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
