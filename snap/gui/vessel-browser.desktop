@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Vessel Browser
+Comment=AI-native web browser for Linux
+Exec=vessel %U
+Icon=${SNAP}/meta/gui/vessel-icon.png
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=Vessel

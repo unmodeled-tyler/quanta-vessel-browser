@@ -1,0 +1,47 @@
+name: vessel-browser
+base: core22
+version: "0.1.0"
+summary: AI-native web browser for Linux
+description: |
+  Vessel is an AI-native web browser — a persistent browser runtime for
+  autonomous agents with human supervision. Built on Electron and SolidJS,
+  it provides MCP (Model Context Protocol) integration for AI agent
+  browser automation.
+grade: stable
+confinement: strict
+icon: snap/gui/vessel-icon.png
+
+architectures:
+  - build-on: amd64
+
+apps:
+  vessel-browser:
+    command: vessel
+    desktop: snap/gui/vessel-browser.desktop
+    extensions: [gnome]
+    plugs:
+      - network
+      - network-bind
+      - browser-support
+      - opengl
+      - audio-playback
+      - home
+      - removable-media
+      - cups
+
+parts:
+  vessel:
+    plugin: dump
+    source: .
+    source-type: local
+    override-build: |
+      npm ci
+      npm run build
+      npx electron-builder --linux dir --publish never
+      cp -r dist/linux-unpacked/* $CRAFT_PART_INSTALL/
+    build-packages:
+      - nodejs
+      - npm
+    stage-packages:
+      - libnotify4
+      - libsecret-1-0
