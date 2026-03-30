@@ -100,6 +100,7 @@ export const Channels = {
   PREMIUM_CHECKOUT: "premium:checkout",
   PREMIUM_PORTAL: "premium:portal",
   PREMIUM_RESET: "premium:reset",
+  PREMIUM_TRACK_CONTEXT: "premium:track-context",
   PREMIUM_UPDATE: "premium:update",
 
   // Agent Credential Vault

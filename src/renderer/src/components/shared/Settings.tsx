@@ -126,10 +126,22 @@ const Settings: Component = () => {
     kind: "success" | "error";
     text: string;
   } | null>(null);
+  let trackedSettingsPremiumBanner = false;
 
   const premiumActive = () => {
     const s = premiumState().status;
     return s === "active" || s === "trialing";
+  };
+
+  const trackPremiumContext = (
+    step:
+      | "settings_banner_viewed"
+      | "settings_banner_clicked"
+      | "welcome_banner_clicked",
+  ) => window.vessel.premium.trackContext(step).catch(() => {});
+
+  const startPremiumCheckout = () => {
+    void window.vessel.premium.checkout(premiumEmail().trim() || undefined);
   };
 
   // Chat provider settings
@@ -227,12 +239,37 @@ const Settings: Component = () => {
     const unsubscribe = window.vessel.settings.onHealthUpdate((nextHealth) => {
       setHealth(nextHealth);
     });
-    onCleanup(unsubscribe);
+    const unsubscribePremium = window.vessel.premium.onUpdate((nextState) => {
+      setPremiumState(nextState);
+      if (nextState.email) {
+        setPremiumEmail(nextState.email);
+      }
+      if (nextState.status === "active" || nextState.status === "trialing") {
+        setPremiumMessage({
+          kind: "success",
+          text:
+            nextState.status === "trialing"
+              ? "Premium trial active. Enjoy the unlocked toolkit."
+              : "Premium activated. Your premium tools are ready.",
+        });
+      }
+    });
+    onCleanup(() => {
+      unsubscribe();
+      unsubscribePremium();
+    });
   });
 
   createEffect(() => {
     if (settingsOpen()) {
       void loadState();
+    }
+  });
+
+  createEffect(() => {
+    if (settingsOpen() && !premiumActive() && !trackedSettingsPremiumBanner) {
+      trackedSettingsPremiumBanner = true;
+      void window.vessel.premium.trackContext("settings_banner_viewed");
     }
   });
 
@@ -333,6 +370,22 @@ const Settings: Component = () => {
                   <strong>Learn the shortcuts</strong> — press <kbd>?</kbd> anytime for a quick reference
                 </li>
               </ol>
+              <Show when={!premiumActive()}>
+                <div class="welcome-banner-actions">
+                  <button
+                    class="premium-btn premium-btn-upgrade"
+                    onClick={() => {
+                      void trackPremiumContext("welcome_banner_clicked");
+                      startPremiumCheckout();
+                    }}
+                  >
+                    Try Premium free for 5 days
+                  </button>
+                  <span class="welcome-banner-note">
+                    Best for screenshots, saved sessions, credential vault, and longer autonomous runs.
+                  </span>
+                </div>
+              </Show>
             </div>
           </Show>
 
@@ -344,6 +397,44 @@ const Settings: Component = () => {
               configured inside Vessel.
             </p>
           </div>
+
+          <Show when={!premiumActive()}>
+            <div class="settings-callout settings-premium-callout">
+              <div class="settings-callout-title">
+                Start Vessel Premium with a 5-day free trial
+              </div>
+              <p class="settings-callout-copy">
+                Unlock screenshots, saved sessions, workflow tracking, table
+                extraction, the credential vault, and longer autonomous runs
+                without leaving the app.
+              </p>
+              <div class="settings-premium-callout-actions">
+                <button
+                  class="premium-btn premium-btn-upgrade"
+                  onClick={() => {
+                    void trackPremiumContext("settings_banner_clicked");
+                    startPremiumCheckout();
+                  }}
+                >
+                  Start free trial
+                </button>
+                <button
+                  class="premium-btn premium-btn-activate"
+                  onClick={() => {
+                    const premiumSection = document.querySelector(
+                      ".premium-section",
+                    );
+                    premiumSection?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }}
+                >
+                  See activation steps
+                </button>
+              </div>
+            </div>
+          </Show>
 
           <div class="settings-field">
             <label class="settings-label" for="default-homepage">
@@ -734,9 +825,7 @@ const Settings: Component = () => {
                   <button
                     class="premium-btn premium-btn-upgrade"
                     onClick={() => {
-                      void window.vessel.premium.checkout(
-                        premiumEmail().trim() || undefined,
-                      );
+                      startPremiumCheckout();
                     }}
                   >
                     Subscribe to Premium — 5-day free trial
@@ -1036,6 +1125,18 @@ const Settings: Component = () => {
           line-height: 1.55;
           color: var(--text-secondary);
           margin: 0;
+        }
+        .settings-premium-callout {
+          background:
+            radial-gradient(circle at top right, rgba(196, 160, 90, 0.16), transparent 40%),
+            rgba(224, 200, 120, 0.06);
+          border-color: rgba(196, 160, 90, 0.22);
+        }
+        .settings-premium-callout-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 12px;
         }
         .settings-field {
           margin-bottom: 18px;
@@ -1394,6 +1495,19 @@ const Settings: Component = () => {
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 3px;
           color: var(--text-primary);
+        }
+        .welcome-banner-actions {
+          margin-top: 14px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          align-items: center;
+        }
+        .welcome-banner-note {
+          font-size: 11px;
+          line-height: 1.5;
+          color: var(--text-muted);
+          max-width: 360px;
         }
 
         /* Agent Credential Vault */

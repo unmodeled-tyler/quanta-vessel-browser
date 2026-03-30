@@ -68,6 +68,47 @@ import { trackVaultAction } from "../telemetry/posthog";
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
 
+// Well-known path where external MCP clients (e.g. Hermes) can read the
+// current auth token and endpoint.  Written on successful start, cleared on
+// stop.  Lives inside the Electron userData directory so it survives restarts
+// but is always fresh (token is regenerated each launch).
+const MCP_AUTH_FILENAME = "mcp-auth.json";
+
+function getMcpAuthFilePath(): string {
+  // Electron stores userData at ~/.config/<appName> on Linux.  We resolve the
+  // same directory via the XDG convention without importing `app` (which may
+  // not be available during tests).
+  const configDir =
+    process.env.VESSEL_CONFIG_DIR ||
+    path.join(
+      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
+      "vessel",
+    );
+  return path.join(configDir, MCP_AUTH_FILENAME);
+}
+
+function writeMcpAuthFile(endpoint: string, token: string): void {
+  try {
+    const filePath = getMcpAuthFilePath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
+      { mode: 0o600 },
+    );
+  } catch (err) {
+    console.warn("[Vessel MCP] Failed to write auth file:", err);
+  }
+}
+
+function clearMcpAuthFile(): void {
+  try {
+    fs.unlinkSync(getMcpAuthFilePath());
+  } catch {
+    // File may not exist — that's fine.
+  }
+}
+
 /** Returns the current MCP auth token (generated fresh on each server start). */
 export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
@@ -1862,7 +1903,7 @@ function registerTools(
         else if (tier === 1) score = 30;
         else score = 40;
         return {
-          name: `vessel_${def.name}`,
+          name: def.name,
           title: def.title,
           description: def.description,
           tier,
@@ -1902,11 +1943,11 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_current_tab",
+    "current_tab",
     {
       title: "Get Active Tab",
       description:
-        "Return the browser tab the human is actively looking at right now. Use this instead of vessel_list_tabs when you only need the focused tab.",
+        "Return the browser tab the human is actively looking at right now. Use this instead of list_tabs when you only need the focused tab.",
     },
     async () => {
       const activeTab = getActiveTabSummary(tabManager);
@@ -1916,7 +1957,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_publish_transcript",
+    "publish_transcript",
     {
       title: "Publish Agent Transcript",
       description:
@@ -1971,7 +2012,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_clear_transcript",
+    "clear_transcript",
     {
       title: "Clear Agent Transcript",
       description: "Clear the in-browser transcript monitor state.",
@@ -2026,7 +2067,7 @@ function registerTools(
   }
 
   server.registerTool(
-    "vessel_extract_content",
+    "extract_content",
     {
       title: "Extract Page Content",
       description:
@@ -2064,7 +2105,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_read_page",
+    "read_page",
     {
       title: "Read Page",
       description:
@@ -2102,7 +2143,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_list_tabs",
+    "list_tabs",
     {
       title: "List Tabs",
       description:
@@ -2120,7 +2161,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_navigate",
+    "navigate",
     {
       title: "Navigate",
       description:
@@ -2170,7 +2211,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_set_ad_blocking",
+    "set_ad_blocking",
     {
       title: "Set Ad Blocking",
       description:
@@ -2233,7 +2274,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_extract_structured_data",
+    "extract_structured_data",
     {
       title: "Extract Structured Data",
       description:
@@ -2312,7 +2353,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_go_back",
+    "go_back",
     {
       title: "Go Back",
       description: "Go back in browser history.",
@@ -2336,7 +2377,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_go_forward",
+    "go_forward",
     {
       title: "Go Forward",
       description: "Go forward in browser history.",
@@ -2360,7 +2401,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_reload",
+    "reload",
     {
       title: "Reload",
       description: "Reload the current page.",
@@ -2377,7 +2418,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_click",
+    "click",
     {
       title: "Click Element",
       description:
@@ -2411,7 +2452,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_hover",
+    "hover",
     {
       title: "Hover Element",
       description:
@@ -2445,7 +2486,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_focus",
+    "focus",
     {
       title: "Focus Element",
       description:
@@ -2479,7 +2520,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_extract_text",
+    "extract_text",
     {
       title: "Extract Element Text",
       description:
@@ -2569,7 +2610,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_type",
+    "type",
     {
       title: "Type Text",
       description:
@@ -2616,11 +2657,11 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_type_text",
+    "type_text",
     {
       title: "Type Text",
       description:
-        "Alias for vessel_type. Type text into an input field or textarea.",
+        "Alias for type. Type text into an input field or textarea.",
       inputSchema: {
         index: z
           .number()
@@ -2663,7 +2704,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_select_option",
+    "select_option",
     {
       title: "Select Option",
       description: "Select an option in a dropdown by label or value.",
@@ -2692,7 +2733,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_submit_form",
+    "submit_form",
     {
       title: "Submit Form",
       description:
@@ -2738,7 +2779,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_press_key",
+    "press_key",
     {
       title: "Press Key",
       description:
@@ -2776,7 +2817,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_scroll",
+    "scroll",
     {
       title: "Scroll Page",
       description: "Scroll the page up or down.",
@@ -2806,7 +2847,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_dismiss_popup",
+    "dismiss_popup",
     {
       title: "Dismiss Popup",
       description:
@@ -2822,7 +2863,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_clear_overlays",
+    "clear_overlays",
     {
       title: "Clear Overlays",
       description:
@@ -2854,7 +2895,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_wait_for",
+    "wait_for",
     {
       title: "Wait For",
       description: "Wait for text or a selector to appear on the current page.",
@@ -2885,7 +2926,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_create_tab",
+    "create_tab",
     {
       title: "Create Tab",
       description: "Open a new browser tab, optionally navigating to a URL.",
@@ -2908,7 +2949,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_switch_tab",
+    "switch_tab",
     {
       title: "Switch Tab",
       description:
@@ -2940,7 +2981,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_close_tab",
+    "close_tab",
     {
       title: "Close Tab",
       description: "Close a browser tab by its ID.",
@@ -2956,7 +2997,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_checkpoint_create",
+    "checkpoint_create",
     {
       title: "Create Checkpoint",
       description: "Capture the current session as a named checkpoint.",
@@ -2980,7 +3021,7 @@ function registerTools(
 
 
   server.registerTool(
-    "vessel_checkpoint_restore",
+    "checkpoint_restore",
     {
       title: "Restore Checkpoint",
       description: "Restore a saved checkpoint by ID or exact name.",
@@ -3011,7 +3052,7 @@ function registerTools(
 
 
   server.registerTool(
-    "vessel_save_session",
+    "save_session",
     {
       title: "Save Session",
       description:
@@ -3031,7 +3072,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_load_session",
+    "load_session",
     {
       title: "Load Session",
       description:
@@ -3051,7 +3092,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_list_sessions",
+    "list_sessions",
     {
       title: "List Sessions",
       description:
@@ -3071,7 +3112,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_delete_session",
+    "delete_session",
     {
       title: "Delete Session",
       description: "Delete a previously saved named browser session.",
@@ -3088,7 +3129,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_screenshot",
+    "screenshot",
     {
       title: "Screenshot",
       description:
@@ -3141,7 +3182,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_highlight",
+    "highlight",
     {
       title: "Highlight Element",
       description:
@@ -3235,7 +3276,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_clear_highlights",
+    "clear_highlights",
     {
       title: "Clear Highlights",
       description:
@@ -3260,7 +3301,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_list_highlights",
+    "list_highlights",
     {
       title: "List Highlights",
       description:
@@ -3368,11 +3409,11 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_remove_highlight",
+    "remove_highlight",
     {
       title: "Remove Persistent Highlight",
       description:
-        "Remove a persistent highlight by ID and clear it from any open tab. Use vessel_list_highlights to find IDs.",
+        "Remove a persistent highlight by ID and clear it from any open tab. Use list_highlights to find IDs.",
       inputSchema: {
         id: z.string().describe("ID of the highlight to remove"),
       },
@@ -3413,7 +3454,7 @@ function registerTools(
   // --- Bookmark tools ---
 
   server.registerTool(
-    "vessel_create_folder",
+    "create_folder",
     {
       title: "Create Bookmark Folder",
       description:
@@ -3450,7 +3491,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_save",
+    "bookmark_save",
     {
       title: "Save Bookmark",
       description:
@@ -3600,7 +3641,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_list",
+    "bookmark_list",
     {
       title: "List Bookmarks",
       description:
@@ -3664,7 +3705,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_organize",
+    "bookmark_organize",
     {
       title: "Organize Bookmark",
       description:
@@ -3800,7 +3841,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_search",
+    "bookmark_search",
     {
       title: "Search Bookmarks",
       description:
@@ -3837,7 +3878,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_remove",
+    "bookmark_remove",
     {
       title: "Remove Bookmark",
       description: "Remove a specific bookmark by its ID.",
@@ -3862,7 +3903,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_archive",
+    "bookmark_archive",
     {
       title: "Archive Bookmark",
       description:
@@ -3979,7 +4020,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_bookmark_open",
+    "bookmark_open",
     {
       title: "Open Bookmark",
       description:
@@ -4031,7 +4072,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_folder_remove",
+    "folder_remove",
     {
       title: "Remove Bookmark Folder",
       description: "Remove a folder. Bookmarks in it are moved to Unsorted.",
@@ -4058,7 +4099,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_folder_rename",
+    "folder_rename",
     {
       title: "Rename Bookmark Folder",
       description: "Rename an existing bookmark folder.",
@@ -4101,7 +4142,7 @@ function registerTools(
   // --- Memory tools ---
 
   server.registerTool(
-    "vessel_memory_note_create",
+    "memory_note_create",
     {
       title: "Create Memory Note",
       description:
@@ -4136,7 +4177,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_memory_append",
+    "memory_append",
     {
       title: "Append Memory Note",
       description:
@@ -4171,7 +4212,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_memory_list",
+    "memory_list",
     {
       title: "List Memory Notes",
       description:
@@ -4213,7 +4254,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_memory_search",
+    "memory_search",
     {
       title: "Search Memory Notes",
       description:
@@ -4260,7 +4301,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_memory_page_capture",
+    "memory_page_capture",
     {
       title: "Capture Page To Memory",
       description:
@@ -4310,7 +4351,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_memory_link_bookmark",
+    "memory_link_bookmark",
     {
       title: "Link Bookmark To Memory",
       description:
@@ -4371,7 +4412,7 @@ function registerTools(
   // ═══════════════════════════════════════════════════════════════
 
   server.registerTool(
-    "vessel_flow_start",
+    "flow_start",
     {
       title: "Start Workflow",
       description:
@@ -4402,7 +4443,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_flow_advance",
+    "flow_advance",
     {
       title: "Advance Workflow Step",
       description:
@@ -4423,7 +4464,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_flow_status",
+    "flow_status",
     {
       title: "Workflow Status",
       description: "Check the current workflow progress.",
@@ -4436,7 +4477,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_flow_end",
+    "flow_end",
     {
       title: "End Workflow",
       description: "Clear the active workflow tracker.",
@@ -4450,7 +4491,7 @@ function registerTools(
   // --- Speedee Suggestion Engine ---
 
   server.registerTool(
-    "vessel_suggest",
+    "suggest",
     {
       title: "What Should I Do?",
       description:
@@ -4460,7 +4501,7 @@ function registerTools(
       const tab = tabManager.getActiveTab();
       if (!tab)
         return asTextResponse(
-          "No active tab. Use vessel_navigate to open a page.",
+          "No active tab. Use navigate to open a page.",
         );
 
       const wc = tab.view.webContents;
@@ -4469,7 +4510,7 @@ function registerTools(
         page = await extractContent(wc);
       } catch {
         return asTextResponse(
-          "Could not read page. Try vessel_navigate to a working URL.",
+          "Could not read page. Try navigate to a working URL.",
         );
       }
 
@@ -4513,54 +4554,54 @@ function registerTools(
       // Priority suggestions
       if (hasOverlays) {
         suggestions.push("⚠ BLOCKING OVERLAY detected — dismiss it first:");
-        suggestions.push("  → vessel_clear_overlays for stacked modals");
-        suggestions.push("  → or vessel_dismiss_popup for a single popup");
+        suggestions.push("  → clear_overlays for stacked modals");
+        suggestions.push("  → or dismiss_popup for a single popup");
         suggestions.push("");
       }
 
       if (hasPasswordField) {
         suggestions.push("🔑 LOGIN PAGE detected:");
         suggestions.push(
-          "  → vessel_login(username, password) — handles the full flow",
+          "  → login(username, password) — handles the full flow",
         );
         suggestions.push(
-          "  → Or vessel_fill_form + vessel_submit_form for manual control",
+          "  → Or fill_form + submit_form for manual control",
         );
       } else if (hasSearchInput && linkCount < 10) {
         suggestions.push("🔍 SEARCH PAGE detected:");
         suggestions.push(
-          "  → vessel_search(query) — finds the box, types, submits",
+          "  → search(query) — finds the box, types, submits",
         );
       } else if (hasSearchInput && linkCount >= 10) {
         suggestions.push("📋 SEARCH RESULTS detected:");
-        suggestions.push("  → vessel_click on a result link");
+        suggestions.push("  → click on a result link");
         if (hasPagination) {
-          suggestions.push("  → vessel_paginate('next') for more results");
+          suggestions.push("  → paginate('next') for more results");
         }
       } else if (formCount > 0) {
         suggestions.push(`📝 FORM detected (${totalFields} fields):`);
         suggestions.push(
-          "  → vessel_fill_form(fields) — fill all fields at once",
+          "  → fill_form(fields) — fill all fields at once",
         );
-        suggestions.push("  → Or vessel_type for individual fields");
+        suggestions.push("  → Or type for individual fields");
       } else if (hasPagination) {
         suggestions.push("📄 PAGINATED CONTENT:");
-        suggestions.push("  → vessel_extract_content to read this page");
-        suggestions.push("  → vessel_paginate('next') for the next page");
+        suggestions.push("  → extract_content to read this page");
+        suggestions.push("  → paginate('next') for the next page");
       } else if (
         page.content.length > 3000 &&
         page.interactiveElements.length < 10
       ) {
         suggestions.push("📖 ARTICLE/CONTENT page:");
-        suggestions.push("  → vessel_extract_content for readable text");
-        suggestions.push("  → vessel_scroll to see more");
+        suggestions.push("  → extract_content for readable text");
+        suggestions.push("  → scroll to see more");
       } else {
         suggestions.push("🌐 GENERAL PAGE:");
         suggestions.push(
-          "  → vessel_extract_content to understand the page structure",
+          "  → extract_content to understand the page structure",
         );
-        suggestions.push("  → vessel_click on any element by index");
-        suggestions.push("  → vessel_navigate to go somewhere new");
+        suggestions.push("  → click on any element by index");
+        suggestions.push("  → navigate to go somewhere new");
       }
 
       suggestions.push("");
@@ -4575,7 +4616,7 @@ function registerTools(
   // --- Composable Macros ---
 
   server.registerTool(
-    "vessel_fill_form",
+    "fill_form",
     {
       title: "Fill Form",
       description:
@@ -4648,7 +4689,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_login",
+    "login",
     {
       title: "Login",
       description:
@@ -4773,7 +4814,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_search",
+    "search",
     {
       title: "Search",
       description:
@@ -4876,7 +4917,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_paginate",
+    "paginate",
     {
       title: "Paginate",
       description:
@@ -4949,7 +4990,7 @@ function registerTools(
 
   // --- Speedee: accept_cookies ---
   server.registerTool(
-    "vessel_accept_cookies",
+    "accept_cookies",
     {
       title: "Accept Cookies",
       description:
@@ -4962,7 +5003,7 @@ function registerTools(
       return withAction(
         runtime,
         tabManager,
-        "vessel_accept_cookies",
+        "accept_cookies",
         {},
         async () => {
           const wc = tab.view.webContents;
@@ -5001,7 +5042,7 @@ function registerTools(
           `);
           return (
             dismissed ||
-            "No cookie consent banner detected. Try vessel_dismiss_popup for other overlays."
+            "No cookie consent banner detected. Try dismiss_popup for other overlays."
           );
         },
       );
@@ -5010,7 +5051,7 @@ function registerTools(
 
   // --- Speedee: extract_table ---
   server.registerTool(
-    "vessel_extract_table",
+    "extract_table",
     {
       title: "Extract Table",
       description:
@@ -5026,7 +5067,7 @@ function registerTools(
       return withAction(
         runtime,
         tabManager,
-        "vessel_extract_table",
+        "extract_table",
         { index, selector: rawSelector },
         async () => {
           const wc = tab.view.webContents;
@@ -5068,7 +5109,7 @@ function registerTools(
 
   // --- Speedee: scroll_to_element ---
   server.registerTool(
-    "vessel_scroll_to_element",
+    "scroll_to_element",
     {
       title: "Scroll To Element",
       description: "Scroll a specific element into view by index or selector.",
@@ -5087,7 +5128,7 @@ function registerTools(
       return withAction(
         runtime,
         tabManager,
-        "vessel_scroll_to_element",
+        "scroll_to_element",
         { index, selector: rawSelector, position },
         async () => {
           const wc = tab.view.webContents;
@@ -5142,7 +5183,7 @@ function registerTools(
   );
   // --- wait_for_navigation ---
   server.registerTool(
-    "vessel_wait_for_navigation",
+    "wait_for_navigation",
     {
       title: "Wait For Navigation",
       description:
@@ -5160,7 +5201,7 @@ function registerTools(
       return withAction(
         runtime,
         tabManager,
-        "vessel_wait_for_navigation",
+        "wait_for_navigation",
         { timeoutMs },
         async () => {
           const wc = tab.view.webContents;
@@ -5210,7 +5251,7 @@ function registerTools(
   // shows a consent dialog, and fills the form directly via the content script.
 
   server.registerTool(
-    "vessel_vault_status",
+    "vault_status",
     {
       title: "Check Vault Credentials",
       description:
@@ -5260,13 +5301,13 @@ function registerTools(
         .join("\n");
 
       return asTextResponse(
-        `Found ${matches.length} credential(s) for ${targetDomain}:\n${summary}\n\nUse vessel_vault_login to fill the login form. Credentials are filled directly — you will NOT see the password values.`,
+        `Found ${matches.length} credential(s) for ${targetDomain}:\n${summary}\n\nUse vault_login to fill the login form. Credentials are filled directly — you will NOT see the password values.`,
       );
     },
   );
 
   server.registerTool(
-    "vessel_vault_login",
+    "vault_login",
     {
       title: "Fill Login with Vault Credentials",
       description:
@@ -5414,7 +5455,7 @@ function registerTools(
   );
 
   server.registerTool(
-    "vessel_vault_totp",
+    "vault_totp",
     {
       title: "Fill TOTP Code from Vault",
       description:
@@ -5531,7 +5572,7 @@ function registerTools(
 
   // --- Speedee: metrics ---
   server.registerTool(
-    "vessel_metrics",
+    "metrics",
     {
       title: "Session Metrics",
       description:
@@ -5818,6 +5859,7 @@ export function startMcpServer(
           ? `Port ${port} is already in use. MCP server not started.`
           : error.message;
       console.error("[Vessel MCP] Server error:", error);
+      clearMcpAuthFile();
       setMcpHealth({
         configuredPort: port,
         activePort: null,
@@ -5852,6 +5894,9 @@ export function startMcpServer(
         message: `MCP server listening on ${endpoint}.`,
       });
       console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+      if (mcpAuthToken) {
+        writeMcpAuthFile(endpoint, mcpAuthToken);
+      }
       finish({
         ok: true,
         configuredPort: port,
@@ -5879,6 +5924,7 @@ export function stopMcpServer(): Promise<void> {
     const server = httpServer;
     httpServer = null;
     mcpAuthToken = null;
+    clearMcpAuthFile();
     server.close(() => {
       setMcpHealth({
         activePort: null,

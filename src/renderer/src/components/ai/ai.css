@@ -2506,6 +2506,73 @@
     margin-top: 4px;
 }
 
+.premium-chat-banner {
+    align-items: stretch;
+    text-align: left;
+    margin-bottom: 8px;
+    padding: 16px 14px;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(circle at top right, rgba(196, 160, 90, 0.12), transparent 44%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(196, 160, 90, 0.18);
+}
+
+.premium-chat-banner-body {
+    max-width: none;
+}
+
+.premium-chat-banner-actions {
+    margin-top: 2px;
+}
+
+.premium-inline-offer {
+    margin: 10px 14px 2px;
+    padding: 12px 12px 11px;
+    border-radius: var(--radius-md);
+    background:
+        linear-gradient(180deg, rgba(196, 160, 90, 0.08), rgba(196, 160, 90, 0.03));
+    border: 1px solid rgba(196, 160, 90, 0.18);
+}
+
+.premium-inline-offer.compact {
+    margin: 10px 0 2px;
+}
+
+.premium-inline-kicker {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-primary);
+}
+
+.premium-inline-title {
+    margin-top: 5px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.premium-inline-copy {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.premium-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.premium-inline-primary,
+.premium-inline-secondary {
+    min-height: 32px;
+}
+
 /* ── Scheduled jobs list ── */
 
 .kit-sched-section {

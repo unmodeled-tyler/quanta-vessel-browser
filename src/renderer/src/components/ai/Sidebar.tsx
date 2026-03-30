@@ -5,6 +5,7 @@ import {
   createEffect,
   createMemo,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
@@ -19,7 +20,7 @@ import {
   getBookmarkSearchMatch,
   normalizeBookmarkSearchText,
 } from "../../../../shared/bookmark-search";
-import type { BookmarkFolder } from "../../../../shared/types";
+import type { BookmarkFolder, PremiumState } from "../../../../shared/types";
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
 import AutomationTab from "./AutomationTab";
@@ -36,6 +37,61 @@ const MarkdownMessage = (props: { content: string }) => {
   const html = createMemo(() => renderMarkdown(props.content));
 
   return <div class="message-content markdown-content" innerHTML={html()} />;
+};
+
+type PremiumPromptKind = "premium_gate" | "iteration_limit";
+
+function getPremiumPromptKind(content: string): PremiumPromptKind | null {
+  if (content.includes("requires Vessel Premium")) {
+    return "premium_gate";
+  }
+  if (content.includes("Reached maximum tool call limit")) {
+    return "iteration_limit";
+  }
+  return null;
+}
+
+const PremiumPromptCard = (props: {
+  kind: PremiumPromptKind;
+  onStartTrial: () => void;
+  onOpenSettings: () => void;
+  compact?: boolean;
+}) => {
+  const title =
+    props.kind === "premium_gate"
+      ? "This workflow needs Premium"
+      : "Need a longer autonomous run?";
+  const body =
+    props.kind === "premium_gate"
+      ? "Unlock screenshots, saved sessions, workflow tracking, table extraction, and the credential vault with a 5-day free trial."
+      : "Free chats pause after 50 tool calls in a turn. Vessel Premium raises the ceiling so the agent can finish longer workflows without stopping.";
+
+  return (
+    <div
+      class="premium-inline-offer"
+      classList={{ compact: props.compact === true }}
+    >
+      <div class="premium-inline-kicker">Vessel Premium</div>
+      <div class="premium-inline-title">{title}</div>
+      <p class="premium-inline-copy">{body}</p>
+      <div class="premium-inline-actions">
+        <button
+          class="agent-primary-button premium-inline-primary"
+          type="button"
+          onClick={props.onStartTrial}
+        >
+          Start free trial
+        </button>
+        <button
+          class="agent-control-button premium-inline-secondary"
+          type="button"
+          onClick={props.onOpenSettings}
+        >
+          View details
+        </button>
+      </div>
+    </div>
+  );
 };
 
 const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
@@ -71,6 +127,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     resizeSidebar,
     commitResize,
     toggleSidebar,
+    openSettings,
   } = useUI();
   const { activeTab, createTab } = useTabs();
   const {
@@ -87,6 +144,57 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
   const [highlightIndex, setHighlightIndex] = createSignal(-1);
+  const [premiumState, setPremiumState] = createSignal<PremiumState>({
+    status: "free",
+    customerId: "",
+    email: "",
+    validatedAt: "",
+    expiresAt: "",
+  });
+  const trackedPremiumContexts = new Set<string>();
+
+  const isPremium = () => {
+    const status = premiumState().status;
+    return status === "active" || status === "trialing";
+  };
+
+  const trackPremiumContext = (
+    step:
+      | "chat_banner_viewed"
+      | "chat_banner_clicked"
+      | "premium_gate_seen"
+      | "premium_gate_clicked"
+      | "iteration_limit_seen"
+      | "iteration_limit_clicked",
+  ) => {
+    if (trackedPremiumContexts.has(step)) return;
+    trackedPremiumContexts.add(step);
+    void window.vessel.premium.trackContext(step).catch(() => {
+      trackedPremiumContexts.delete(step);
+    });
+  };
+
+  const openPremiumCheckout = (
+    step:
+      | "chat_banner_clicked"
+      | "premium_gate_clicked"
+      | "iteration_limit_clicked",
+  ) => {
+    trackPremiumContext(step);
+    void window.vessel.premium.checkout(premiumState().email || undefined);
+  };
+
+  const openPremiumDetails = () => {
+    void openSettings();
+  };
+
+  onMount(() => {
+    void window.vessel.premium.getState().then(setPremiumState).catch(() => {
+      /* premium API unavailable */
+    });
+    const cleanup = window.vessel.premium.onUpdate(setPremiumState);
+    onCleanup(cleanup);
+  });
 
   const syncHighlightCount = async () => {
     try {
@@ -107,6 +215,31 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   createEffect(() => {
     if (sidebarTab() === "chat") {
       void syncHighlightCount();
+    }
+  });
+
+  createEffect(() => {
+    if (sidebarTab() === "chat" && !isPremium()) {
+      trackPremiumContext("chat_banner_viewed");
+    }
+  });
+
+  createEffect(() => {
+    if (isPremium()) return;
+    for (const message of messages()) {
+      const kind = getPremiumPromptKind(message.content);
+      if (kind === "premium_gate") {
+        trackPremiumContext("premium_gate_seen");
+      } else if (kind === "iteration_limit") {
+        trackPremiumContext("iteration_limit_seen");
+      }
+    }
+
+    const streamingKind = getPremiumPromptKind(streamingText());
+    if (streamingKind === "premium_gate") {
+      trackPremiumContext("premium_gate_seen");
+    } else if (streamingKind === "iteration_limit") {
+      trackPremiumContext("iteration_limit_seen");
     }
   });
 
@@ -1109,10 +1242,58 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </Show>
 
           <Show when={sidebarTab() === "chat"}>
+            <Show when={!isPremium()}>
+              <div class="kit-upsell premium-chat-banner">
+                <p class="kit-upsell-title">Vessel Premium</p>
+                <p class="kit-upsell-body premium-chat-banner-body">
+                  Give the built-in agent a bigger toolbox and longer runway:
+                  screenshots, saved sessions, workflow tracking, table
+                  extraction, and up to 1,000 tool calls per turn.
+                </p>
+                <div class="premium-inline-actions premium-chat-banner-actions">
+                  <button
+                    class="agent-primary-button premium-inline-primary"
+                    type="button"
+                    onClick={() => openPremiumCheckout("chat_banner_clicked")}
+                  >
+                    Start free trial
+                  </button>
+                  <button
+                    class="agent-control-button premium-inline-secondary"
+                    type="button"
+                    onClick={openPremiumDetails}
+                  >
+                    See Premium
+                  </button>
+                </div>
+              </div>
+            </Show>
             <For each={messages()}>
               {(msg) => (
                 <div class={`message message-${msg.role}`}>
                   <MarkdownMessage content={msg.content} />
+                  <Show
+                    when={
+                      msg.role === "assistant"
+                        ? getPremiumPromptKind(msg.content)
+                        : null
+                    }
+                  >
+                    {(kind) => (
+                      <PremiumPromptCard
+                        kind={kind()}
+                        compact
+                        onStartTrial={() =>
+                          openPremiumCheckout(
+                            kind() === "premium_gate"
+                              ? "premium_gate_clicked"
+                              : "iteration_limit_clicked",
+                          )
+                        }
+                        onOpenSettings={openPremiumDetails}
+                      />
+                    )}
+                  </Show>
                 </div>
               )}
             </For>
@@ -1137,6 +1318,22 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                   >
                     <div>
                       <MarkdownMessage content={streamingText()} />
+                      <Show when={getPremiumPromptKind(streamingText())}>
+                        {(kind) => (
+                          <PremiumPromptCard
+                            kind={kind()}
+                            compact
+                            onStartTrial={() =>
+                              openPremiumCheckout(
+                                kind() === "premium_gate"
+                                  ? "premium_gate_clicked"
+                                  : "iteration_limit_clicked",
+                              )
+                            }
+                            onOpenSettings={openPremiumDetails}
+                          />
+                        )}
+                      </Show>
                       <div class="streaming-status">
                         <span class="streaming-pulse" aria-hidden="true" />
                         <span>Generating</span>
