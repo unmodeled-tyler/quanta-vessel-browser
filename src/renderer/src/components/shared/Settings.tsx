@@ -126,6 +126,7 @@ const Settings: Component = () => {
     kind: "success" | "error";
     text: string;
   } | null>(null);
+  let trackedSettingsPremiumBanner = false;
 
   const premiumActive = () => {
     const s = premiumState().status;
@@ -233,6 +234,13 @@ const Settings: Component = () => {
   createEffect(() => {
     if (settingsOpen()) {
       void loadState();
+    }
+  });
+
+  createEffect(() => {
+    if (settingsOpen() && !premiumActive() && !trackedSettingsPremiumBanner) {
+      trackedSettingsPremiumBanner = true;
+      void window.vessel.premium.trackContext("settings_banner_viewed");
     }
   });
 
@@ -344,6 +352,45 @@ const Settings: Component = () => {
               configured inside Vessel.
             </p>
           </div>
+
+          <Show when={!premiumActive()}>
+            <div class="settings-callout settings-premium-callout">
+              <div class="settings-callout-title">
+                Start Vessel Premium with a 5-day free trial
+              </div>
+              <p class="settings-callout-copy">
+                Unlock screenshots, saved sessions, workflow tracking, table
+                extraction, the credential vault, and longer autonomous runs
+                without leaving the app.
+              </p>
+              <div class="settings-premium-callout-actions">
+                <button
+                  class="premium-btn premium-btn-upgrade"
+                  onClick={() => {
+                    void window.vessel.premium.checkout(
+                      premiumEmail().trim() || undefined,
+                    );
+                  }}
+                >
+                  Start free trial
+                </button>
+                <button
+                  class="premium-btn premium-btn-activate"
+                  onClick={() => {
+                    const premiumSection = document.querySelector(
+                      ".premium-section",
+                    );
+                    premiumSection?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }}
+                >
+                  See activation steps
+                </button>
+              </div>
+            </div>
+          </Show>
 
           <div class="settings-field">
             <label class="settings-label" for="default-homepage">
@@ -1036,6 +1083,18 @@ const Settings: Component = () => {
           line-height: 1.55;
           color: var(--text-secondary);
           margin: 0;
+        }
+        .settings-premium-callout {
+          background:
+            radial-gradient(circle at top right, rgba(196, 160, 90, 0.16), transparent 40%),
+            rgba(224, 200, 120, 0.06);
+          border-color: rgba(196, 160, 90, 0.22);
+        }
+        .settings-premium-callout-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 12px;
         }
         .settings-field {
           margin-bottom: 18px;

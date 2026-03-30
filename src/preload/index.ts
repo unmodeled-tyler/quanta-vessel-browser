@@ -326,6 +326,13 @@ const api = {
       ipcRenderer.invoke(Channels.PREMIUM_PORTAL),
     reset: (): Promise<PremiumState> =>
       ipcRenderer.invoke(Channels.PREMIUM_RESET),
+    trackContext: (
+      step:
+        | "chat_banner_viewed"
+        | "settings_banner_viewed"
+        | "premium_gate_seen"
+        | "iteration_limit_seen",
+    ): Promise<void> => ipcRenderer.invoke(Channels.PREMIUM_TRACK_CONTEXT, step),
     onUpdate: (cb: (state: PremiumState) => void): (() => void) => {
       const handler = (_: unknown, state: PremiumState) => cb(state);
       ipcRenderer.on(Channels.PREMIUM_UPDATE, handler);

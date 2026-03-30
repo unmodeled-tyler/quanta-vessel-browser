@@ -14,6 +14,8 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 ## Quick Start
 
+Want the full agent toolkit from day one? [Start a 5-Day Free Trial of Vessel Premium](https://vesselpremium.quantaintellect.com/checkout).
+
 ### Fastest Install Today
 
 The preferred MVP install path is the Linux AppImage from GitHub Releases:

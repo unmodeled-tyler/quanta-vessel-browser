@@ -615,6 +615,18 @@ export function registerIpcHandlers(
     return state;
   });
 
+  ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (_, step: string) => {
+    assertString(step, "step");
+    if (
+      step === "chat_banner_viewed" ||
+      step === "settings_banner_viewed" ||
+      step === "premium_gate_seen" ||
+      step === "iteration_limit_seen"
+    ) {
+      trackPremiumFunnel(step);
+    }
+  });
+
   ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
     trackPremiumFunnel("portal_opened");
     const result = await getPortalUrl();

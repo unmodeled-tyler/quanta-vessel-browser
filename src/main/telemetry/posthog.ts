@@ -143,7 +143,17 @@ export function trackExtractionFailed(domain: string, reason: string): void {
 }
 
 export function trackPremiumFunnel(
-  step: "activation_attempted" | "activation_succeeded" | "activation_failed" | "checkout_clicked" | "portal_opened" | "reset",
+  step:
+    | "activation_attempted"
+    | "activation_succeeded"
+    | "activation_failed"
+    | "checkout_clicked"
+    | "portal_opened"
+    | "reset"
+    | "chat_banner_viewed"
+    | "settings_banner_viewed"
+    | "premium_gate_seen"
+    | "iteration_limit_seen",
   context?: Record<string, unknown>,
 ): void {
   trackEvent("premium_funnel", { step, ...context });
