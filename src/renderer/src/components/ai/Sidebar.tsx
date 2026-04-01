@@ -366,6 +366,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   );
   const [editingFolderName, setEditingFolderName] = createSignal("");
   const [editingFolderSummary, setEditingFolderSummary] = createSignal("");
+  const [deletingFolderId, setDeletingFolderId] = createSignal<string | null>(
+    null,
+  );
   const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([
     UNSORTED_FOLDER.id,
   ]);
@@ -615,13 +618,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     setEditingFolderSummary("");
   };
 
-  const handleRemoveFolder = async (folderId: string) => {
-    const confirmed = window.confirm(
-      "Delete this folder? Its bookmarks will move to Unsorted.",
-    );
-    if (!confirmed) return;
-    const removed = await removeFolder(folderId);
+  const handleRemoveFolder = async (
+    folderId: string,
+    deleteContents: boolean,
+  ) => {
+    const removed = await removeFolder(folderId, deleteContents);
     if (!removed) return;
+    setDeletingFolderId(null);
     if (selectedFolderId() === folderId) {
       setSelectedFolderId(UNSORTED_FOLDER.id);
     }
@@ -1073,7 +1076,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void handleRemoveFolder(folder.id);
+                                  setDeletingFolderId(folder.id);
                                 }}
                               >
                                 Delete
@@ -1081,6 +1084,48 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                             </div>
                           </Show>
                         </div>
+
+                        <Show when={deletingFolderId() === folder.id}>
+                          <div class="bookmark-folder-delete-confirm">
+                            <p class="bookmark-delete-prompt">
+                              Delete "{folder.name}"?
+                              {folder.items.length > 0
+                                ? ` This folder has ${folder.items.length} bookmark${folder.items.length === 1 ? "" : "s"}.`
+                                : ""}
+                            </p>
+                            <div class="bookmark-delete-options">
+                              <Show when={folder.items.length > 0}>
+                                <button
+                                  class="bookmark-ghost-button"
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRemoveFolder(folder.id, false)
+                                  }
+                                >
+                                  Keep bookmarks
+                                </button>
+                              </Show>
+                              <button
+                                class="bookmark-ghost-button danger"
+                                type="button"
+                                onClick={() =>
+                                  void handleRemoveFolder(folder.id, true)
+                                }
+                              >
+                                {folder.items.length > 0
+                                  ? "Delete all"
+                                  : "Delete folder"}
+                              </button>
+                              <button
+                                class="bookmark-ghost-button"
+                                type="button"
+                                onClick={() => setDeletingFolderId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
 
                         <Show when={editingFolderId() === folder.id}>
                           <div class="bookmark-folder-edit">

@@ -539,9 +539,9 @@ export function registerIpcHandlers(
     return bookmarkManager.removeBookmark(id);
   });
 
-  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
+  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {
     trackBookmarkAction("folder_remove");
-    return bookmarkManager.removeFolder(id);
+    return bookmarkManager.removeFolder(id, deleteContents ?? false);
   });
 
   ipcMain.handle(
