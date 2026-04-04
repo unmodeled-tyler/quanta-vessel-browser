@@ -92,6 +92,25 @@ The extraction output can distinguish:
 
 ## Config Snippets
 
+### Stdio proxy (recommended)
+
+The stdio proxy resolves the auth token from `mcp-auth.json` at connection time, so you never need to copy tokens manually. This is the recommended approach for Claude Code, Claude Desktop, and any MCP client that supports command-based servers:
+
+```json
+{
+  "mcpServers": {
+    "vessel": {
+      "command": "vessel-browser-mcp",
+      "args": ["--stdio"]
+    }
+  }
+}
+```
+
+### HTTP with static token
+
+If your client only supports HTTP-type servers, copy the bearer token from `~/.config/vessel/mcp-auth.json`:
+
 Generic Codex or TOML-based config:
 
 ```toml

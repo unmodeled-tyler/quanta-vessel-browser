@@ -146,6 +146,7 @@ The installer:
 - creates a desktop entry for Linux app launchers
 - writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
 - writes `~/.config/vessel/mcp-http-snippet.json`
+- installs a `vessel-browser-mcp` helper that can run as a stdio-to-HTTP proxy (`--stdio`) or print config snippets
 - prints the exact HTTP MCP snippet to paste into your harness config
 
 The packaged AppImage path:
@@ -197,7 +198,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
 3. Optional: set an Obsidian vault path or session preferences
-4. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
+4. Start Hermes Agent or OpenClaw and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command (auth is resolved automatically), or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
 6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
 
@@ -299,7 +300,22 @@ The extraction output can distinguish:
 - active blocking overlays
 - dormant consent/modal UI present in the DOM but not active for the current session or region
 
-Generic HTTP MCP config:
+Stdio proxy MCP config (recommended — resolves auth automatically):
+
+```json
+{
+  "mcpServers": {
+    "vessel": {
+      "command": "vessel-browser-mcp",
+      "args": ["--stdio"]
+    }
+  }
+}
+```
+
+The stdio proxy reads the bearer token from `~/.config/vessel/mcp-auth.json` at connection time, so no manual token management is needed.
+
+Generic HTTP MCP config (requires copying the token manually):
 
 ```json
 {
@@ -343,6 +359,9 @@ vessel-browser-mcp
 Helper examples:
 
 ```bash
+# Run as stdio-to-HTTP proxy (for MCP client integration)
+vessel-browser-mcp --stdio
+
 # Generic JSON snippet with Authorization header
 vessel-browser-mcp
 

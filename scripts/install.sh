@@ -120,6 +120,9 @@ INIT=0
 
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
+    --stdio)
+      exec node "$INSTALL_DIR/scripts/mcp-stdio-proxy.js"
+      ;;
     --format)
       shift
       FORMAT="\${1:-}"
@@ -144,7 +147,7 @@ while [[ \$# -gt 0 ]]; do
       ;;
     --help|-h)
       cat <<'HELP'
-Usage: vessel-browser-mcp [--format json|hermes|url|token] [--init]
+Usage: vessel-browser-mcp [--format json|hermes|url|token] [--stdio] [--init]
 
 Flags:
   --format <fmt>  Output format (default: json)
@@ -152,6 +155,7 @@ Flags:
   --hermes        Alias for --format hermes
   --url           Alias for --format url
   --token         Alias for --format token
+  --stdio         Run as stdio-to-HTTP proxy (for MCP client integration)
   --init          Bootstrap auth token if none exists (used by install script)
 
 Formats:
