@@ -7,7 +7,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
 3. Optional: set an Obsidian vault path or session preferences
-4. Start Hermes Agent, OpenClaw, Codex, or another MCP client and configure it to connect to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
+4. Start Hermes Agent, OpenClaw, Codex, or another MCP client and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command, or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
 6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
 
@@ -91,6 +91,27 @@ The extraction output can distinguish:
 - `vessel://runtime/state`
 
 ## Config Snippets
+
+### Stdio proxy (recommended)
+
+The stdio proxy resolves the auth token from `mcp-auth.json` at connection time, so you never need to copy tokens manually. This is the recommended approach for Claude Code, Claude Desktop, and any MCP client that supports command-based servers:
+
+```json
+{
+  "mcpServers": {
+    "vessel": {
+      "command": "vessel-browser-mcp",
+      "args": ["--stdio"]
+    }
+  }
+}
+```
+
+Vessel must already be running when your MCP client connects, and `~/.config/vessel/mcp-auth.json` must exist from install or first launch.
+
+### HTTP with static token
+
+If your client only supports HTTP-type servers, copy the bearer token from `~/.config/vessel/mcp-auth.json`:
 
 Generic Codex or TOML-based config:
 

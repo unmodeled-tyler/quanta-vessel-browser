@@ -39,3 +39,8 @@ docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 .vscode/extensions.json
 docs/superpowers/plans/2026-03-28-linux-app-store-distribution.md
 docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
+.superpowers/brainstorm/1166882-1775108470/content/sidebar-empty-state.html
+.superpowers/brainstorm/1166882-1775108470/state/server-stopped
+.superpowers/brainstorm/1166882-1775108470/state/server.pid
+*.superpowers*
+.claude/settings.local.json

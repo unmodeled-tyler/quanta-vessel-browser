@@ -13,6 +13,7 @@ import KeyboardHelp from "./components/shared/KeyboardHelp";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
 import { setupKeybindings } from "./lib/keybindings";
+import { useAnimatedPresence } from "./lib/useAnimatedPresence";
 
 const App: Component = () => {
   const view =
@@ -30,29 +31,7 @@ const App: Component = () => {
     message: string;
   } | null>(null);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = createSignal(false);
-
-  const captureHighlight = async () => {
-    try {
-      const result = await window.vessel.highlights.capture();
-      if (result.success && result.text) {
-        const preview =
-          result.text.length > 60
-            ? result.text.slice(0, 57) + "..."
-            : result.text;
-        setHighlightToast({ title: "Highlight saved", message: preview });
-      } else {
-        setHighlightToast({
-          title: "No selection",
-          message: result.message || "Select text on the page first, then press Ctrl+H",
-        });
-      }
-    } catch {
-      setHighlightToast({
-        title: "Highlight failed",
-        message: "Could not capture selection",
-      });
-    }
-  };
+  const loadingPresence = useAnimatedPresence(() => !!activeTab()?.isLoading, 300);
 
   const showHighlightResult = (result: {
     success: boolean;
@@ -68,6 +47,18 @@ const App: Component = () => {
         title: "No selection",
         message:
           result.message || "Select text on the page first, then press Ctrl+H",
+      });
+    }
+  };
+
+  const captureHighlight = async () => {
+    try {
+      const result = await window.vessel.highlights.capture();
+      showHighlightResult(result);
+    } catch {
+      setHighlightToast({
+        title: "Highlight failed",
+        message: "Could not capture selection",
       });
     }
   };
@@ -120,8 +111,8 @@ const App: Component = () => {
         <TitleBar />
         <TabBar />
         <AddressBar />
-        <Show when={activeTab()?.isLoading}>
-          <div class="loading-bar" />
+        <Show when={loadingPresence.visible()}>
+          <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
       </div>
       <CommandBar />

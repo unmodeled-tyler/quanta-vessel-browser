@@ -9,6 +9,7 @@ DESKTOP_DIR="${VESSEL_DESKTOP_DIR:-$HOME/.local/share/applications}"
 CONFIG_DIR="${VESSEL_CONFIG_DIR:-$HOME/.config/vessel}"
 SETTINGS_PATH="$CONFIG_DIR/vessel-settings.json"
 MCP_AUTH_PATH="$CONFIG_DIR/mcp-auth.json"
+MCP_STDIO_SNIPPET_PATH="$CONFIG_DIR/mcp-stdio-snippet.json"
 MCP_SNIPPET_PATH="$CONFIG_DIR/mcp-http-snippet.json"
 HERMES_SNIPPET_PATH="$CONFIG_DIR/mcp-hermes-snippet.yaml"
 MCP_PORT="${VESSEL_MCP_PORT:-3100}"
@@ -115,11 +116,14 @@ set -euo pipefail
 SETTINGS_PATH="${SETTINGS_PATH}"
 AUTH_PATH="${MCP_AUTH_PATH}"
 DEFAULT_PORT="${MCP_PORT}"
-FORMAT="json"
+FORMAT="stdio"
 INIT=0
 
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
+    --stdio)
+      exec node "$INSTALL_DIR/scripts/mcp-stdio-proxy.js"
+      ;;
     --format)
       shift
       FORMAT="\${1:-}"
@@ -133,6 +137,9 @@ while [[ \$# -gt 0 ]]; do
     --json)
       FORMAT="json"
       ;;
+    --stdio-snippet)
+      FORMAT="stdio"
+      ;;
     --url)
       FORMAT="url"
       ;;
@@ -144,18 +151,21 @@ while [[ \$# -gt 0 ]]; do
       ;;
     --help|-h)
       cat <<'HELP'
-Usage: vessel-browser-mcp [--format json|hermes|url|token] [--init]
+Usage: vessel-browser-mcp [--format stdio|json|hermes|url|token] [--stdio] [--init]
 
 Flags:
-  --format <fmt>  Output format (default: json)
+  --format <fmt>  Output format (default: stdio)
+  --stdio-snippet Alias for --format stdio
   --json          Alias for --format json
   --hermes        Alias for --format hermes
   --url           Alias for --format url
   --token         Alias for --format token
+  --stdio         Run as stdio-to-HTTP proxy (for MCP client integration)
   --init          Bootstrap auth token if none exists (used by install script)
 
 Formats:
-  json    Generic MCP JSON snippet with Authorization header (default)
+  stdio   MCP command snippet using vessel-browser-mcp --stdio (default)
+  json    Generic MCP JSON snippet with Authorization header
   hermes  Hermes config.yaml snippet with Authorization header
   url     Raw MCP endpoint URL
   token   Raw MCP bearer token
@@ -169,6 +179,20 @@ HELP
   esac
   shift
 done
+
+if [[ "\$FORMAT" == "stdio" ]]; then
+  cat <<JSON
+{
+  "mcpServers": {
+    "vessel": {
+      "command": "vessel-browser-mcp",
+      "args": ["--stdio"]
+    }
+  }
+}
+JSON
+  exit 0
+fi
 
 { read -r ENDPOINT; read -r TOKEN; } < <(SETTINGS_PATH="\$SETTINGS_PATH" AUTH_PATH="\$AUTH_PATH" DEFAULT_PORT="\$DEFAULT_PORT" INIT="\${INIT:-0}" node <<'NODE'
 const fs = require("fs");
@@ -307,8 +331,11 @@ fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
 EOF
 
+info "Writing stdio MCP snippet to $MCP_STDIO_SNIPPET_PATH"
+"$MCP_HELPER_PATH" >"$MCP_STDIO_SNIPPET_PATH"
+
 info "Writing MCP snippet to $MCP_SNIPPET_PATH"
-"$MCP_HELPER_PATH" --init >"$MCP_SNIPPET_PATH"
+"$MCP_HELPER_PATH" --format json --init >"$MCP_SNIPPET_PATH"
 
 info "Writing Hermes MCP snippet to $HERMES_SNIPPET_PATH"
 "$MCP_HELPER_PATH" --format hermes >"$HERMES_SNIPPET_PATH"
@@ -329,6 +356,9 @@ Launch Vessel:
 Default MCP endpoint:
   http://127.0.0.1:${MCP_PORT}/mcp
 
+Recommended stdio MCP snippet:
+$(cat "$MCP_STDIO_SNIPPET_PATH")
+
 Generic HTTP MCP snippet:
 $(cat "$MCP_SNIPPET_PATH")
 
@@ -337,6 +367,7 @@ $(cat "$HERMES_SNIPPET_PATH")
 
 You can print the snippet any time with:
   $MCP_HELPER_PATH
+  $MCP_HELPER_PATH --format json
   $MCP_HELPER_PATH --format hermes
 
 To check for source-install updates:
@@ -355,6 +386,7 @@ To launch Vessel using the best available local install:
 
 Notes:
   - Vessel must be running before your harness connects.
+  - The recommended stdio path reads auth from $MCP_AUTH_PATH, which is created on install or first launch.
   - Settings live at $SETTINGS_PATH
   - Bookmarks persist by default.
 EOF
