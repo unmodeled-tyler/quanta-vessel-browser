@@ -11,7 +11,7 @@
 </div>
 
 
-Open source chromium-based browser for persistent web agents on Linux (Mac/Windows support to come).
+Open source chromium-based browser for persistent web agents. Linux is the most mature install target today, and macOS release packaging is available from source.
 
 Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
 
@@ -200,12 +200,25 @@ npm run dist:dir
 
 # Package a Linux AppImage
 npm run dist
+
+# Package an unpacked macOS app bundle (run on macOS)
+npm run dist:mac:dir
+
+# Package macOS DMG + ZIP artifacts (run on macOS)
+npm run dist:mac
+
+# Package signed macOS DMG + ZIP artifacts (run on macOS with signing set up)
+npm run dist:mac:signed
 ```
 
 Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` / `npm run dist:dir` use the Vessel app icon
+- `npm run build:icon:mac` regenerates `resources/vessel-icon.icns` from `resources/vessel-icon.png` for macOS packaging
+- `npm run dist:mac` and `npm run dist:mac:dir` intentionally disable auto-signing so local packaging works on any Mac without keychain setup
+- `npm run dist:mac:signed` and `npm run dist:mac:dir:signed` use normal `electron-builder` signing discovery; if your login keychain has duplicate Apple certs, clean those up or use a dedicated keychain before running the signed path
+- signed builds are still not notarized by this repo out of the box, so Gatekeeper warnings remain until notarization is added for release publishing
 - the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 

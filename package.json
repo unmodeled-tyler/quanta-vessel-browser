@@ -2,7 +2,7 @@
   "name": "@quanta-intellect/vessel-browser",
   "mcpName": "io.github.unmodeled-tyler/vessel-browser",
   "version": "0.1.0",
-  "description": "AI-native web browser for Linux — persistent browser runtime for autonomous agents with human supervision",
+  "description": "AI-native web browser runtime for autonomous agents with human supervision",
   "main": "./out/main/index.js",
   "bin": {
     "vessel-browser": "./bin/vessel-browser.js"
@@ -18,8 +18,13 @@
   "scripts": {
     "dev": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
+    "build:icon:mac": "scripts/build-macos-icon.sh",
     "dist": "npm run build && electron-builder --linux --publish never",
     "dist:dir": "npm run build && electron-builder --linux dir --publish never",
+    "dist:mac": "npm run build:icon:mac && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg zip --publish never",
+    "dist:mac:dir": "npm run build:icon:mac && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --publish never",
+    "dist:mac:signed": "npm run build:icon:mac && npm run build && electron-builder --mac dmg zip --publish never",
+    "dist:mac:dir:signed": "npm run build:icon:mac && npm run build && electron-builder --mac dir --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
