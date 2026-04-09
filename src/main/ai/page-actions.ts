@@ -23,6 +23,7 @@ import {
 import { assertSafeURL } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import { makeImageResult } from "./tool-result";
+import { normalizeToolAlias } from "./tool-aliases";
 import { isToolGated, isFeatureGated } from "../premium/manager";
 import { trackToolCall } from "../telemetry/posthog";
 import * as namedSessionManager from "../sessions/manager";
@@ -4037,6 +4038,8 @@ export async function executeAction(
   args: Record<string, any>,
   ctx: ActionContext,
 ): Promise<string> {
+  name = normalizeToolAlias(name);
+
   // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
   // from models that don't properly support parallel tool calls
   if (!KNOWN_TOOLS.has(name)) {

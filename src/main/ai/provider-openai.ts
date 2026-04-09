@@ -5,6 +5,10 @@ import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 import { isRichToolResult, type TextBlock } from './tool-result';
 import { getEffectiveMaxIterations } from '../premium/manager';
+import {
+  resolveAgentToolProfile,
+  type AgentToolProfile,
+} from './tool-profile';
 
 function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
   return tools.map((t) => ({
@@ -17,7 +21,15 @@ function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
   }));
 }
 
+function agentTemperatureForProfile(
+  profile: AgentToolProfile,
+): number | undefined {
+  return profile === 'compact' ? 0.2 : undefined;
+}
+
 export class OpenAICompatProvider implements AIProvider {
+  readonly agentToolProfile: AgentToolProfile;
+
   private client: OpenAI;
   private model: string;
   private abortController: AbortController | null = null;
@@ -32,6 +44,7 @@ export class OpenAICompatProvider implements AIProvider {
       baseURL,
     });
     this.model = config.model || meta?.defaultModel || 'gpt-4o';
+    this.agentToolProfile = resolveAgentToolProfile(config);
   }
 
   async streamQuery(
@@ -109,6 +122,7 @@ export class OpenAICompatProvider implements AIProvider {
             messages,
             tools: openAITools,
             tool_choice: 'auto',
+            temperature: agentTemperatureForProfile(this.agentToolProfile),
           },
           { signal: this.abortController.signal },
         );

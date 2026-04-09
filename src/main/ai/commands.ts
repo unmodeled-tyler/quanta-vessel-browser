@@ -125,6 +125,7 @@ Instructions:
         AGENT_TOOLS,
         pageType,
         query,
+        { profile: provider.agentToolProfile },
       );
 
       const trace = createTraceSession(query, activeTabUrl, activeTabTitle);
