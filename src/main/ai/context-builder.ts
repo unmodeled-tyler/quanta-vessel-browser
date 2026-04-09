@@ -396,6 +396,27 @@ function getPurchaseActionElements(
     .slice(0, 8);
 }
 
+function getOffscreenPurchaseActionElements(page: PageContent): InteractiveElement[] {
+  const visibleKeys = new Set(
+    getPurchaseActionElements(page, { visibleOnly: true }).map((el) =>
+      String(
+        el.index ??
+          el.selector ??
+          `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+      ),
+    ),
+  );
+
+  return getPurchaseActionElements(page, { visibleOnly: false }).filter((el) => {
+    const key = String(
+      el.index ??
+        el.selector ??
+        `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+    );
+    return !visibleKeys.has(key) && el.visible !== false;
+  });
+}
+
 function getDialogFocusedElements(page: PageContent): InteractiveElement[] {
   return page.interactiveElements.filter(
     (el) => isVisibleToUser(el) && el.context === "dialog",
@@ -1474,6 +1495,7 @@ export function buildScopedContext(
       const purchaseActions = getPurchaseActionElements(visiblePage, {
         visibleOnly: true,
       });
+      const offscreenPurchaseActions = getOffscreenPurchaseActionElements(page);
       const cartSnapshot = formatCartSnapshot(visiblePage);
       const visibleForms = visiblePage.forms;
       const dialogFocus = formatDialogFocus(page);
@@ -1532,6 +1554,14 @@ export function buildScopedContext(
       if (purchaseActions.length > 0) {
         sections.push("### Primary Purchase Actions");
         sections.push(formatInteractiveElements(purchaseActions));
+        sections.push("");
+      }
+      if (offscreenPurchaseActions.length > 0) {
+        sections.push("### Offscreen Purchase Actions");
+        sections.push(
+          "These purchase controls are present on the page but currently outside the viewport. You can scroll to reveal them or click them by index.",
+        );
+        sections.push(formatInteractiveElements(offscreenPurchaseActions));
         sections.push("");
       }
       if (visiblePage.interactiveElements.length > 0) {

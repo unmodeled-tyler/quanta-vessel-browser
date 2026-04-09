@@ -69,6 +69,7 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "On retail tasks, prefer this sequence: navigate -> site search or curated section -> inspect/read results -> click a product -> add to cart -> explain.",
   "On product/detail pages, prefer read_page(mode=\"visible_only\") to find indexed purchase controls like Add to Cart, quantity, and checkout actions.",
   "When read_page or inspect_element gives you an element index, prefer click(index=N) over selector-based clicks.",
+  "If a product page has no visible purchase control, scroll and call read_page(mode=\"visible_only\") again. Do not loop on generic inspect_element calls against navigation or unrelated regions.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 

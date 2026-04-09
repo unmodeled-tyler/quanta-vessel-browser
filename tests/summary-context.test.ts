@@ -387,3 +387,43 @@ test("visible_only surfaces primary purchase actions on product pages", () => {
     /\[#10\] \[View Cart\] link → https:\/\/www\.example\.com\/cart/,
   );
 });
+
+test("visible_only surfaces offscreen purchase actions on product pages", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Interesting Book",
+      url: "https://www.example.com/book/interesting-book",
+      interactiveElements: [
+        {
+          type: "button",
+          text: "Add to Cart",
+          index: 18,
+          visible: true,
+          inViewport: false,
+          fullyInViewport: false,
+        },
+        {
+          type: "link",
+          text: "Checkout",
+          href: "https://www.example.com/checkout",
+          index: 19,
+          visible: true,
+          inViewport: false,
+          fullyInViewport: false,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Offscreen Purchase Actions/);
+  assert.match(
+    context,
+    /outside the viewport\. You can scroll to reveal them or click them by index\./,
+  );
+  assert.match(context, /\[#18\] \[Add to Cart\] button \(offscreen/);
+  assert.match(
+    context,
+    /\[#19\] \[Checkout\] link → https:\/\/www\.example\.com\/checkout \(offscreen/,
+  );
+});
