@@ -813,6 +813,13 @@ async function inspectElement(
       selector: string;
       href?: string;
     }>;
+    purchaseActions?: Array<{
+      label: string;
+      type: string;
+      selector: string;
+      href?: string;
+      source: "nearby" | "page";
+    }>;
     error?: string;
   }>(
     wc,
@@ -894,6 +901,18 @@ async function inspectElement(
         ) || "element";
       }
 
+      function purchasePriority(label, href) {
+        const haystack = ((label || "") + " " + (href || ""))
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!haystack) return null;
+        if (/\badd(?: item)? to (?:cart|bag|basket)\b/.test(haystack)) return 0;
+        if (/\b(?:buy now|preorder|pre-order|reserve now|shop now)\b/.test(haystack)) return 1;
+        if (/\b(?:checkout|view cart|view basket|go to cart|view bag)\b/.test(haystack)) return 2;
+        return null;
+      }
+
       function chooseRegion(target) {
         const preferred = target.closest(
           "[data-testid], article, [role='article'], [role='listitem'], li, tr, form, section, aside, dialog, [role='dialog']"
@@ -919,17 +938,58 @@ async function inspectElement(
       const region = chooseRegion(target);
       const nearby = [];
       const seen = new Set();
+      const purchaseActions = [];
+      const purchaseSeen = new Set();
       region.querySelectorAll("a[href], button, input:not([type='hidden']), select, textarea").forEach((el) => {
         if (!(el instanceof HTMLElement) || !isVisible(el)) return;
         const candidateSelector = selectorFor(el);
         if (!candidateSelector || seen.has(candidateSelector)) return;
         seen.add(candidateSelector);
+        const candidateLabel = labelFor(el).slice(0, 100);
+        const candidateHref = el instanceof HTMLAnchorElement ? text(el.href) : undefined;
         nearby.push({
-          label: labelFor(el).slice(0, 100),
+          label: candidateLabel,
           type: el.tagName.toLowerCase(),
           selector: candidateSelector,
-          href: el instanceof HTMLAnchorElement ? text(el.href) : undefined,
+          href: candidateHref,
         });
+        const purchaseRank = purchasePriority(candidateLabel, candidateHref);
+        if (purchaseRank !== null && !purchaseSeen.has(candidateSelector)) {
+          purchaseSeen.add(candidateSelector);
+          purchaseActions.push({
+            label: candidateLabel,
+            type: el.tagName.toLowerCase(),
+            selector: candidateSelector,
+            href: candidateHref,
+            source: "nearby",
+            rank: purchaseRank,
+          });
+        }
+      });
+
+      document.querySelectorAll("button, a[href], input[type='submit'], input[type='button']").forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const candidateSelector = selectorFor(el);
+        if (!candidateSelector || purchaseSeen.has(candidateSelector)) return;
+        const candidateLabel = labelFor(el).slice(0, 100);
+        const candidateHref = el instanceof HTMLAnchorElement ? text(el.href) : undefined;
+        const purchaseRank = purchasePriority(candidateLabel, candidateHref);
+        if (purchaseRank === null) return;
+        purchaseSeen.add(candidateSelector);
+        purchaseActions.push({
+          label: candidateLabel,
+          type: el.tagName.toLowerCase(),
+          selector: candidateSelector,
+          href: candidateHref,
+          source: "page",
+          rank: purchaseRank,
+        });
+      });
+
+      purchaseActions.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        if (a.source !== b.source) return a.source === "nearby" ? -1 : 1;
+        return a.label.localeCompare(b.label);
       });
 
       return {
@@ -948,6 +1008,13 @@ async function inspectElement(
           text: text(region.textContent)?.slice(0, 400),
         },
         nearby: nearby.slice(0, ${Math.max(1, Math.min(20, limit))}),
+        purchaseActions: purchaseActions.slice(0, 8).map((item) => ({
+          label: item.label,
+          type: item.type,
+          selector: item.selector,
+          href: item.href,
+          source: item.source,
+        })),
       };
     })()
   `,
@@ -986,6 +1053,20 @@ async function inspectElement(
         `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
       );
     }
+  }
+  if (Array.isArray(result.purchaseActions) && result.purchaseActions.length > 0) {
+    lines.push("Likely purchase actions:");
+    for (const item of result.purchaseActions) {
+      const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      const sourceSuffix =
+        item.source === "nearby" ? " (same region)" : " (elsewhere on page)";
+      lines.push(
+        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}${sourceSuffix}`,
+      );
+    }
+    lines.push(
+      'If you need indexed purchase controls, call read_page(mode="visible_only").',
+    );
   }
 
   return lines.join("\n");

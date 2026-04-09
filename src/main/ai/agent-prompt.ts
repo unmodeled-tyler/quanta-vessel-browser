@@ -67,6 +67,7 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "If search or read_page returns results on the target site, continue from those results. Do not assume the search failed unless the tool result says it failed.",
   "Use current_tab only if you are genuinely unsure of the current page after reading the latest tool result.",
   "On retail tasks, prefer this sequence: navigate -> site search or curated section -> inspect/read results -> click a product -> add to cart -> explain.",
+  "On product/detail pages, prefer read_page(mode=\"visible_only\") to find indexed purchase controls like Add to Cart, quantity, and checkout actions.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 

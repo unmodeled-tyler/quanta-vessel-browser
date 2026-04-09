@@ -331,3 +331,59 @@ test("visible_only focuses cart confirmation dialog actions over background add-
   );
   assert.doesNotMatch(context, /\[#4\] \[Add to Cart\]/);
 });
+
+test("visible_only surfaces primary purchase actions on product pages", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Interesting Book",
+      url: "https://www.example.com/book/interesting-book",
+      interactiveElements: [
+        {
+          type: "link",
+          text: "Author",
+          href: "https://www.example.com/authors/example",
+          index: 2,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "button",
+          text: "Add to Cart",
+          index: 8,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "input",
+          label: "Quantity",
+          inputType: "number",
+          value: "1",
+          name: "quantity",
+          index: 9,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "link",
+          text: "View Cart",
+          href: "https://www.example.com/cart",
+          index: 10,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Primary Purchase Actions/);
+  assert.match(context, /\[#8\] \[Add to Cart\] button/);
+  assert.match(
+    context,
+    /\[#10\] \[View Cart\] link → https:\/\/www\.example\.com\/cart/,
+  );
+});
