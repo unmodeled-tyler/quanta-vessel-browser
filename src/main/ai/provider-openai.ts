@@ -5,6 +5,7 @@ import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 import { isRichToolResult, type TextBlock } from './tool-result';
 import { getEffectiveMaxIterations } from '../premium/manager';
+import { normalizeToolAlias } from './tool-aliases';
 import {
   resolveAgentToolProfile,
   type AgentToolProfile,
@@ -104,6 +105,13 @@ export function stableToolSignature(
   return JSON.stringify([name, sortedEntries]);
 }
 
+export function hasRecentDuplicateToolCall(
+  recentToolSignatures: string[],
+  signature: string,
+): boolean {
+  return recentToolSignatures.includes(signature);
+}
+
 export class OpenAICompatProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
 
@@ -187,7 +195,7 @@ export class OpenAICompatProvider implements AIProvider {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
       let compactRecoveryCount = 0;
-      let previousToolSignature: string | null = null;
+      const recentCompactToolSignatures: string[] = [];
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         let textAccum = '';
@@ -237,6 +245,7 @@ export class OpenAICompatProvider implements AIProvider {
         // Ensure every tool call has an ID (some providers like Ollama omit them)
         for (const tc of Object.values(toolCallAccums)) {
           if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          tc.name = normalizeToolAlias(tc.name);
         }
 
         // Sanitize tool call arguments — ensure valid JSON for message history
@@ -319,7 +328,10 @@ export class OpenAICompatProvider implements AIProvider {
           const toolSignature = stableToolSignature(tc.name, args);
           if (
             this.agentToolProfile === 'compact' &&
-            previousToolSignature === toolSignature
+            hasRecentDuplicateToolCall(
+              recentCompactToolSignatures,
+              toolSignature,
+            )
           ) {
             onChunk(`\n<<tool:${tc.name}:↻ duplicate suppressed>>\n`);
             messages.push({
@@ -355,7 +367,12 @@ export class OpenAICompatProvider implements AIProvider {
             // Not JSON — use as-is
           }
 
-          previousToolSignature = toolSignature;
+          if (this.agentToolProfile === 'compact') {
+            recentCompactToolSignatures.push(toolSignature);
+            if (recentCompactToolSignatures.length > 4) {
+              recentCompactToolSignatures.shift();
+            }
+          }
 
           messages.push({
             role: 'tool',

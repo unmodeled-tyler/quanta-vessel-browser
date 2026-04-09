@@ -27,6 +27,7 @@ import { normalizeToolAlias } from "./tool-aliases";
 import {
   isRedundantNavigateTarget,
   looksLikeCurrentSiteNameQuery,
+  shouldBlockOffGoalDomainNavigation,
 } from "./tool-guardrails";
 import { isToolGated, isFeatureGated } from "../premium/manager";
 import { trackToolCall } from "../telemetry/posthog";
@@ -4188,6 +4189,16 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          const taskGoal = ctx.runtime.getState().taskTracker?.goal;
+          if (taskGoal && typeof args.url === "string") {
+            const domainDrift = shouldBlockOffGoalDomainNavigation(
+              taskGoal,
+              args.url,
+            );
+            if (domainDrift) {
+              return `Navigation blocked: ${args.url} drifts away from the requested site ${domainDrift.requestedDomain}. Stay on the requested domain and continue the original task there.`;
+            }
+          }
           if (
             typeof args.url === "string" &&
             !args.postBody &&

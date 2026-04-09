@@ -71,3 +71,57 @@ export function looksLikeCurrentSiteNameQuery(
 
   return false;
 }
+
+function extractExplicitDomains(goal: string): string[] {
+  const matches = goal
+    .toLowerCase()
+    .match(/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.(?:com|org|net|io|dev|app|ai|co|edu|gov))\b/g);
+
+  if (!matches) return [];
+
+  const normalized = matches.map((match) =>
+    match
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .toLowerCase(),
+  );
+
+  return [...new Set(normalized)];
+}
+
+function apexDomain(hostname: string): string {
+  const parts = hostname.replace(/^www\./, "").split(".").filter(Boolean);
+  if (parts.length <= 2) return parts.join(".");
+  return parts.slice(-2).join(".");
+}
+
+export function shouldBlockOffGoalDomainNavigation(
+  goal: string,
+  targetUrl: string,
+): { requestedDomain: string; targetDomain: string } | null {
+  const explicitDomains = extractExplicitDomains(goal);
+  if (explicitDomains.length !== 1) return null;
+
+  let targetHost = "";
+  try {
+    const url = new URL(targetUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    targetHost = url.hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return null;
+  }
+
+  const requestedDomain = explicitDomains[0];
+  if (
+    targetHost === requestedDomain ||
+    targetHost.endsWith(`.${requestedDomain}`) ||
+    apexDomain(targetHost) === apexDomain(requestedDomain)
+  ) {
+    return null;
+  }
+
+  return {
+    requestedDomain,
+    targetDomain: targetHost,
+  };
+}
