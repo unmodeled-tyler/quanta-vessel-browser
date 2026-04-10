@@ -129,6 +129,7 @@ function looksLikeSearchResultsPage(result: string): boolean {
   const lowered = normalizeResult(result);
   return (
     lowered.includes("/searchresults") ||
+    lowered.includes("/books/search") ||
     lowered.includes("search results") ||
     lowered.includes("bestsellers") ||
     lowered.includes("best sellers")
@@ -163,12 +164,27 @@ function looksLikeCartPage(result: string): boolean {
   );
 }
 
+function extractStructuredUrl(result: string): string | null {
+  return (
+    result.match(/\*\*url:\*\*\s*([^\n]+)/i)?.[1]?.trim() ??
+    extractNavigatedUrl(result)
+  );
+}
+
 function isAddToCartSuccess(actionName: string, result: string): boolean {
   const lowered = normalizeResult(result);
   if (actionName !== "click") return false;
   if (lowered.startsWith("blocked:")) return false;
   const clickedAddToCart = /clicked:.*add(?: item)? to (?:cart|bag|basket)/.test(lowered);
   return clickedAddToCart && looksLikeCartConfirmation(result);
+}
+
+function extractNavigatedUrl(result: string): string | null {
+  return (
+    result.match(
+      /\b(?:navigated to|went back to|went forward to|searched "[^"]+"(?: \(via search button\))? →)\s+([^\s\n]+)/i,
+    )?.[1]?.trim() ?? null
+  );
 }
 
 function stepIndexMatching(
@@ -248,7 +264,6 @@ export function updateTaskTracker(
   actionName: string,
   result: string,
 ): TaskTrackerState {
-  const loweredResult = normalizeResult(result);
   const requestedCount =
     state.requestedCount ?? extractRequestedCount(state.goal) ?? null;
   let cartCount = state.cartCount ?? 0;
@@ -266,11 +281,46 @@ export function updateTaskTracker(
     nextState.steps[nextState.currentStepIndex]?.label.toLowerCase() ?? "";
 
   if (actionName === "navigate") {
-    nextState = completeStep(nextState, "Reached the requested site.");
-    return setNextHint(
-      nextState,
-      "Use the site's search box or a curated section to expose book titles you can click directly. Avoid a full-page read unless the path is unclear.",
-    );
+    if (/navigate to the requested site/.test(currentLabel)) {
+      nextState = completeStep(nextState, "Reached the requested site.");
+      return setNextHint(
+        nextState,
+        "Use the site's search box or a curated section to expose book titles you can click directly. Avoid a full-page read unless the path is unclear.",
+      );
+    }
+
+    const navigatedUrl = extractNavigatedUrl(result) || "";
+    if (/pick the requested/.test(currentLabel)) {
+      if (/\/book\//i.test(navigatedUrl)) {
+        return setNextHint(
+          nextState,
+          "You opened a chosen book detail page. Do not restart search. Click Add to Cart here, then wait for cart confirmation before moving on.",
+        );
+      }
+
+      if (looksLikeSearchResultsPage(result)) {
+        return setNextHint(
+          nextState,
+          "You are back on a results page while the chosen books are already decided. Do not restart search or browse new categories. Open one of the chosen book links and continue the add-to-cart flow.",
+        );
+      }
+    }
+
+    if (/add the chosen .* to the cart/.test(currentLabel)) {
+      if (/\/book\//i.test(navigatedUrl)) {
+        return setNextHint(
+          nextState,
+          "Stay on this book detail page and add the current chosen book to the cart. Do not go back to search unless this specific cart step fails.",
+        );
+      }
+
+      if (looksLikeSearchResultsPage(result)) {
+        return setNextHint(
+          nextState,
+          "The chosen books are already decided. Do not restart the search flow here. Open the next chosen title from the current results page and add it to the cart.",
+        );
+      }
+    }
   }
 
   const isDiscoveryAction = [
@@ -338,6 +388,19 @@ export function updateTaskTracker(
       );
     }
 
+    const structuredUrl = extractStructuredUrl(result) || "";
+    if (
+      actionName === "read_page" &&
+      cartCount > 0 &&
+      /\/book\//i.test(structuredUrl) &&
+      looksLikeProductDetailResult(result)
+    ) {
+      return setNextHint(
+        nextState,
+        "This detail page may already be for a book you just added. Do not click Add to Cart again on the same page. Use Continue Shopping, go back, or open the next chosen title.",
+      );
+    }
+
     if (looksLikeProductDetailResult(result)) {
       return setNextHint(
         nextState,
@@ -374,7 +437,7 @@ export function updateTaskTracker(
   ) {
     return setNextHint(
       nextState,
-      "You are back on the listing flow. Open the next unseen book title now instead of rereading the whole page.",
+      "You are back on the listing flow. Open the next chosen or unseen book title now instead of rereading the whole page or restarting search.",
     );
   }
 

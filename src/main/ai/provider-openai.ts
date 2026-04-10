@@ -179,6 +179,10 @@ export function buildPhaseReminder(
     /proceed to (?:add|search for) the next book|move on to the next book|next book from my list/.test(
       text,
     );
+  const selectedItemsRestartSignals =
+    /navigate back to the search results page|search for ".*" directly in the search box|search for .* directly|page structure has shifted|refresh the page|restart search/.test(
+      text,
+    );
 
   if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && listingLoopSignals) {
     return (
@@ -208,11 +212,19 @@ export function buildPhaseReminder(
     );
   }
 
+  if (wantsCart && selectedItems && !cartDone && selectedItemsRestartSignals) {
+    return (
+      `Progress reminder: The chosen books are already decided. Do not restart search, refresh the results page, or navigate back to browse again unless a specific saved link fails. ` +
+      `Use the current results page or the chosen book links you already have: open one chosen title, add it to the cart, confirm success, then continue to the next chosen title.`
+    );
+  }
+
   if (wantsCart && selectedItems && (intendsCart || !cartDone)) {
     return (
       `Progress reminder: You already selected the requested items. ` +
       `Do not restart browsing or searching unless a specific cart step fails. ` +
-      `Continue adding the selected items to the cart one by one.`
+      `Continue adding the selected items to the cart one by one. ` +
+      `Use the chosen result links you already have, add one selected item to the cart, confirm success, then continue to the next one.`
     );
   }
 
@@ -280,6 +292,17 @@ function shouldRecoverCompactStall(
     "if the selection is unclear",
   ];
   if (repetitivePlanningSignals.some((pattern) => trimmed.includes(pattern))) {
+    return true;
+  }
+
+  const falseCartSuccessWithoutConfirmation =
+    /added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
+      trimmed,
+    ) &&
+    !/(cart confirmation|view cart|continue shopping|shopping cart|checkout|why i chose|here is why i chose|here are my reasons)/.test(
+      trimmed,
+    );
+  if (falseCartSuccessWithoutConfirmation) {
     return true;
   }
 

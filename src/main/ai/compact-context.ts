@@ -85,6 +85,40 @@ function isPurchaseControl(element: InteractiveElement): boolean {
   );
 }
 
+function isAddToCartControl(element: InteractiveElement): boolean {
+  if (!isVisibleElement(element)) return false;
+  const text = `${element.text || ""} ${element.label || ""}`.toLowerCase();
+  return /\badd to cart|add to bag|add to basket\b/.test(text);
+}
+
+function looksLikeProductDetailPage(page: PageContent): boolean {
+  return /\/book\//i.test(page.url) || /\bbook\b/i.test(page.title);
+}
+
+function hasCartConfirmationState(page: PageContent): boolean {
+  const haystack = compactText(
+    [
+      page.url,
+      page.title,
+      page.excerpt,
+      page.content.slice(0, 1200),
+      page.overlays
+        .map((overlay) => overlay.label || overlay.message || overlay.text || overlay.kind || "")
+        .join(" "),
+    ]
+      .filter(Boolean)
+      .join(" "),
+    1600,
+  ).toLowerCase();
+
+  return (
+    /\/cart\b/.test(page.url.toLowerCase()) ||
+    /\b(cart confirmation|added to cart|added to bag|added to basket|continue shopping|shopping cart|view cart|checkout)\b/.test(
+      haystack,
+    )
+  );
+}
+
 function getVisibleControls(page: PageContent): InteractiveElement[] {
   return uniqueElements(page.interactiveElements.filter(isVisibleElement)).slice(
     0,
@@ -164,6 +198,13 @@ export function buildCompactScopedContext(
     .filter(isPurchaseControl)
     .slice(0, 4)
     .map(formatElement);
+  const addToCartVisible = getVisibleControls(page).some(isAddToCartControl);
+  if (looksLikeProductDetailPage(page) && addToCartVisible && !hasCartConfirmationState(page)) {
+    pushSection(lines, "### Action Status", [
+      "Product detail page open. This item is not in the cart yet.",
+      "Click Add to Cart and wait for cart confirmation before moving on.",
+    ]);
+  }
   pushSection(lines, "### Visible Purchase Controls", purchaseControls);
 
   const primaryResultElements = getPrimaryResultLinks(page);
