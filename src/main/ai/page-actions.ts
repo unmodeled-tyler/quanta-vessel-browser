@@ -50,6 +50,7 @@ import {
   type TextTargetMode,
 } from "./text-target-resolver";
 import { chooseCompactReadMode } from "./compact-listing";
+import { buildCompactScopedContext } from "./compact-context";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 
@@ -4695,7 +4696,10 @@ export async function executeAction(
               return `${livePrefix}[read_page mode=debug]\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
             }
 
-            const scoped = buildScopedContext(content, requestedMode);
+            const scoped =
+              ctx.toolProfile === "compact"
+                ? buildCompactScopedContext(content, requestedMode)
+                : buildScopedContext(content, requestedMode);
             return [
               livePrefix ? livePrefix.trimEnd() : "",
               `[read_page mode=${requestedMode}]`,
