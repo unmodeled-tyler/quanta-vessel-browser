@@ -166,7 +166,7 @@ export function buildPhaseReminder(
       text,
     );
   const falseCartSuccessSignals =
-    /added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
+    /added\s+to\s+the\s+cart\s*:\s*["“”'a-z0-9 ,:&-]+|added\s+to\s+cart\s*:\s*["“”'a-z0-9 ,:&-]+|added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
       text,
     ) &&
     !/(cart confirmation|view cart|shopping cart|checkout|continue shopping)/.test(
@@ -181,6 +181,14 @@ export function buildPhaseReminder(
     );
   const selectedItemsRestartSignals =
     /navigate back to the search results page|search for ".*" directly in the search box|search for .* directly|page structure has shifted|refresh the page|restart search/.test(
+      text,
+    );
+  const intermediateCartDialogSignals =
+    /(added to cart|has been added to the cart|cart confirmation)/.test(text) &&
+    /(continue shopping|search results page|return to the search results page|back button|go back)/.test(
+      text,
+    ) &&
+    !/(all requested books are now in the cart|all 5 books are now in the cart|5 of 5 requested books are now in the cart)/.test(
       text,
     );
 
@@ -209,6 +217,13 @@ export function buildPhaseReminder(
     return (
       `Progress reminder: Do not skip to a new query just because the match is not exact. ` +
       `If the results page shows even one plausible book result, inspect or click that result before concluding there is no match.`
+    );
+  }
+
+  if (wantsCart && intermediateCartDialogSignals && !explanationDone) {
+    return (
+      `Progress reminder: After an Add to Cart success, prefer the cart-confirmation dialog action Continue Shopping while more books remain. ` +
+      `Do not click View Cart or Go to Basket yet, and do not use the browser back button while the dialog is still open.`
     );
   }
 
@@ -296,7 +311,7 @@ function shouldRecoverCompactStall(
   }
 
   const falseCartSuccessWithoutConfirmation =
-    /added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
+    /added\s+to\s+the\s+cart\s*:\s*["“”'a-z0-9 ,:&-]+|added\s+to\s+cart\s*:\s*["“”'a-z0-9 ,:&-]+|added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
       trimmed,
     ) &&
     !/(cart confirmation|view cart|continue shopping|shopping cart|checkout|why i chose|here is why i chose|here are my reasons)/.test(

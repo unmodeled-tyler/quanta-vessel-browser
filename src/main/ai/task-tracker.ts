@@ -376,15 +376,15 @@ export function updateTaskTracker(
       return setNextHint(
         nextState,
         requestedCount
-          ? `${cartCount} of ${requestedCount} requested books are now in the cart. Choose Continue Shopping or go back, then open the next unseen title.`
-          : "This book is now in the cart. Choose Continue Shopping or go back, then open the next unseen title.",
+          ? `${cartCount} of ${requestedCount} requested books are now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket until all requested books are added. Only use go_back if no dialog action is available. Then open the next unseen title.`
+          : "This book is now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen title.",
       );
     }
 
     if (looksLikeCartConfirmation(result)) {
       return setNextHint(
         nextState,
-        "This book is already in the cart. Choose Continue Shopping or go back, then open the next unseen title.",
+        "This book is already in the cart. If the cart confirmation dialog is still open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen title.",
       );
     }
 
@@ -397,7 +397,7 @@ export function updateTaskTracker(
     ) {
       return setNextHint(
         nextState,
-        "This detail page may already be for a book you just added. Do not click Add to Cart again on the same page. Use Continue Shopping, go back, or open the next chosen title.",
+        "This detail page may already be for a book you just added. Do not click Add to Cart again on the same page. If the cart confirmation dialog is still open, click Continue Shopping there. Otherwise go back once and open the next chosen title. Do not click View Cart or Go to Basket yet.",
       );
     }
 
