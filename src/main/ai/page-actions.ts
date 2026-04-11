@@ -4346,11 +4346,21 @@ async function getPostActionState(
     if (wc.isLoading()) {
       await waitForLoad(wc);
     }
-    let cartWarning = "";
-    if (isProductAlreadyInCart(wc.getURL())) {
-      cartWarning = `\nWARNING: This product is already in your cart.${getCartAddedSummary()}\nGo back and select a different product.`;
+    const currentUrl = wc.getURL();
+    let warnings = "";
+    if (isProductAlreadyInCart(currentUrl)) {
+      warnings += `\nWARNING: This product is already in your cart.${getCartAddedSummary()}\nGo back and select a different product.`;
     }
-    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${cartWarning}`;
+    // Detect domain drift: if a click/navigate took us off the requested site,
+    // warn the model to go back immediately.
+    const taskGoal = ctx.runtime.getState().taskTracker?.goal;
+    if (taskGoal && name === "click") {
+      const drift = shouldBlockOffGoalDomainNavigation(taskGoal, currentUrl);
+      if (drift) {
+        warnings += `\nWARNING: You drifted to ${drift.targetDomain} but the task requires staying on ${drift.requestedDomain}. Call go_back immediately to return to the previous page.`;
+      }
+    }
+    return `\n[state: url=${currentUrl}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${warnings}`;
   }
 
   if (interactActions.includes(name)) {

@@ -1161,10 +1161,15 @@ export class OpenAICompatProvider implements AIProvider {
           // operations that reflect current page state. Suppressing them as
           // "duplicates" is incorrect because the page may have changed since
           // the last call (e.g., after a scroll, click, or navigation).
-          const isReadOnlyLookup = ['read_page', 'current_tab', 'inspect_element', 'screenshot'].includes(tc.name);
+          // go_back and go_forward are NOT idempotent — each call pops the
+          // history stack — so they must never be suppressed as duplicates.
+          const isNonIdempotentOrLookup = [
+            'read_page', 'current_tab', 'inspect_element', 'screenshot',
+            'go_back', 'go_forward',
+          ].includes(tc.name);
           if (
             this.agentToolProfile === 'compact' &&
-            !isReadOnlyLookup &&
+            !isNonIdempotentOrLookup &&
             hasRecentDuplicateToolCall(
               recentCompactToolSignatures,
               toolSignature,
