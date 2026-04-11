@@ -4419,7 +4419,37 @@ async function getPostActionState(
         warnings += `\nWARNING: You drifted to ${drift.targetDomain} but the task requires staying on ${drift.requestedDomain}. Call go_back immediately to return to the previous page.`;
       }
     }
+
+    // After going back or searching, always show what's already in the cart
+    // so the model doesn't re-click the same products from memory.
+    if (name === "go_back" || name === "search") {
+      const cartSummary = getCartAddedSummary();
+      if (cartSummary) {
+        warnings += `${cartSummary}\nSelect a DIFFERENT product that is not in the cart. Call read_page if needed to see available results.`;
+      }
+    }
     return `\n[state: url=${currentUrl}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${warnings}`;
+  }
+
+  // After a click that stays on the same page, check if we landed on an
+  // empty/no-results page — common when clicking filter links by mistake.
+  if (name === "click" && !wc.isLoading()) {
+    try {
+      const emptyPage = await executePageScript<boolean>(
+        wc,
+        `(function() {
+          var body = (document.body.textContent || '').toLowerCase();
+          return /\b(no results|no items found|nothing matched|0 results|zero results|no products|your search.*did not match|no books found)\b/.test(body)
+            && body.length < 8000;
+        })()`,
+        { timeoutMs: 1000, label: "empty page check" },
+      );
+      if (emptyPage && emptyPage !== PAGE_SCRIPT_TIMEOUT) {
+        return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=false]\nWARNING: This page shows no results. You likely clicked a filter or category link instead of a product. Call go_back to return to the search results.`;
+      }
+    } catch {
+      // Ignore — this is a best-effort check
+    }
   }
 
   if (interactActions.includes(name)) {

@@ -62,7 +62,7 @@ function looksLikeListingPage(page: PageContent): boolean {
 }
 
 function isBlockedLabel(label: string): boolean {
-  return /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print|next|previous|prev|sort|filter|wishlist|account|cart|checkout|view all|see all)\b/.test(
+  return /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print|next|previous|prev|sort|filter|wishlist|account|cart|checkout|view all|see all|refine|narrow|clear all|remove filter)\b/.test(
     label,
   );
 }
@@ -134,6 +134,28 @@ function resultScore(
 
   if (/\b(filter|sort|format|price|signed|staff picks|more results|view all)\b/.test(comparableText)) {
     score -= 3;
+  }
+
+  // Heavily penalize filter/condition/format links — these have URLs with
+  // query parameters like ?condition=used or path segments like /format/paperback.
+  // We can't block by text alone because "new", "good", "edition" etc. appear in
+  // legitimate book titles. URL-based detection is much more reliable.
+  try {
+    const linkUrl = new URL(element.href);
+    const filterParams = ["condition", "binding", "format", "availability", "sort", "filter", "price", "category_id", "view"];
+    if (filterParams.some((p) => linkUrl.searchParams.has(p))) {
+      score -= 10;
+    }
+    // Also catch path-based filter URLs (e.g. /format/paperback, /condition/used)
+    const filterPathSegments = ["format", "condition", "binding", "availability", "sort"];
+    const hasFilterPath = filterPathSegments.some((seg) =>
+      hrefSegments.some((s) => s.toLowerCase() === seg)
+    );
+    if (hasFilterPath) {
+      score -= 10;
+    }
+  } catch {
+    // Not a valid URL — ignore
   }
 
   return score;

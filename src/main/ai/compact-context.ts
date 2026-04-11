@@ -155,7 +155,9 @@ function controlKey(element: InteractiveElement): string {
 
 function isLowValueListingControl(element: InteractiveElement): boolean {
   const label = elementLabel(element).toLowerCase();
-  return /\b(filter|sort|format|price|availability|signed edition|binding|language)\b/.test(
+  // Penalize filter/sort controls. Avoid blocking common book title words
+  // like "new", "good", "edition" — only block clearly filter-specific terms.
+  return /\b(filter|sort|format|price|availability|signed edition|binding|language|refine|clear all|remove filter)\b/.test(
     label,
   );
 }

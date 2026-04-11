@@ -71,7 +71,7 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "On product/detail pages, prefer read_page(mode=\"visible_only\") to find indexed purchase controls like Add to Cart, quantity, and checkout actions.",
   "When read_page or inspect_element gives you an element index, prefer click(index=N) over selector-based clicks.",
   "If a product page has no visible purchase control, scroll and call read_page(mode=\"visible_only\") again. Do not loop on generic inspect_element calls against navigation or unrelated regions.",
-  "After adding an item to cart, go back to search results and select a DIFFERENT product. The system tracks which products are already in your cart and will block duplicate additions. Pay attention to 'Already in cart' warnings.",
+  "After adding an item to cart and going back, ALWAYS call read_page to see the current results. The system shows which products are already in your cart — do NOT click those again. Pick a DIFFERENT product from the list. If all visible results are already in cart, scroll down for more.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 
