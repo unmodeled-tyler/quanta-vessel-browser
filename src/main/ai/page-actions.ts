@@ -1325,15 +1325,46 @@ function isDuplicateCartClick(url: string, text: string): boolean {
  * The URL is normalized to the pathname (stripping query params and hashes)
  * so that re-visiting the same product via different referral links is caught.
  */
-function recordProductAddedToCart(url: string, pageTitle: string): void {
+/**
+ * Extract a meaningful product name from the page, preferring the main H1
+ * or heading over the generic site title. Falls back to the page title if
+ * no heading is found.
+ */
+async function getProductPageTitle(wc: WebContents): Promise<string> {
+  try {
+    const heading = await executePageScript<string>(
+      wc,
+      `(function() {
+        var h1 = document.querySelector('h1');
+        if (h1 && h1.textContent.trim().length > 3 && h1.textContent.trim().length < 200) {
+          return h1.textContent.trim();
+        }
+        var meta = document.querySelector('meta[property="og:title"]');
+        if (meta && meta.content && meta.content.trim().length > 3) {
+          return meta.content.trim();
+        }
+        return '';
+      })()`,
+      { timeoutMs: 800, label: "get product title" },
+    );
+    if (heading && heading !== PAGE_SCRIPT_TIMEOUT && typeof heading === "string" && heading.length > 0) {
+      return heading;
+    }
+  } catch {
+    // Fall through to page title
+  }
+  return wc.getTitle() || "";
+}
+
+function recordProductAddedToCart(url: string, productName: string): void {
   try {
     const normalized = new URL(url).pathname.replace(/\/+$/, "");
     cartAddedProducts.set(normalized, {
-      title: pageTitle || url,
+      title: productName || url,
       ts: Date.now(),
     });
   } catch {
-    cartAddedProducts.set(url, { title: pageTitle || url, ts: Date.now() });
+    cartAddedProducts.set(url, { title: productName || url, ts: Date.now() });
   }
 }
 
@@ -1540,7 +1571,8 @@ async function clickResolvedSelector(
   const overlayHint = await detectPostClickOverlay(wc);
   if (overlayHint) {
     if (cartMatch) {
-      recordProductAddedToCart(beforeUrl, wc.getTitle());
+      const productTitle = await getProductPageTitle(wc);
+      recordProductAddedToCart(beforeUrl, productTitle);
       const cartSummary = getCartAddedSummary();
       // Auto-dismiss cart confirmation dialogs — models get stuck trying to
       // click "Continue Shopping" when the dialog blocks direct interaction.
@@ -1564,7 +1596,8 @@ async function clickResolvedSelector(
     await sleep(1200);
     const delayedOverlayHint = await detectPostClickOverlay(wc);
     if (delayedOverlayHint) {
-      recordProductAddedToCart(beforeUrl, wc.getTitle());
+      const productTitle = await getProductPageTitle(wc);
+      recordProductAddedToCart(beforeUrl, productTitle);
       const cartSummary = getCartAddedSummary();
       const dismissResult = await tryAutoDismissCartDialog(wc);
       if (dismissResult) {
@@ -1577,7 +1610,8 @@ async function clickResolvedSelector(
       return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}${cartSummary}`;
     }
     // Cart click with no overlay — assume success (some sites use toast notifications)
-    recordProductAddedToCart(beforeUrl, wc.getTitle());
+    const productTitle = await getProductPageTitle(wc);
+    recordProductAddedToCart(beforeUrl, productTitle);
     const cartSummary = getCartAddedSummary();
     return `${clickText} (${clickResult})${cartSummary}`;
   }
