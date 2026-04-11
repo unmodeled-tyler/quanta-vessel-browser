@@ -531,6 +531,41 @@ async function getPostSearchSummary(wc: WebContents): Promise<string> {
     : `\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`;
 }
 
+/**
+ * After a click that navigates to a new page, extract a lightweight snapshot
+ * of interactive elements so the model can act without calling read_page.
+ * This eliminates the click→read_page→click→read_page loop where the model
+ * is blind after every navigated click.
+ */
+async function getPostClickNavSummary(
+  wc: WebContents,
+  toolProfile: string,
+): Promise<string> {
+  try {
+    const content = await Promise.race([
+      extractContent(wc),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+
+    if (content && content.content.length > 0) {
+      const scoped =
+        toolProfile === "compact"
+          ? buildCompactScopedContext(content, "visible_only")
+          : buildScopedContext(content, "visible_only");
+      const maxLen = toolProfile === "compact" ? 1800 : 3000;
+      const truncated =
+        scoped.length > maxLen
+          ? `${scoped.slice(0, maxLen)}\n[Page snapshot truncated. Use read_page for full details.]`
+          : scoped;
+      return `\nPage snapshot after navigation:\n${truncated}`;
+    }
+  } catch {
+    // Fall through to empty return — getPostActionState still provides URL/title.
+  }
+
+  return "";
+}
+
 async function scrollPage(
   wc: WebContents,
   deltaY: number,
@@ -752,11 +787,15 @@ async function activateElement(
 async function describeElementForClick(
   wc: WebContents,
   selector: string,
-): Promise<{ text: string; href?: string; target?: string } | { error: string }> {
+): Promise<
+  { text: string; href?: string; target?: string; tag?: string; isInteractive?: boolean } | { error: string }
+> {
   const result = await executePageScript<{
     text?: string;
     href?: string;
     target?: string;
+    tag?: string;
+    isInteractive?: boolean;
     error?: string;
   }>(
     wc,
@@ -766,10 +805,17 @@ async function describeElementForClick(
       if (!el) return { error: "Element not found" };
       const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
+      const tag = el.tagName.toLowerCase();
+      const interactiveTags = new Set(["a","button","input","select","textarea","summary","details","option"]);
+      const hasRole = el.getAttribute("role") === "button" || el.getAttribute("role") === "link" || el.getAttribute("role") === "tab";
+      const hasClickListener = el.onclick != null || el.getAttribute("onclick") != null;
+      const isInteractive = interactiveTags.has(tag) || hasRole || hasClickListener || !!anchor;
       return {
         text: text || "Element",
         href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
         target: anchor instanceof HTMLAnchorElement ? (anchor.getAttribute("target") || "") : undefined,
+        tag,
+        isInteractive,
       };
     })()
   `,
@@ -801,6 +847,14 @@ async function describeElementForClick(
     target:
       "target" in result && typeof result.target === "string"
         ? result.target
+        : undefined,
+    tag:
+      "tag" in result && typeof result.tag === "string"
+        ? result.tag
+        : undefined,
+    isInteractive:
+      "isInteractive" in result && typeof result.isInteractive === "boolean"
+        ? result.isInteractive
         : undefined,
   };
 }
@@ -1224,6 +1278,23 @@ const ADD_TO_CART_PATTERNS = [
 const recentCartClicks = new Map<string, { text: string; ts: number }>();
 const CART_CLICK_COOLDOWN_MS = 15_000;
 
+/**
+ * Tracks product URLs where "Add to Cart" was successfully clicked during this
+ * session. Prevents the model from re-visiting the same product page and adding
+ * the same item again. This is separate from recentCartClicks which only has a
+ * short cooldown per page URL.
+ */
+const cartAddedProducts = new Map<string, { title: string; ts: number }>();
+
+/**
+ * Tracks consecutive clicks on the same page URL without any verification step
+ * (read_page, inspect_element, screenshot). Used to detect when the model is
+ * rapidly clicking elements without checking if anything happened.
+ */
+let clickStreakUrl: string | null = null;
+let clickStreakCount = 0;
+const CLICK_STREAK_THRESHOLD = 3;
+
 function isAddToCartText(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
   return ADD_TO_CART_PATTERNS.some((p) => normalized.includes(p));
@@ -1247,6 +1318,46 @@ function isDuplicateCartClick(url: string, text: string): boolean {
     return false;
   }
   return isAddToCartText(text);
+}
+
+/**
+ * Record that a product was added to cart at the given URL.
+ * The URL is normalized to the pathname (stripping query params and hashes)
+ * so that re-visiting the same product via different referral links is caught.
+ */
+function recordProductAddedToCart(url: string, pageTitle: string): void {
+  try {
+    const normalized = new URL(url).pathname.replace(/\/+$/, "");
+    cartAddedProducts.set(normalized, {
+      title: pageTitle || url,
+      ts: Date.now(),
+    });
+  } catch {
+    cartAddedProducts.set(url, { title: pageTitle || url, ts: Date.now() });
+  }
+}
+
+/**
+ * Check if the given product URL was already added to cart during this session.
+ */
+function isProductAlreadyInCart(url: string): boolean {
+  try {
+    const normalized = new URL(url).pathname.replace(/\/+$/, "");
+    return cartAddedProducts.has(normalized);
+  } catch {
+    return cartAddedProducts.has(url);
+  }
+}
+
+/**
+ * Build a summary of products already added to cart, for surfacing in tool results.
+ */
+function getCartAddedSummary(): string {
+  if (cartAddedProducts.size === 0) return "";
+  const items = Array.from(cartAddedProducts.entries())
+    .map(([_path, info]) => `- ${info.title}`)
+    .join("\n");
+  return `\nAlready in cart (${cartAddedProducts.size} items):\n${items}`;
 }
 
 async function clickResolvedSelector(
@@ -1304,7 +1415,9 @@ async function clickResolvedSelector(
         } catch {}
       }
     }
-    return idxOverlay ? `${result}\n${idxOverlay}` : result;
+    return idxOverlay
+      ? `${result}\n${idxOverlay}`
+      : `${result}\nNote: Page did not change after click.`;
   }
 
   // Shadow-piercing selector path
@@ -1369,7 +1482,9 @@ async function clickResolvedSelector(
         } catch {}
       }
     }
-    return shadowOverlay ? `${result}\n${shadowOverlay}` : result;
+    return shadowOverlay
+      ? `${result}\n${shadowOverlay}`
+      : `${result}\nNote: Page did not change after click.`;
   }
 
   const beforeUrl = wc.getURL();
@@ -1397,13 +1512,22 @@ async function clickResolvedSelector(
     }
   }
 
+  // Block add-to-cart on a product page that was already successfully added.
+  if (cartMatch && isProductAlreadyInCart(beforeUrl)) {
+    const summary = getCartAddedSummary();
+    return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
+  }
+
   // Record add-to-cart clicks BEFORE executing so even if overlay detection
   // fails, a second click on the same page will be caught.
   if (cartMatch) {
     recordCartClick(beforeUrl, elInfo.text);
   }
 
-  const clickText = `Clicked: ${elInfo.text}`;
+  const tagLabel = elInfo.tag && elInfo.tag !== "a" && elInfo.tag !== "button"
+    ? ` <${elInfo.tag}>`
+    : "";
+  const clickText = `Clicked: ${elInfo.text}${tagLabel}`;
   const clickResult = await clickElement(wc, selector);
   if (clickResult.startsWith("Error:")) return clickResult;
 
@@ -1420,7 +1544,11 @@ async function clickResolvedSelector(
     const actionsSuffix = dialogActions
       ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
       : "";
-    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+    if (cartMatch) {
+      recordProductAddedToCart(beforeUrl, wc.getTitle());
+    }
+    const cartSummary = cartMatch ? getCartAddedSummary() : "";
+    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}${cartSummary}`;
   }
 
   // Do not "recover" cart clicks with a second DOM activation. On sites like
@@ -1433,9 +1561,14 @@ async function clickResolvedSelector(
       const actionsSuffix = dialogActions
         ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
         : "";
-      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}`;
+      recordProductAddedToCart(beforeUrl, wc.getTitle());
+      const cartSummary = getCartAddedSummary();
+      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}${cartSummary}`;
     }
-    return `${clickText} (${clickResult})`;
+    // Cart click with no overlay — assume success (some sites use toast notifications)
+    recordProductAddedToCart(beforeUrl, wc.getTitle());
+    const cartSummary = getCartAddedSummary();
+    return `${clickText} (${clickResult})${cartSummary}`;
   }
 
   const activationResult = await activateElement(wc, selector);
@@ -1473,7 +1606,14 @@ async function clickResolvedSelector(
     }
   }
 
-  return `${clickText} (${clickResult})`;
+  // Final fallback: click didn't navigate, no overlay, no href fallback.
+  // Be explicit that nothing happened so the model doesn't hallucinate success.
+  const nonInteractiveWarning =
+    elInfo.isInteractive === false && !elInfo.href
+      ? `\nNote: The clicked element (<${elInfo.tag || "unknown"}>) is not a link or button. Nothing happened. Try clicking the actual link element nearby or use read_page to find the correct interactive element.`
+      : `\nNote: Page did not change after click. The element may need a different interaction method. Consider read_page or inspect_element.`;
+
+  return `${clickText} (${clickResult})${nonInteractiveWarning}`;
 }
 
 /**
@@ -4206,7 +4346,11 @@ async function getPostActionState(
     if (wc.isLoading()) {
       await waitForLoad(wc);
     }
-    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    let cartWarning = "";
+    if (isProductAlreadyInCart(wc.getURL())) {
+      cartWarning = `\nWARNING: This product is already in your cart.${getCartAddedSummary()}\nGo back and select a different product.`;
+    }
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${cartWarning}`;
   }
 
   if (interactActions.includes(name)) {
@@ -5666,5 +5810,55 @@ export async function executeAction(
       ? formatCompactToolResult(name, result)
       : result;
   const flowCtx = ctx.runtime.getFlowContext();
-  return formattedResult + (await getPostActionState(ctx, name)) + flowCtx;
+
+  // When a click causes navigation, include a lightweight page snapshot so the
+  // model can see interactive elements without calling read_page. This prevents
+  // the click→read_page→click→read_page loop.
+  let clickNavSummary = "";
+  if (
+    name === "click" &&
+    !result.startsWith("Error") &&
+    !result.startsWith("Blocked") &&
+    result.includes(" -> ")
+  ) {
+    const summaryWc = ctx.tabManager.getActiveTab()?.view.webContents;
+    if (summaryWc) {
+      clickNavSummary = await getPostClickNavSummary(
+        summaryWc,
+        ctx.toolProfile,
+      );
+    }
+  }
+
+  // Detect rapid same-page click streaks: the model keeps clicking elements
+  // on the same URL without verifying what happened. After CLICK_STREAK_THRESHOLD
+  // consecutive clicks, append a strong warning.
+  let streakWarning = "";
+  if (name === "click" && !result.startsWith("Error") && !result.startsWith("Blocked")) {
+    const currentUrl = ctx.tabManager.getActiveTab()?.view.webContents.getURL() ?? "";
+    if (currentUrl === clickStreakUrl) {
+      clickStreakCount++;
+    } else {
+      clickStreakUrl = currentUrl;
+      clickStreakCount = 1;
+    }
+    if (clickStreakCount >= CLICK_STREAK_THRESHOLD) {
+      streakWarning =
+        `\nWARNING: You have clicked ${clickStreakCount} elements on this page without verifying the result. ` +
+        `Call read_page or inspect_element to check the current page state before clicking again. ` +
+        `If clicks are having no effect, the elements may not be interactive — try different element indices or read the page to find clickable links.`;
+    }
+  } else if (["read_page", "inspect_element", "screenshot", "wait_for"].includes(name)) {
+    // Verification tools reset the streak
+    clickStreakCount = 0;
+    clickStreakUrl = null;
+  }
+
+  return (
+    formattedResult +
+    (await getPostActionState(ctx, name)) +
+    clickNavSummary +
+    streakWarning +
+    flowCtx
+  );
 }

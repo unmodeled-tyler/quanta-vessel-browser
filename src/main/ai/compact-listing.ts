@@ -171,11 +171,29 @@ export function getCompactPrimaryResultLinks(
     .slice(0, max);
 }
 
+/**
+ * Quick heuristic: does this page look like a product detail page?
+ * Product pages should never be forced into results_only mode because
+ * the primary action is purchase (Add to Cart), not browsing results.
+ */
+function looksLikeProductPage(page: PageContent): boolean {
+  const url = (page.url || "").toLowerCase();
+  return (
+    /\/(book|product|item|detail|dp|gp\/product)\//i.test(url) ||
+    /\b(add to cart|add to bag|add to basket|buy now)\b/i.test(
+      page.content.slice(0, 3000),
+    )
+  );
+}
+
 export function chooseCompactReadMode(
   page: PageContent,
   fallbackMode: ExtractMode,
 ): ExtractMode {
   if (fallbackMode === "results_only") return fallbackMode;
+  // Never override to results_only on product detail pages —
+  // the model needs to see purchase controls.
+  if (looksLikeProductPage(page)) return fallbackMode;
   const candidates = getCompactPrimaryResultLinks(page, { max: 6 });
   if (candidates.length >= 4) return "results_only";
   if (candidates.length >= 2 && looksLikeListingPage(page)) return "results_only";

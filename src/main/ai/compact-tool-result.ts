@@ -32,10 +32,15 @@ function compactReadPageResult(text: string): string {
     ),
   );
   const readHeader = cleaned.match(/^\[read_page mode=[^\]]+\]/m)?.[0];
-  const importantSections = [
+
+  // Purchase/control sections are mandatory — they must always survive
+  // truncation because missing "Add to Cart" breaks shopping flows.
+  const mandatoryHeadings = [
     "### Action Status",
     "### Visible Purchase Controls",
     "### Offscreen Purchase Actions",
+  ];
+  const optionalHeadings = [
     "### Access Warnings",
     "### Immediate Blockers",
     "### Likely Search Results",
@@ -44,11 +49,17 @@ function compactReadPageResult(text: string): string {
     "### Visible Controls",
     "### Top Headings",
     "### Text Snapshot",
-  ]
+  ];
+
+  const mandatorySections = mandatoryHeadings
+    .map((heading) => extractSection(cleaned, heading))
+    .filter((value): value is string => Boolean(value));
+  const optionalSections = optionalHeadings
     .map((heading) => extractSection(cleaned, heading))
     .filter((value): value is string => Boolean(value));
 
-  if (importantSections.length === 0) {
+  const allSections = [...mandatorySections, ...optionalSections];
+  if (allSections.length === 0) {
     return limitText(cleaned, 22, 1800);
   }
 
@@ -57,10 +68,17 @@ function compactReadPageResult(text: string): string {
     .filter((line) => /^\*\*(URL|Title|Page Type|Mode|Author):\*\*/.test(line))
     .slice(0, 5);
 
+  // Mandatory sections always included; add optional ones up to 5 total
+  const maxOptional = Math.max(0, 5 - mandatorySections.length);
+  const keptSections = [
+    ...mandatorySections,
+    ...optionalSections.slice(0, maxOptional),
+  ];
+
   return [
     readHeader,
     metaLines.join("\n"),
-    importantSections.slice(0, 3).join("\n\n"),
+    keptSections.join("\n\n"),
   ]
     .filter(Boolean)
     .join("\n\n");

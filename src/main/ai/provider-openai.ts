@@ -416,6 +416,24 @@ export function hasRecentDuplicateToolCall(
   return recentToolSignatures.includes(signature);
 }
 
+/**
+ * Detect an alternating click→read_page pattern in the recent tool call
+ * history. Returns true when the last 6+ calls are dominated by a repeating
+ * click/read_page cycle with no other tool breaking the pattern.
+ */
+export function isClickReadLoop(names: string[]): boolean {
+  if (names.length < 6) return false;
+  const tail = names.slice(-6);
+  let clickReadPairs = 0;
+  for (let i = 0; i < tail.length - 1; i++) {
+    if (tail[i] === 'click' && tail[i + 1] === 'read_page') {
+      clickReadPairs++;
+    }
+  }
+  // 2+ alternating pairs in the last 6 calls = likely looping
+  return clickReadPairs >= 2;
+}
+
 function normalizeToolToken(value: string): string {
   return value.trim().toLowerCase().replace(/[.\s/-]+/g, '_');
 }
@@ -924,6 +942,8 @@ export class OpenAICompatProvider implements AIProvider {
       let compactRecoveryCount = 0;
       let compactCorrectionCount = 0;
       const recentCompactToolSignatures: string[] = [];
+      const recentToolNames: string[] = [];
+      let clickReadLoopNudged = false;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         let textAccum = '';
@@ -1137,8 +1157,14 @@ export class OpenAICompatProvider implements AIProvider {
             continue;
           }
           const toolSignature = stableToolSignature(tc.name, args);
+          // read_page, current_tab, and inspect_element are read-only
+          // operations that reflect current page state. Suppressing them as
+          // "duplicates" is incorrect because the page may have changed since
+          // the last call (e.g., after a scroll, click, or navigation).
+          const isReadOnlyLookup = ['read_page', 'current_tab', 'inspect_element', 'screenshot'].includes(tc.name);
           if (
             this.agentToolProfile === 'compact' &&
+            !isReadOnlyLookup &&
             hasRecentDuplicateToolCall(
               recentCompactToolSignatures,
               toolSignature,
@@ -1193,6 +1219,27 @@ export class OpenAICompatProvider implements AIProvider {
               recentCompactToolSignatures.shift();
             }
           }
+
+          // Detect click→read_page alternating loop: the model clicks, reads
+          // the result, clicks again, reads again, etc. without making progress.
+          recentToolNames.push(tc.name);
+          if (recentToolNames.length > 8) recentToolNames.shift();
+          if (
+            !clickReadLoopNudged &&
+            recentToolNames.length >= 6 &&
+            isClickReadLoop(recentToolNames)
+          ) {
+            clickReadLoopNudged = true;
+            messages.push({
+              role: 'system',
+              content:
+                `You are alternating between click and read_page without advancing the task. ` +
+                `The click result already includes a page snapshot when it navigates — you do not need read_page after every click. ` +
+                `If you need detail on a specific element, use inspect_element instead. ` +
+                `If you have enough context, proceed with the next action directly.`,
+            });
+          }
+
           compactCorrectionCount = 0;
           iterationToolResultPreviews.push(toolContent);
 

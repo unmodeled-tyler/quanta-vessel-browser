@@ -125,11 +125,15 @@ function getVisibleControls(page: PageContent): InteractiveElement[] {
 }
 
 function getVisiblePurchaseControls(page: PageContent): InteractiveElement[] {
+  // Scan ALL interactive elements for purchase controls, not just the first
+  // MAX_CONTROLS visible ones. Purchase controls like "Add to Cart" are
+  // critical and may appear late in the DOM after many other interactive elements.
   return uniqueElements(
-    getVisibleControls(page)
+    page.interactiveElements
+      .filter(isVisibleElement)
       .filter(isPurchaseControl)
       .sort((a, b) => (a.index ?? Number.MAX_SAFE_INTEGER) - (b.index ?? Number.MAX_SAFE_INTEGER)),
-  ).slice(0, 4);
+  ).slice(0, 6);
 }
 
 function getOffscreenPurchaseControls(page: PageContent): InteractiveElement[] {
