@@ -1,8 +1,17 @@
-![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
+<div align="center">
+  
+![quanta-intellect-logo-transparent](https://cdn-uploads.huggingface.co/production/uploads/686c460ba3fc457ad14ab6f8/gB6J60f9Yeyb3Thop2dUa.png)
+
+<a href="https://snapcraft.io/vessel-browser">
+    <img alt="Get it from the Snap Store" src=https://snapcraft.io/en/dark/install.svg />
+  </a>
+  <a href="https://www.producthunt.com/products/quanta-intellect?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-vessel-browser-from-quanta-intellect" target="_blank" rel="noopener noreferrer"><img alt="Vessel Browser from Quanta Intellect - The browser where agents drive and humans supervise | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1107491&amp;theme=dark&amp;t=1774779141692"></a>
 
 # Vessel: Your Agent's Browser
+</div>
 
-Open-source browser runtime for persistent web agents on Linux.
+
+Open source chromium-based browser for persistent web agents. Linux is the most mature install target today, and macOS release packaging is available from source.
 
 Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
 
@@ -12,13 +21,19 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
 
+
+
+https://github.com/user-attachments/assets/0a72b48a-873a-4eb0-b8f2-23e34d8472c4
+
+
+
 ## Quick Start
 
 Want the full agent toolkit from day one? [Start a 7-Day Free Trial of Vessel Premium — $5.99/mo](https://vesselpremium.quantaintellect.com/checkout).
 
 ### Fastest Install Today
 
-The preferred MVP install path is the Linux AppImage from GitHub Releases:
+Linux AppImage from GitHub Releases:
 
 1. Download the latest `Vessel-<version>-x64.AppImage`
 2. Mark it executable: `chmod +x Vessel-*.AppImage`
@@ -57,11 +72,13 @@ If you want extra local AI tracing in development, create an optional `src/main/
 
 Most browser automation stacks are either headless, stateless, or designed around a human as the primary operator. Vessel is built around the opposite model: the browser is the agent's operating surface, and the human stays in the loop through a visible interface with clear supervisory controls.
 
+<img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_200224_6613" src="https://github.com/user-attachments/assets/8e208ee1-cb89-4318-87a2-9561a7d9aecf" />
 <img width="1280" height="800" alt="vessel_2026-03-16_144201_7545" src="https://github.com/user-attachments/assets/da7b28ea-6c5f-4aa7-909e-0a255c80d508" />
+<img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_195754_6624" src="https://github.com/user-attachments/assets/3b3d2033-5a59-4806-bbc1-359efb7b43a9" />
 
 
-<img width="1280" height="785" alt="vessel_2026-03-16_171108_8677" src="https://github.com/user-attachments/assets/613c285f-0253-4344-b335-f74a64e124ac" />
 
+<img width="1280" height="800" alt="vessel_2026-03-17_145154_5389" src="https://github.com/user-attachments/assets/b1c08d6c-bcdf-4c9a-8429-a71a23a61903" />
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
@@ -183,12 +200,25 @@ npm run dist:dir
 
 # Package a Linux AppImage
 npm run dist
+
+# Package an unpacked macOS app bundle (run on macOS)
+npm run dist:mac:dir
+
+# Package macOS DMG + ZIP artifacts (run on macOS)
+npm run dist:mac
+
+# Package signed macOS DMG + ZIP artifacts (run on macOS with signing set up)
+npm run dist:mac:signed
 ```
 
 Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` / `npm run dist:dir` use the Vessel app icon
+- `npm run build:icon:mac` regenerates `resources/vessel-icon.icns` from `resources/vessel-icon.png` for macOS packaging
+- `npm run dist:mac` and `npm run dist:mac:dir` intentionally disable auto-signing so local packaging works on any Mac without keychain setup
+- `npm run dist:mac:signed` and `npm run dist:mac:dir:signed` use normal `electron-builder` signing discovery; if your login keychain has duplicate Apple certs, clean those up or use a dedicated keychain before running the signed path
+- signed builds are still not notarized by this repo out of the box, so Gatekeeper warnings remain until notarization is added for release publishing
 - the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 

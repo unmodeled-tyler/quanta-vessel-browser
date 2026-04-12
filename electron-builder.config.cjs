@@ -74,6 +74,15 @@ module.exports = {
   deb: {
     packageName: "vessel",
   },
+  mac: {
+    target: ["dmg", "zip"],
+    category: "public.app-category.productivity",
+    icon: "vessel-icon.icns",
+    artifactName: "${productName}-${version}-${arch}.${ext}",
+  },
+  dmg: {
+    artifactName: "${productName}-${version}-${arch}.${ext}",
+  },
   win,
   nsis: {
     oneClick: false,

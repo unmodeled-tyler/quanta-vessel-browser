@@ -45,12 +45,25 @@ npm run build
 
 # Smoke-test the MVP release path
 npm run smoke:test
+
+# Package an unpacked macOS app bundle (run on macOS)
+npm run dist:mac:dir
+
+# Package macOS DMG + ZIP artifacts (run on macOS)
+npm run dist:mac
+
+# Package signed macOS DMG + ZIP artifacts (run on macOS with signing set up)
+npm run dist:mac:signed
 ```
 
 Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` or `npm run dist:dir` use the Vessel app icon
+- `npm run build:icon:mac` regenerates `resources/vessel-icon.icns` from `resources/vessel-icon.png`
+- `npm run dist:mac` and `npm run dist:mac:dir` intentionally disable auto-signing for repeatable local packaging
+- `npm run dist:mac:signed` and `npm run dist:mac:dir:signed` use `electron-builder` signing; if your login keychain has duplicate Apple certs, clean those up or use a dedicated keychain before running the signed path
+- signed macOS packages are not notarized by default in this repo
 - the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 
