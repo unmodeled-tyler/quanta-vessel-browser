@@ -23,7 +23,7 @@ const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean
   { id: "openai", name: "OpenAI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"] },
   { id: "openrouter", name: "OpenRouter", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-or-...", defaultModel: "anthropic/claude-sonnet-4", models: ["anthropic/claude-sonnet-4", "openai/gpt-4o", "google/gemini-2.5-pro"] },
   { id: "ollama", name: "Ollama (Local)", requiresKey: false, needsBaseUrl: false, keyPlaceholder: "", defaultModel: "", models: [] },
-  { id: "llama_cpp", name: "llama.cpp (Local)", requiresKey: false, needsBaseUrl: false, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
+  { id: "llama_cpp", name: "llama.cpp (Local)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
   { id: "mistral", name: "Mistral AI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "mistral-large-latest", models: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"] },
   { id: "xai", name: "xAI (Grok)", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "xai-...", defaultModel: "grok-3", models: ["grok-3", "grok-3-mini"] },
   { id: "google", name: "Google Gemini", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "AI...", defaultModel: "gemini-2.5-pro", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
@@ -788,7 +788,7 @@ const Settings: Component = () => {
             </Show>
             <Show when={chatProviderId() === "llama_cpp"}>
               <p class="settings-hint">
-                Vessel auto-detects the active model from your local `llama-server` on port 8080.
+                Vessel auto-detects the active model from your configured `llama-server` base URL.
                 For agent loops, run `llama-server` with `--ctx-size 16384` minimum and `32768`
                 recommended.
               </p>

@@ -1277,6 +1277,7 @@ const ADD_TO_CART_PATTERNS = [
  */
 const recentCartClicks = new Map<string, { text: string; ts: number }>();
 const CART_CLICK_COOLDOWN_MS = 15_000;
+const CART_ADDED_TTL_MS = 30 * 60_000;
 
 /**
  * Tracks product URLs where "Add to Cart" was successfully clicked during this
@@ -1321,11 +1322,6 @@ function isDuplicateCartClick(url: string, text: string): boolean {
 }
 
 /**
- * Record that a product was added to cart at the given URL.
- * The URL is normalized to the pathname (stripping query params and hashes)
- * so that re-visiting the same product via different referral links is caught.
- */
-/**
  * Extract a meaningful product name from the page, preferring the main H1
  * or heading over the generic site title. Falls back to the page title if
  * no heading is found.
@@ -1356,39 +1352,92 @@ async function getProductPageTitle(wc: WebContents): Promise<string> {
   return wc.getTitle() || "";
 }
 
-function recordProductAddedToCart(url: string, productName: string): void {
+function normalizeCartProductKey(url: string): string {
   try {
-    const normalized = new URL(url).pathname.replace(/\/+$/, "");
-    cartAddedProducts.set(normalized, {
-      title: productName || url,
-      ts: Date.now(),
-    });
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.origin}${pathname}`;
   } catch {
-    cartAddedProducts.set(url, { title: productName || url, ts: Date.now() });
+    return url;
   }
+}
+
+function pruneCartAddedProducts(now = Date.now()): void {
+  for (const [key, entry] of cartAddedProducts) {
+    if (now - entry.ts > CART_ADDED_TTL_MS) {
+      cartAddedProducts.delete(key);
+    }
+  }
+}
+
+function cartOrigin(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that a product was added to cart at the given URL.
+ * The URL is normalized to origin + pathname so different sites do not collide
+ * on the same path, and stale entries expire automatically.
+ */
+function recordProductAddedToCart(url: string, productName: string): void {
+  pruneCartAddedProducts();
+  cartAddedProducts.set(normalizeCartProductKey(url), {
+    title: productName || url,
+    ts: Date.now(),
+  });
 }
 
 /**
  * Check if the given product URL was already added to cart during this session.
  */
 function isProductAlreadyInCart(url: string): boolean {
-  try {
-    const normalized = new URL(url).pathname.replace(/\/+$/, "");
-    return cartAddedProducts.has(normalized);
-  } catch {
-    return cartAddedProducts.has(url);
-  }
+  pruneCartAddedProducts();
+  return cartAddedProducts.has(normalizeCartProductKey(url));
 }
 
 /**
- * Build a summary of products already added to cart, for surfacing in tool results.
+ * Build a summary of products already added to cart, filtered to the current
+ * site when a URL is available so unrelated domains do not leak into the prompt.
  */
-function getCartAddedSummary(): string {
-  if (cartAddedProducts.size === 0) return "";
+function getCartAddedSummary(url?: string): string {
+  pruneCartAddedProducts();
+  const origin = cartOrigin(url);
   const items = Array.from(cartAddedProducts.entries())
+    .filter(([key]) => !origin || key.startsWith(`${origin}/`))
     .map(([_path, info]) => `- ${info.title}`)
     .join("\n");
-  return `\nAlready in cart (${cartAddedProducts.size} items):\n${items}`;
+  if (!items) return "";
+  const count = items.split("\n").length;
+  return `\nAlready in cart (${count} items):\n${items}`;
+}
+
+async function buildCartSuccessSuffix(
+  wc: WebContents,
+  productUrl: string,
+  overlayHint?: string | null,
+): Promise<string> {
+  const productTitle = await getProductPageTitle(wc);
+  recordProductAddedToCart(productUrl, productTitle);
+  const cartSummary = getCartAddedSummary(productUrl);
+  const dismissResult = await tryAutoDismissCartDialog(wc);
+  if (dismissResult) {
+    return `\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
+  }
+
+  if (!overlayHint) {
+    return cartSummary;
+  }
+
+  const dialogActions = await getCartDialogActions(wc);
+  const actionsSuffix = dialogActions
+    ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+    : "";
+  return `\n${overlayHint}${actionsSuffix}${cartSummary}`;
 }
 
 async function clickResolvedSelector(
@@ -1399,6 +1448,7 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    let idxCartMatch = false;
     // Pre-check: get element text for cart-click guard
     const idxLabel = await executePageScript<string>(
       wc,
@@ -1407,10 +1457,14 @@ async function clickResolvedSelector(
     );
     if (
       typeof idxLabel === "string" &&
-      isAddToCartText(idxLabel) &&
+      (idxCartMatch = isAddToCartText(idxLabel)) &&
       isDuplicateCartClick(beforeUrl, idxLabel)
     ) {
       return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
+    if (idxCartMatch && isProductAlreadyInCart(beforeUrl)) {
+      const summary = getCartAddedSummary(beforeUrl);
+      return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
     }
     const result = await executePageScript<string>(
       wc,
@@ -1421,16 +1475,19 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+    if (idxCartMatch) {
       recordCartClick(beforeUrl, idxLabel);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
     let idxOverlay = await detectPostClickOverlay(wc);
-    if (!idxOverlay && typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+    if (!idxOverlay && idxCartMatch) {
       await sleep(1200);
       idxOverlay = await detectPostClickOverlay(wc);
+    }
+    if (idxCartMatch) {
+      return `${result}${await buildCartSuccessSuffix(wc, beforeUrl, idxOverlay)}`;
     }
     if (!idxOverlay) {
       const hrefMatch = typeof result === "string"
@@ -1454,6 +1511,7 @@ async function clickResolvedSelector(
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    let shadowCartMatch = false;
     // Pre-check: get element text for cart-click guard
     const shadowLabel = await executePageScript<string>(
       wc,
@@ -1465,10 +1523,14 @@ async function clickResolvedSelector(
     );
     if (
       typeof shadowLabel === "string" &&
-      isAddToCartText(shadowLabel) &&
+      (shadowCartMatch = isAddToCartText(shadowLabel)) &&
       isDuplicateCartClick(beforeUrl, shadowLabel)
     ) {
       return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
+    if (shadowCartMatch && isProductAlreadyInCart(beforeUrl)) {
+      const summary = getCartAddedSummary(beforeUrl);
+      return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
     }
     const result = await executePageScript<string>(
       wc,
@@ -1488,16 +1550,19 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+    if (shadowCartMatch) {
       recordCartClick(beforeUrl, shadowLabel);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
     let shadowOverlay = await detectPostClickOverlay(wc);
-    if (!shadowOverlay && typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+    if (!shadowOverlay && shadowCartMatch) {
       await sleep(1200);
       shadowOverlay = await detectPostClickOverlay(wc);
+    }
+    if (shadowCartMatch) {
+      return `${result}${await buildCartSuccessSuffix(wc, beforeUrl, shadowOverlay)}`;
     }
     if (!shadowOverlay) {
       const hrefMatch = typeof result === "string"
@@ -1545,7 +1610,7 @@ async function clickResolvedSelector(
 
   // Block add-to-cart on a product page that was already successfully added.
   if (cartMatch && isProductAlreadyInCart(beforeUrl)) {
-    const summary = getCartAddedSummary();
+    const summary = getCartAddedSummary(beforeUrl);
     return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
   }
 
@@ -1571,21 +1636,11 @@ async function clickResolvedSelector(
   const overlayHint = await detectPostClickOverlay(wc);
   if (overlayHint) {
     if (cartMatch) {
-      const productTitle = await getProductPageTitle(wc);
-      recordProductAddedToCart(beforeUrl, productTitle);
-      const cartSummary = getCartAddedSummary();
-      // Auto-dismiss cart confirmation dialogs — models get stuck trying to
-      // click "Continue Shopping" when the dialog blocks direct interaction.
-      const dismissResult = await tryAutoDismissCartDialog(wc);
-      if (dismissResult) {
-        return `${clickText} (${clickResult})\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
-      }
-      // Fallback: show dialog actions for the model to click
-      const dialogActions = await getCartDialogActions(wc);
-      const actionsSuffix = dialogActions
-        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-        : "";
-      return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}${cartSummary}`;
+      return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+        wc,
+        beforeUrl,
+        overlayHint,
+      )}`;
     }
     return `${clickText} (${clickResult})\n${overlayHint}`;
   }
@@ -1596,24 +1651,17 @@ async function clickResolvedSelector(
     await sleep(1200);
     const delayedOverlayHint = await detectPostClickOverlay(wc);
     if (delayedOverlayHint) {
-      const productTitle = await getProductPageTitle(wc);
-      recordProductAddedToCart(beforeUrl, productTitle);
-      const cartSummary = getCartAddedSummary();
-      const dismissResult = await tryAutoDismissCartDialog(wc);
-      if (dismissResult) {
-        return `${clickText} (${clickResult})\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
-      }
-      const dialogActions = await getCartDialogActions(wc);
-      const actionsSuffix = dialogActions
-        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-        : "";
-      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}${cartSummary}`;
+      return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+        wc,
+        beforeUrl,
+        delayedOverlayHint,
+      )}`;
     }
     // Cart click with no overlay — assume success (some sites use toast notifications)
-    const productTitle = await getProductPageTitle(wc);
-    recordProductAddedToCart(beforeUrl, productTitle);
-    const cartSummary = getCartAddedSummary();
-    return `${clickText} (${clickResult})${cartSummary}`;
+    return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+      wc,
+      beforeUrl,
+    )}`;
   }
 
   const activationResult = await activateElement(wc, selector);
@@ -4442,7 +4490,7 @@ async function getPostActionState(
     const currentUrl = wc.getURL();
     let warnings = "";
     if (isProductAlreadyInCart(currentUrl)) {
-      warnings += `\nWARNING: This product is already in your cart.${getCartAddedSummary()}\nGo back and select a different product.`;
+      warnings += `\nWARNING: This product is already in your cart.${getCartAddedSummary(currentUrl)}\nGo back and select a different product.`;
     }
     // Detect domain drift: if a click/navigate took us off the requested site,
     // warn the model to go back immediately.
@@ -4457,7 +4505,7 @@ async function getPostActionState(
     // After going back or searching, always show what's already in the cart
     // so the model doesn't re-click the same products from memory.
     if (name === "go_back" || name === "search") {
-      const cartSummary = getCartAddedSummary();
+      const cartSummary = getCartAddedSummary(currentUrl);
       if (cartSummary) {
         warnings += `${cartSummary}\nSelect a DIFFERENT product that is not in the cart. Call read_page if needed to see available results.`;
       }
