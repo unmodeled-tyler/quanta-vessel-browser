@@ -199,6 +199,7 @@ jobs:
   # ── Publish (runs after both platforms succeed) ──
   publish:
     needs: [version, build-linux, build-windows]
+    if: ${{ !cancelled() && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -220,13 +221,18 @@ jobs:
           path: dist-linux
 
       - name: Download Windows artifacts
+        if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: release-windows
           path: dist-windows
 
       - name: Merge checksums
-        run: cat dist-linux/SHASUMS256-linux.txt dist-windows/SHASUMS256-win.txt > SHASUMS256.txt
+        run: |
+          cat dist-linux/SHASUMS256-linux.txt > SHASUMS256.txt
+          if [ -d dist-windows ] && [ -f dist-windows/SHASUMS256-win.txt ]; then
+            cat dist-windows/SHASUMS256-win.txt >> SHASUMS256.txt
+          fi
 
       - name: Sync package.json version
         env:
@@ -245,10 +251,10 @@ jobs:
           generate_release_notes: true
           files: |
             dist-linux/*.AppImage
-            dist-windows/*-setup.exe
             SHASUMS256.txt
 
       - name: Publish Windows installers to Cloudflare R2
+        if: needs.build-windows.result == 'success'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
