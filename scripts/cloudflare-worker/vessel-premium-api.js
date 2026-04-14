@@ -55,16 +55,33 @@ function subscriptionToStatus(sub) {
 
 // --- CORS ---
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+function allowedOrigins(env) {
+  return String(env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
 
-function corsResponse(body, status = 200) {
+function buildCorsHeaders(request, env) {
+  const headers = {
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+  const origin = request.headers.get("origin");
+  if (origin && allowedOrigins(env).includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers.Vary = "Origin";
+  }
+  return headers;
+}
+
+function corsResponse(request, env, body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: {
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request, env),
+    },
   });
 }
 
@@ -122,7 +139,7 @@ async function handleCheckout(request, env) {
   const session = await stripeRequest(env, "POST", "/checkout/sessions", params);
 
   if (session.error) {
-    return corsResponse({ error: session.error.message }, 400);
+    return corsResponse(request, env, { error: session.error.message }, 400);
   }
 
   // GET requests (e.g. clicking a link on the website) get a redirect;
@@ -130,37 +147,26 @@ async function handleCheckout(request, env) {
   if (request.method === "GET") {
     return new Response(null, {
       status: 302,
-      headers: { Location: session.url, ...CORS_HEADERS },
+      headers: {
+        Location: session.url,
+        ...buildCorsHeaders(request, env),
+      },
     });
   }
 
-  return corsResponse({ url: session.url });
+  return corsResponse(request, env, { url: session.url });
 }
 
 async function handlePortal(request, env) {
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return corsResponse({ error: "Invalid JSON body" }, 400);
-  }
-
-  const customerId = body.customerId;
-  if (!customerId) {
-    return corsResponse({ error: "customerId is required" }, 400);
-  }
-
-  const url = new URL(request.url);
-  const session = await stripeRequest(env, "POST", "/billing_portal/sessions", {
-    customer: customerId,
-    return_url: `${url.origin}/portal-return`,
-  });
-
-  if (session.error) {
-    return corsResponse({ error: session.error.message }, 400);
-  }
-
-  return corsResponse({ url: session.url });
+  return corsResponse(
+    request,
+    env,
+    {
+      error:
+        "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
+    },
+    403,
+  );
 }
 
 async function handleVerify(request, env) {
@@ -168,22 +174,27 @@ async function handleVerify(request, env) {
   try {
     body = await request.json();
   } catch {
-    return corsResponse({ error: "Invalid JSON body" }, 400);
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
   }
 
   const identifier = body.identifier;
   if (!identifier) {
-    return corsResponse({ error: "identifier (email or customerId) is required" }, 400);
+    return corsResponse(
+      request,
+      env,
+      { error: "identifier (email or checkout session) is required" },
+      400,
+    );
   }
 
   let customer;
   if (identifier.startsWith("cs_")) {
     const session = await stripeRequest(env, "GET", `/checkout/sessions/${identifier}`);
     if (session.error || !session.customer) {
-      return corsResponse({
+      return corsResponse(request, env, {
         status: "free",
         customerId: "",
-        email: session.customer_details?.email || "",
+        email: "",
         expiresAt: "",
       });
     }
@@ -192,31 +203,31 @@ async function handleVerify(request, env) {
         ? await stripeRequest(env, "GET", `/customers/${session.customer}`)
         : session.customer;
     if (customer.error) {
-      return corsResponse({
+      return corsResponse(request, env, {
         status: "free",
         customerId: "",
-        email: session.customer_details?.email || "",
+        email: "",
         expiresAt: "",
       });
-    }
-  } else if (identifier.startsWith("cus_")) {
-    customer = await stripeRequest(env, "GET", `/customers/${identifier}`);
-    if (customer.error) {
-      return corsResponse({ status: "free", customerId: "", email: "", expiresAt: "" });
     }
   } else {
     customer = await findCustomerByEmail(env, identifier);
     if (!customer) {
-      return corsResponse({ status: "free", customerId: "", email: identifier, expiresAt: "" });
+      return corsResponse(request, env, {
+        status: "free",
+        customerId: "",
+        email: "",
+        expiresAt: "",
+      });
     }
   }
 
   const subscription = await getSubscription(env, customer.id);
   const status = subscriptionToStatus(subscription);
 
-  return corsResponse({
+  return corsResponse(request, env, {
     status,
-    customerId: customer.id,
+    customerId: "",
     email: customer.email || "",
     expiresAt: subscription?.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
@@ -316,7 +327,10 @@ export default {
   async fetch(request, env) {
     // Handle CORS preflight
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, {
+        status: 204,
+        headers: buildCorsHeaders(request, env),
+      });
     }
 
     const url = new URL(request.url);
@@ -351,7 +365,7 @@ export default {
       return new Response("Not found", { status: 404 });
     } catch (err) {
       console.error("[Vessel Premium API]", err);
-      return corsResponse({ error: "Internal server error" }, 500);
+      return corsResponse(request, env, { error: "Internal server error" }, 500);
     }
   },
 };

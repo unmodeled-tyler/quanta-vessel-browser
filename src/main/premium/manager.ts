@@ -132,30 +132,11 @@ export async function getCheckoutUrl(email?: string): Promise<{ ok: boolean; url
  * Open the Stripe Customer Portal for subscription management.
  */
 export async function getPortalUrl(): Promise<{ ok: boolean; url?: string; error?: string }> {
-  const { premium } = loadSettings();
-  if (!premium.customerId) {
-    return { ok: false, error: "No active subscription" };
-  }
-
-  try {
-    const res = await fetch(`${VERIFICATION_API}/portal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId: premium.customerId }),
-    });
-
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}` };
-    }
-
-    const { url } = (await res.json()) as { url: string };
-    return { ok: true, url };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Failed to get portal URL",
-    };
-  }
+  return {
+    ok: false,
+    error:
+      "Billing portal access is temporarily disabled while we harden the premium API. Use the Stripe billing link from your subscription email for now.",
+  };
 }
 
 // --- Subscription verification ---
@@ -168,7 +149,7 @@ export async function verifySubscription(
   emailOrCustomerId?: string,
 ): Promise<PremiumState> {
   const current = loadSettings().premium;
-  const identifier = emailOrCustomerId || current.customerId || current.email;
+  const identifier = emailOrCustomerId || current.email;
 
   if (!identifier) {
     return current;
@@ -189,15 +170,14 @@ export async function verifySubscription(
 
     const data = (await res.json()) as {
       status: PremiumStatus;
-      customerId: string;
       email: string;
       expiresAt: string;
     };
 
     const updated: PremiumState = {
       status: data.status,
-      customerId: data.customerId,
-      email: data.email,
+      customerId: "",
+      email: data.email || current.email,
       validatedAt: new Date().toISOString(),
       expiresAt: data.expiresAt,
     };
@@ -248,7 +228,7 @@ export function startBackgroundRevalidation(): void {
 
   // Check on startup if we need to revalidate
   const { premium } = loadSettings();
-  if (premium.customerId || premium.email) {
+  if (premium.email) {
     const lastValidated = premium.validatedAt
       ? new Date(premium.validatedAt).getTime()
       : 0;
