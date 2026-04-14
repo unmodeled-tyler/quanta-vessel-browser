@@ -1416,6 +1416,18 @@ function getCartAddedSummary(url?: string): string {
   return `\nAlready in cart (${count} items):\n${items}`;
 }
 
+/**
+ * Clear all in-memory cart and click tracking state. Called when the agent
+ * starts a new task (goal changes) so that stale entries from a previous
+ * run do not confuse the model with false "already in cart" warnings.
+ */
+export function clearCartState(): void {
+  cartAddedProducts.clear();
+  recentCartClicks.clear();
+  clickStreakUrl = null;
+  clickStreakCount = 0;
+}
+
 async function buildCartSuccessSuffix(
   wc: WebContents,
   productUrl: string,
