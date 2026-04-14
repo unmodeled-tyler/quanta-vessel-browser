@@ -4521,7 +4521,23 @@ async function getPostActionState(
       if (cartSummary) {
         warnings += `${cartSummary}\nSelect a DIFFERENT product that is not in the cart. Call read_page if needed to see available results.`;
       }
+      // Compact models often skip read_page after going back and click blindly.
+      // Force them to refresh context before interacting.
+      if (ctx.toolProfile === "compact" && name === "go_back") {
+        warnings += `\nCall read_page(mode="results_only") to see available products before clicking.`;
+      }
     }
+
+    // Detect when a click navigated to a filter/sort URL instead of a product
+    // page — common mistake for small models on listing pages.
+    if (name === "click" && ctx.toolProfile === "compact") {
+      const filterParams = /\b(condition|binding|format|availability|sort|filter|price|category_id|view)\b=[^&]/i;
+      const filterPath = /\/(condition|binding|format|availability|sort|filter|price|category)\/[^/?#]+/i;
+      if (filterParams.test(currentUrl) || filterPath.test(currentUrl)) {
+        warnings += `\nWARNING: The clicked link appears to be a filter or sort control, not a product. If you intended to click a product, call go_back and use click(index=N) on a result from read_page(mode="results_only").`;
+      }
+    }
+
     return `\n[state: url=${currentUrl}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${warnings}`;
   }
 
