@@ -369,9 +369,9 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
       return;
     }
 
-    wc.on("did-finish-load", onLoadEvent);
-    wc.on("did-stop-loading", onLoadEvent);
-    wc.on("did-fail-load", onLoadEvent);
+    wc.once("did-finish-load", onLoadEvent);
+    wc.once("did-stop-loading", onLoadEvent);
+    wc.once("did-fail-load", onLoadEvent);
   });
 }
 
@@ -435,8 +435,8 @@ function waitForPotentialNavigation(
     wc.once("did-start-loading", onStart);
     wc.once("did-navigate", onNavigate);
     wc.once("did-navigate-in-page", onNavigateInPage);
-    wc.on("did-stop-loading", onNativeChange);
-    wc.on("page-title-updated", onNativeChange);
+    wc.once("did-stop-loading", onNativeChange);
+    wc.once("page-title-updated", onNativeChange);
   });
 }
 
