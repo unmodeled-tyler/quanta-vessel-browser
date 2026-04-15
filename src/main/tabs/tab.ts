@@ -429,20 +429,34 @@ export class Tab {
   goBack(): boolean {
     const previousUrl = this.urlHistory.pop();
     if (!previousUrl) return false;
+    const currentUrl = this.lastCommittedUrl;
     this.navigatingViaHistory = true;
-    this.urlForwardStack.push(this.lastCommittedUrl);
+    this.urlForwardStack.push(currentUrl);
+    const error = this.guardedLoadURL(previousUrl);
+    if (error) {
+      this.navigatingViaHistory = false;
+      this.urlForwardStack.pop();
+      this.urlHistory.push(previousUrl);
+      return false;
+    }
     this.lastCommittedUrl = previousUrl;
-    this.view.webContents.loadURL(previousUrl);
     return true;
   }
 
   goForward(): boolean {
     const nextUrl = this.urlForwardStack.pop();
     if (!nextUrl) return false;
+    const currentUrl = this.lastCommittedUrl;
     this.navigatingViaHistory = true;
-    this.urlHistory.push(this.lastCommittedUrl);
+    this.urlHistory.push(currentUrl);
+    const error = this.guardedLoadURL(nextUrl);
+    if (error) {
+      this.navigatingViaHistory = false;
+      this.urlHistory.pop();
+      this.urlForwardStack.push(nextUrl);
+      return false;
+    }
     this.lastCommittedUrl = nextUrl;
-    this.view.webContents.loadURL(nextUrl);
     return true;
   }
 
