@@ -20,6 +20,7 @@ import type {
   TabState,
   VesselSettings,
 } from "../shared/types";
+import type { AutofillProfile, AutofillResult } from "../shared/autofill-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
 
 const api = {
@@ -407,6 +408,18 @@ const api = {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.invoke(Channels.WINDOW_MAXIMIZE),
     close: () => ipcRenderer.invoke(Channels.WINDOW_CLOSE),
+  },
+  autofill: {
+    list: (): Promise<AutofillProfile[]> =>
+      ipcRenderer.invoke(Channels.AUTOFILL_LIST),
+    add: (profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">): Promise<AutofillProfile> =>
+      ipcRenderer.invoke(Channels.AUTOFILL_ADD, profile),
+    update: (id: string, updates: Partial<Omit<AutofillProfile, "id" | "createdAt">>): Promise<AutofillProfile | null> =>
+      ipcRenderer.invoke(Channels.AUTOFILL_UPDATE, id, updates),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.AUTOFILL_DELETE, id),
+    fill: (profileId: string): Promise<AutofillResult> =>
+      ipcRenderer.invoke(Channels.AUTOFILL_FILL, profileId),
   },
 };
 

@@ -63,6 +63,10 @@ import {
   uninstallKit,
 } from "../automation/kit-registry";
 import { registerScheduleHandlers, getScheduledKitIds } from "../automation/scheduler";
+import * as autofillManager from "../autofill/manager";
+import { matchFields } from "../autofill/matcher";
+import { fillFormFields } from "../ai/page-actions";
+import type { AutofillProfile } from "../../shared/autofill-types";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -78,6 +82,54 @@ function assertOptionalString(value: unknown, name: string): asserts value is st
 
 function assertNumber(value: unknown, name: string): asserts value is number {
   if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`${name} must be a number`);
+}
+
+const AUTOFILL_PROFILE_FIELDS = [
+  "label",
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "organization",
+  "addressLine1",
+  "addressLine2",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+] as const;
+
+type EditableAutofillProfile = Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">;
+
+function sanitizeAutofillProfile(
+  value: unknown,
+): EditableAutofillProfile {
+  if (!value || typeof value !== "object") throw new Error("Invalid profile");
+  const raw = value as Record<string, unknown>;
+  const profile = {} as EditableAutofillProfile;
+  for (const field of AUTOFILL_PROFILE_FIELDS) {
+    assertString(raw[field], field);
+    profile[field] = raw[field] as never;
+  }
+  if (!profile.label.trim()) throw new Error("Label is required");
+  return profile;
+}
+
+function sanitizeAutofillUpdates(
+  value: unknown,
+): Partial<EditableAutofillProfile> {
+  if (!value || typeof value !== "object") throw new Error("Invalid updates");
+  const raw = value as Record<string, unknown>;
+  const updates: Partial<EditableAutofillProfile> = {};
+  for (const field of AUTOFILL_PROFILE_FIELDS) {
+    if (!(field in raw)) continue;
+    assertString(raw[field], field);
+    updates[field] = raw[field] as never;
+  }
+  if ("label" in updates && !updates.label?.trim()) {
+    throw new Error("Label is required");
+  }
+  return updates;
 }
 
 const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
@@ -906,4 +958,61 @@ export function registerIpcHandlers(
   // --- Scheduled jobs ---
 
   registerScheduleHandlers(windowState, runtime, sendToRendererViews);
+
+  // --- Autofill ---
+
+  ipcMain.handle(Channels.AUTOFILL_LIST, () => {
+    return autofillManager.listProfiles();
+  });
+
+  ipcMain.handle(
+    Channels.AUTOFILL_ADD,
+    (_, profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">) => {
+      return autofillManager.addProfile(sanitizeAutofillProfile(profile));
+    },
+  );
+
+  ipcMain.handle(Channels.AUTOFILL_UPDATE, (_, id: unknown, updates: unknown) => {
+    assertString(id, "id");
+    return autofillManager.updateProfile(id, sanitizeAutofillUpdates(updates));
+  });
+
+  ipcMain.handle(Channels.AUTOFILL_DELETE, (_, id: unknown) => {
+    assertString(id, "id");
+    return autofillManager.deleteProfile(id);
+  });
+
+  ipcMain.handle(Channels.AUTOFILL_FILL, async (_, profileId: unknown) => {
+    assertString(profileId, "profileId");
+    const profile = autofillManager.getProfile(profileId);
+    if (!profile) throw new Error("Profile not found");
+    const wc = windowState.chromeView.webContents;
+    const content = await extractContent(wc);
+    const elements = content.interactiveElements || [];
+    const matches = matchFields(elements, profile);
+    if (matches.length === 0) {
+      return { filled: 0, skipped: 0, details: [] };
+    }
+    const fields = matches.map((m) => ({
+      index: m.fieldIndex,
+      selector: m.selector,
+      value: m.value,
+    }));
+    const results = await fillFormFields(wc, fields);
+    const filled = results.filter(
+      (r) =>
+        r.result.startsWith("Typed into:") ||
+        r.result.startsWith("Selected:"),
+    ).length;
+    return {
+      filled,
+      skipped: results.length - filled,
+      details: results.map((r, i) => ({
+        label: elements.find((e) => e.index === matches[i]?.fieldIndex)?.label || `Field ${i + 1}`,
+        value: matches[i]?.value || "",
+        matchedBy: matches[i]?.matchedBy || "unknown",
+        result: r.result,
+      })),
+    };
+  });
 }

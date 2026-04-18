@@ -33,6 +33,7 @@ import { createSplashWindow, closeSplash } from "./splash";
 import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 import * as highlightsManager from "./highlights/manager";
+import * as autofillManager from "./autofill/manager";
 
 let runtime: AgentRuntime | null = null;
 
@@ -288,6 +289,7 @@ app.whenReady().then(bootstrap).catch((error) => {
     bookmarkManager.flushPersist(),
     historyManager.flushPersist(),
     highlightsManager.flushPersist(),
+    autofillManager.flushPersist(),
     flushSettingsPersist(),
   ]).finally(() => {
     void stopMcpServer().finally(() => {
