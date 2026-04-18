@@ -5,6 +5,7 @@ import { TabManager } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
 import { Channels } from "../shared/channels";
 import type { UIState, TabState } from "../shared/types";
+import { capturePageSnapshot } from "./content/page-diff-monitor";
 
 /**
  * Ensure clipboard keyboard shortcuts (Ctrl+C/V/X/A) work in a WebContentsView.
@@ -267,6 +268,15 @@ export function createMainWindow(
   };
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
+
+  const sendToRendererViews = (channel: string, ...args: unknown[]) => {
+    chromeView.webContents.send(channel, ...args);
+    sidebarView.webContents.send(channel, ...args);
+  };
+
+  tabManager.onPageLoad((url, wc) => {
+    void capturePageSnapshot(url, wc, sendToRendererViews);
+  });
 
   const state: WindowState = {
     mainWindow,

@@ -3,12 +3,16 @@ import {
   createEffect,
   createMemo,
   Show,
+  For,
+  onCleanup,
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
 import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
+import type { PageDiff } from "../../../../shared/page-diff-types";
+import { normalizePageUrl } from "../../../../shared/page-url";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
@@ -34,12 +38,82 @@ const AddressBar: Component = () => {
     () => runtimeState().supervisor.pendingApprovals.length,
   );
 
+  const [pageDiff, setPageDiff] = createSignal<PageDiff | null>(null);
+  const [diffExpanded, setDiffExpanded] = createSignal(false);
+  let diffCollapseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const showIncomingDiff = (diff: PageDiff) => {
+    setPageDiff(diff);
+    setDiffExpanded(true);
+    if (diffCollapseTimer) clearTimeout(diffCollapseTimer);
+    diffCollapseTimer = setTimeout(() => {
+      setDiffExpanded(false);
+      diffCollapseTimer = null;
+    }, 8000);
+  };
+
+  const formatRelativeTime = (isoDate: string): string => {
+    const diff = Date.now() - new Date(isoDate).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(isoDate).toLocaleDateString();
+  };
+
+  createEffect(() => {
+    const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
+      const tab = activeTab();
+      if (!tab) return;
+      if (normalizePageUrl(tab.url) !== diff.url) return;
+      showIncomingDiff(diff);
+    });
+    onCleanup(() => {
+      unsubscribe();
+      if (diffCollapseTimer) {
+        clearTimeout(diffCollapseTimer);
+        diffCollapseTimer = null;
+      }
+    });
+  });
+
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
     if (tab && !inputRef?.matches(":focus")) {
       setInputValue(tab.url === "about:blank" ? "" : tab.url);
     }
+  });
+
+  createEffect(() => {
+    const tab = activeTab();
+    if (!tab) {
+      setPageDiff(null);
+      setDiffExpanded(false);
+      return;
+    }
+
+    let cancelled = false;
+    void window.vessel.pageDiff.get().then((diff) => {
+      if (cancelled) return;
+      if (!diff || normalizePageUrl(tab.url) !== diff.url) {
+        setPageDiff(null);
+        setDiffExpanded(false);
+        return;
+      }
+      setPageDiff(diff);
+    }).catch(() => {
+      if (cancelled) return;
+      setPageDiff(null);
+      setDiffExpanded(false);
+    });
+
+    onCleanup(() => {
+      cancelled = true;
+    });
   });
 
   const handleSubmit = (e: Event) => {
@@ -144,7 +218,36 @@ const AddressBar: Component = () => {
                   : "Agent Offline")}
           </span>
         </div>
+
+        <Show when={pageDiff()}>
+          <button
+            class="agent-status-badge recent"
+            style="cursor: pointer; font-size: 11px;"
+            onClick={() => setDiffExpanded(!diffExpanded())}
+            title="Page content has changed since your last visit"
+          >
+            <span class="agent-status-dot" style="background: #f59e0b;" aria-hidden="true" />
+            <span class="agent-status-text">Changed</span>
+          </button>
+        </Show>
       </div>
+
+      <Show when={pageDiff() && diffExpanded()}>
+        <div class="page-diff-popup">
+          <div class="page-diff-popup-header">
+            What changed since {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
+            <button class="page-diff-popup-close" onClick={() => setDiffExpanded(false)}>&times;</button>
+          </div>
+          <For each={pageDiff()!.changes}>
+            {(change) => (
+              <div class={`page-diff-item page-diff-${change.kind}`}>
+                <span class="page-diff-section">{change.section}</span>
+                <span class="page-diff-summary">{change.summary}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <div class="toolbar-actions">
         <button

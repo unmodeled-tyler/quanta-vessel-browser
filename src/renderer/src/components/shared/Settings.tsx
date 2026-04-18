@@ -64,6 +64,83 @@ const Settings: Component = () => {
   const [vaultNewNotes, setVaultNewNotes] = createSignal("");
   const [vaultMessage, setVaultMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
 
+  // Autofill Profiles
+  type AutofillListEntry = { id: string; label: string; firstName: string; lastName: string; email: string; phone: string; organization: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string };
+  const [autofillProfiles, setAutofillProfiles] = createSignal<AutofillListEntry[]>([]);
+  const [autofillAdding, setAutofillAdding] = createSignal(false);
+  const [autofillLabel, setAutofillLabel] = createSignal("");
+  const [autofillFirstName, setAutofillFirstName] = createSignal("");
+  const [autofillLastName, setAutofillLastName] = createSignal("");
+  const [autofillEmail, setAutofillEmail] = createSignal("");
+  const [autofillPhone, setAutofillPhone] = createSignal("");
+  const [autofillOrg, setAutofillOrg] = createSignal("");
+  const [autofillAddr1, setAutofillAddr1] = createSignal("");
+  const [autofillAddr2, setAutofillAddr2] = createSignal("");
+  const [autofillCity, setAutofillCity] = createSignal("");
+  const [autofillState, setAutofillState] = createSignal("");
+  const [autofillZip, setAutofillZip] = createSignal("");
+  const [autofillCountry, setAutofillCountry] = createSignal("");
+  const [autofillMessage, setAutofillMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
+
+  const loadAutofillProfiles = async () => {
+    try {
+      const profiles = await window.vessel.autofill.list();
+      setAutofillProfiles(profiles);
+    } catch { /* autofill not available */ }
+  };
+
+  const handleAutofillAdd = async () => {
+    if (!autofillLabel().trim()) {
+      setAutofillMessage({ kind: "error", text: "Profile name is required." });
+      return;
+    }
+    try {
+      await window.vessel.autofill.add({
+        label: autofillLabel().trim(),
+        firstName: autofillFirstName().trim(),
+        lastName: autofillLastName().trim(),
+        email: autofillEmail().trim(),
+        phone: autofillPhone().trim(),
+        organization: autofillOrg().trim(),
+        addressLine1: autofillAddr1().trim(),
+        addressLine2: autofillAddr2().trim(),
+        city: autofillCity().trim(),
+        state: autofillState().trim(),
+        postalCode: autofillZip().trim(),
+        country: autofillCountry().trim(),
+      });
+      setAutofillLabel(""); setAutofillFirstName(""); setAutofillLastName("");
+      setAutofillEmail(""); setAutofillPhone(""); setAutofillOrg("");
+      setAutofillAddr1(""); setAutofillAddr2(""); setAutofillCity("");
+      setAutofillState(""); setAutofillZip(""); setAutofillCountry("");
+      setAutofillAdding(false);
+      setAutofillMessage({ kind: "success", text: "Profile saved." });
+      setTimeout(() => setAutofillMessage(null), 3000);
+      await loadAutofillProfiles();
+    } catch (err) {
+      setAutofillMessage({ kind: "error", text: String(err) });
+    }
+  };
+
+  const handleAutofillRemove = async (id: string) => {
+    await window.vessel.autofill.delete(id);
+    await loadAutofillProfiles();
+  };
+
+  const handleAutofillFill = async (id: string) => {
+    try {
+      const result = await window.vessel.autofill.fill(id);
+      if (result.filled > 0) {
+        setAutofillMessage({ kind: "success", text: `Filled ${result.filled} field${result.filled > 1 ? "s" : ""}.` });
+      } else {
+        setAutofillMessage({ kind: "error", text: "No matching fields found on this page." });
+      }
+      setTimeout(() => setAutofillMessage(null), 3000);
+    } catch (err) {
+      setAutofillMessage({ kind: "error", text: String(err) });
+    }
+  };
+
   // First-run detection
   const FIRST_RUN_KEY = "vessel.onboarding.dismissed";
   const [showWelcome, setShowWelcome] = createSignal(
@@ -262,6 +339,7 @@ const Settings: Component = () => {
 
   onMount(() => {
     void loadState();
+    void loadAutofillProfiles();
     const unsubscribe = window.vessel.settings.onHealthUpdate((nextHealth) => {
       setHealth(nextHealth);
     });
@@ -1179,6 +1257,100 @@ const Settings: Component = () => {
                   </p>
                 )}
               </Show>
+            </Show>
+          </div>
+
+          <div class="settings-section-divider" />
+
+          {/* --- Form Autofill --- */}
+          <div class="settings-field">
+            <label class="settings-label">Form Autofill</label>
+            <p class="settings-hint" style="margin-bottom: 10px">
+              Store your info once. Vessel matches it to form fields on any site using labels, field names, and autocomplete hints.
+            </p>
+
+            <Show when={autofillProfiles().length > 0}>
+              <div class="vault-entries">
+                <For each={autofillProfiles()}>
+                  {(profile) => (
+                    <div class="vault-entry">
+                      <div class="vault-entry-info">
+                        <span class="vault-entry-label">{profile.label}</span>
+                        <span class="vault-entry-detail">
+                          {profile.firstName}{profile.lastName ? ` ${profile.lastName}` : ""}{profile.email ? ` · ${profile.email}` : ""}
+                        </span>
+                      </div>
+                      <div style="display: flex; gap: 6px; align-items: center;">
+                        <button
+                          class="premium-btn premium-btn-activate"
+                          style="padding: 2px 10px; font-size: 12px;"
+                          onClick={() => handleAutofillFill(profile.id)}
+                          title="Fill forms on current page with this profile"
+                        >
+                          Fill
+                        </button>
+                        <button
+                          class="vault-entry-remove"
+                          onClick={() => handleAutofillRemove(profile.id)}
+                          title="Remove profile"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <Show when={!autofillAdding()}>
+              <button
+                class="vault-add-btn"
+                onClick={() => { setAutofillAdding(true); setAutofillMessage(null); }}
+              >
+                + Add Profile
+              </button>
+            </Show>
+
+            <Show when={autofillAdding()}>
+              <div class="vault-add-form">
+                <input class="settings-input" placeholder="Profile name (e.g. Personal, Work)" value={autofillLabel()} onInput={(e) => setAutofillLabel(e.currentTarget.value)} spellcheck={false} />
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <input class="settings-input" placeholder="First name" value={autofillFirstName()} onInput={(e) => setAutofillFirstName(e.currentTarget.value)} />
+                  <input class="settings-input" placeholder="Last name" value={autofillLastName()} onInput={(e) => setAutofillLastName(e.currentTarget.value)} />
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <input class="settings-input" placeholder="Email" value={autofillEmail()} onInput={(e) => setAutofillEmail(e.currentTarget.value)} spellcheck={false} />
+                  <input class="settings-input" placeholder="Phone" value={autofillPhone()} onInput={(e) => setAutofillPhone(e.currentTarget.value)} />
+                </div>
+                <input class="settings-input" placeholder="Organization (optional)" value={autofillOrg()} onInput={(e) => setAutofillOrg(e.currentTarget.value)} />
+                <input class="settings-input" placeholder="Address line 1" value={autofillAddr1()} onInput={(e) => setAutofillAddr1(e.currentTarget.value)} />
+                <input class="settings-input" placeholder="Address line 2 (optional)" value={autofillAddr2()} onInput={(e) => setAutofillAddr2(e.currentTarget.value)} />
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                  <input class="settings-input" placeholder="City" value={autofillCity()} onInput={(e) => setAutofillCity(e.currentTarget.value)} />
+                  <input class="settings-input" placeholder="State" value={autofillState()} onInput={(e) => setAutofillState(e.currentTarget.value)} />
+                  <input class="settings-input" placeholder="ZIP / Postal" value={autofillZip()} onInput={(e) => setAutofillZip(e.currentTarget.value)} />
+                </div>
+                <input class="settings-input" placeholder="Country" value={autofillCountry()} onInput={(e) => setAutofillCountry(e.currentTarget.value)} />
+                <div class="vault-add-actions">
+                  <button class="premium-btn premium-btn-activate" onClick={handleAutofillAdd}>Save Profile</button>
+                  <button class="premium-btn premium-btn-reset" onClick={() => {
+                    setAutofillAdding(false);
+                    setAutofillLabel(""); setAutofillFirstName(""); setAutofillLastName("");
+                    setAutofillEmail(""); setAutofillPhone(""); setAutofillOrg("");
+                    setAutofillAddr1(""); setAutofillAddr2(""); setAutofillCity("");
+                    setAutofillState(""); setAutofillZip(""); setAutofillCountry("");
+                  }}>Cancel</button>
+                </div>
+              </div>
+            </Show>
+
+            <Show when={autofillMessage()}>
+              {(msg) => (
+                <p class="settings-status" classList={{ success: msg().kind === "success", error: msg().kind === "error" }}>
+                  {msg().text}
+                </p>
+              )}
             </Show>
           </div>
 

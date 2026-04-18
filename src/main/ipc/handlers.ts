@@ -24,14 +24,11 @@ import {
   verifySubscription,
   isPremiumActiveState,
 } from "../premium/manager";
-import * as vaultManager from "../vault/manager";
-import { readAuditLog } from "../vault/audit";
 import {
   trackProviderConfigured,
   trackSettingChanged,
   trackApprovalModeChanged,
   trackBookmarkAction,
-  trackVaultAction,
   trackPremiumFunnel,
 } from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
@@ -63,22 +60,17 @@ import {
   uninstallKit,
 } from "../automation/kit-registry";
 import { registerScheduleHandlers, getScheduledKitIds } from "../automation/scheduler";
+import {
+  assertNumber,
+  assertString,
+  type SendToRendererViews,
+} from "./common";
+import { registerAutofillHandlers } from "./autofill";
+import { registerPageDiffHandlers } from "./page-diff";
+import { registerVaultHandlers } from "./vault";
+import { registerWindowControlHandlers } from "./window-controls";
 
 let activeChatProvider: AIProvider | null = null;
-
-// --- IPC input validation helpers ---
-
-function assertString(value: unknown, name: string): asserts value is string {
-  if (typeof value !== "string") throw new Error(`${name} must be a string`);
-}
-
-function assertOptionalString(value: unknown, name: string): asserts value is string | undefined {
-  if (value !== undefined && typeof value !== "string") throw new Error(`${name} must be a string`);
-}
-
-function assertNumber(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`${name} must be a number`);
-}
 
 const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
 
@@ -143,7 +135,7 @@ export function registerIpcHandlers(
     }, 32);
   };
 
-  const sendToRendererViews = (channel: string, ...args: unknown[]) => {
+  const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
     devtoolsPanelView.webContents.send(channel, ...args);
@@ -826,67 +818,9 @@ export function registerIpcHandlers(
     return result;
   });
 
-  // --- Agent Credential Vault ---
+  registerVaultHandlers();
 
-  ipcMain.handle(Channels.VAULT_LIST, () => {
-    return vaultManager.listEntries();
-  });
-
-  ipcMain.handle(
-    Channels.VAULT_ADD,
-    (_, entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }) => {
-      if (!entry || typeof entry !== "object") throw new Error("Invalid vault entry");
-      assertString(entry.label, "label");
-      assertString(entry.domainPattern, "domainPattern");
-      assertString(entry.username, "username");
-      assertString(entry.password, "password");
-      if (!entry.label.trim() || !entry.domainPattern.trim() || !entry.username.trim() || !entry.password.trim()) {
-        throw new Error("Label, domain, username, and password are required");
-      }
-      assertOptionalString(entry.totpSecret, "totpSecret");
-      assertOptionalString(entry.notes, "notes");
-      trackVaultAction("credential_added");
-      const created = vaultManager.addEntry(entry);
-      return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
-    },
-  );
-
-  ipcMain.handle(
-    Channels.VAULT_UPDATE,
-    (_, id: string, updates: Partial<{ label: string; domainPattern: string; username: string; password: string; totpSecret: string; notes: string }>) => {
-      assertString(id, "id");
-      if (!updates || typeof updates !== "object") throw new Error("Invalid updates");
-      return vaultManager.updateEntry(id, updates) !== null;
-    },
-  );
-
-  ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
-    assertString(id, "id");
-    trackVaultAction("credential_removed");
-    return vaultManager.removeEntry(id);
-  });
-
-  ipcMain.handle(Channels.VAULT_AUDIT_LOG, (_, limit?: number) => {
-    return readAuditLog(limit);
-  });
-
-  // --- Window controls ---
-
-  ipcMain.handle(Channels.WINDOW_MINIMIZE, () => {
-    mainWindow.minimize();
-  });
-
-  ipcMain.handle(Channels.WINDOW_MAXIMIZE, () => {
-    if (mainWindow.isMaximized()) {
-      mainWindow.unmaximize();
-    } else {
-      mainWindow.maximize();
-    }
-  });
-
-  ipcMain.handle(Channels.WINDOW_CLOSE, () => {
-    mainWindow.close();
-  });
+  registerWindowControlHandlers(mainWindow);
 
   // --- Automation kits ---
 
@@ -906,4 +840,7 @@ export function registerIpcHandlers(
   // --- Scheduled jobs ---
 
   registerScheduleHandlers(windowState, runtime, sendToRendererViews);
+
+  registerAutofillHandlers(windowState);
+  registerPageDiffHandlers(windowState);
 }

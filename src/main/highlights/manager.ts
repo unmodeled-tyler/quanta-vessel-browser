@@ -1,6 +1,5 @@
 import { app } from "electron";
 import path from "path";
-import fs from "fs";
 import { randomUUID } from "crypto";
 import type {
   HighlightColor,
@@ -8,12 +7,14 @@ import type {
   HighlightsState,
   StoredHighlight,
 } from "../../shared/types";
+import {
+  createDebouncedJsonPersistence,
+  loadJsonFile,
+} from "../persistence/json-file";
 
 let state: HighlightsState | null = null;
 const listeners = new Set<(state: HighlightsState) => void>();
 const SAVE_DEBOUNCE_MS = 250;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let saveDirty = false;
 
 function getHighlightsPath(): string {
   return path.join(app.getPath("userData"), "vessel-highlights.json");
@@ -21,33 +22,29 @@ function getHighlightsPath(): string {
 
 function load(): HighlightsState {
   if (state) return state;
-  try {
-    const raw = fs.readFileSync(getHighlightsPath(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<HighlightsState>;
-    state = {
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
-    };
-  } catch {
-    state = { highlights: [] };
-  }
+  state = loadJsonFile({
+    filePath: getHighlightsPath(),
+    fallback: { highlights: [] },
+    parse: (raw) => {
+      const parsed = raw as Partial<HighlightsState>;
+      return {
+        highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+      };
+    },
+  });
   return state;
 }
 
-function persistNow(): Promise<void> {
-  if (!state) return Promise.resolve();
-  saveDirty = false;
-  return fs.promises
-    .writeFile(getHighlightsPath(), JSON.stringify(state, null, 2), "utf-8")
-    .catch((err) => console.error("[Vessel] Failed to save highlights:", err));
-}
+const persistence = createDebouncedJsonPersistence({
+  debounceMs: SAVE_DEBOUNCE_MS,
+  filePath: getHighlightsPath(),
+  getValue: () => state,
+  logLabel: "highlights",
+  resetOnSchedule: true,
+});
 
 function save(): void {
-  saveDirty = true;
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    void persistNow();
-  }, SAVE_DEBOUNCE_MS);
+  persistence.schedule();
 }
 
 function emit(): void {
@@ -168,10 +165,5 @@ export function clearHighlightsForUrl(url: string): number {
 }
 
 export function flushPersist(): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  if (!saveDirty) return Promise.resolve();
-  return persistNow();
+  return persistence.flush();
 }

@@ -100,6 +100,8 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Workflow Flow Tracking** — agents can declare a named multi-step workflow at runtime using `flow_start`; progress is tracked step-by-step with `flow_advance` and visible in the sidebar throughout execution
 - **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
+- **Form Autofill Profiles** — save reusable personal or work profiles in Settings and fill common contact, address, and organization fields on the current page; Vessel matches fields using labels, names, placeholders, and autocomplete hints
+- **Page Diff / "What Changed?"** — Vessel remembers the last snapshot of a page and surfaces a `Changed` badge in the address bar when the title, headings, or main content differ on a later visit; expand it to see a compact summary of what changed since the last snapshot
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
 - **Domain Policy** — allowlist or blocklist domains globally in Settings; agents cannot navigate to blocked domains
 - **Agent Credential Vault** (Premium) — encrypted credential storage for agent-driven logins; credentials are filled directly into login forms via a "blind fill" pattern and are never sent to AI providers; user consent dialog before every use; TOTP 2FA support; domain-scoped access; append-only audit log
@@ -228,7 +230,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
-3. Optional: set an Obsidian vault path or session preferences
+3. Optional: set an Obsidian vault path, create autofill profiles, or adjust session preferences
 4. Start Hermes Agent or OpenClaw and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command (auth is resolved automatically), or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
 6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
@@ -243,6 +245,8 @@ Notes:
 - For `llama-server`, use `--ctx-size 16384` minimum and `32768` recommended for reliable Vessel agent loops; lower values often fail once prompt, tool schema, and tool history accumulate
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
 - Settings now show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
+- Settings also include reusable Form Autofill profiles for one-click filling of common contact and address forms on the active page
+- The address bar can also show a `Changed` badge when Vessel detects that a previously visited page has meaningfully changed since the last saved snapshot
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
@@ -488,8 +492,9 @@ src/
 │   ├── ai/               # Agent tools, query flow, and AI provider implementations
 │   ├── tabs/             # Tab + TabManager (WebContentsView)
 │   ├── agent/            # Agent runtime, checkpoints, supervision, flow tracking
-│   ├── content/          # Readability extraction, reader mode, screenshot
+│   ├── content/          # Readability extraction, reader mode, screenshot, page snapshots/diff
 │   ├── config/           # Settings persistence
+│   ├── autofill/         # Autofill profile persistence and form-field matching
 │   ├── ipc/              # IPC handler registry
 │   ├── vault/            # Agent Credential Vault (encrypted storage, consent, audit)
 │   ├── mcp/              # MCP server for external agent control

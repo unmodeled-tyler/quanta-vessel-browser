@@ -2648,7 +2648,21 @@ async function setElementValue(
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
         if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return "Error[not-input]: Element is not a text input";
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return "Error[not-input]: Element is not a fillable input";
+        if (el.disabled || el.getAttribute("aria-disabled") === "true") return "Error[disabled]: Input is disabled";
+        if (el instanceof HTMLSelectElement) {
+          var requested = ${JSON.stringify(value)}.trim().toLowerCase();
+          var option = Array.from(el.options).find(function(item) {
+            return item.value.trim().toLowerCase() === requested ||
+              (item.textContent || "").trim().toLowerCase() === requested;
+          });
+          if (!option) return "Error[option-not-found]: Option not found";
+          el.value = option.value;
+          el.focus();
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return "Selected: " + ((option.textContent || option.value).trim().slice(0, 100));
+        }
         var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         var desc = Object.getOwnPropertyDescriptor(proto, "value");
         if (desc && desc.set) { desc.set.call(el, ${JSON.stringify(value)}); } else { el.value = ${JSON.stringify(value)}; }
@@ -2672,11 +2686,27 @@ async function setElementValue(
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-        return 'Error[not-input]: Element is not a text input';
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+        return 'Error[not-input]: Element is not a fillable input';
       }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
         return 'Error[disabled]: Input is disabled';
+      }
+
+      if (el instanceof HTMLSelectElement) {
+        const requested = ${JSON.stringify(value)}.trim().toLowerCase();
+        const option = Array.from(el.options).find((item) => {
+          const label = (item.textContent || '').trim().toLowerCase();
+          return label === requested || item.value.trim().toLowerCase() === requested;
+        });
+        if (!option) {
+          return 'Error[option-not-found]: Option not found';
+        }
+        el.value = option.value;
+        el.focus();
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'Selected: ' + ((option.textContent || option.value).trim().slice(0, 100));
       }
 
       const prototype = el instanceof HTMLTextAreaElement
