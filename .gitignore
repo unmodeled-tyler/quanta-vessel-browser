@@ -36,3 +36,4 @@ cloudflare/
 release-checklist.md
 .codex
 tests/
+navigation-regression.ts

@@ -16,10 +16,10 @@ import {
   submitFormBySelector,
   waitForLoad,
 } from "../src/main/ai/page-actions";
-import { capturePageSnapshot } from "../src/main/ipc/handlers";
-import * as pageSnapshots from "../src/main/content/page-snapshots";
+import { capturePageSnapshot } from "../src/main/content/page-diff-monitor";
 import { Tab } from "../src/main/tabs/tab";
 import { Channels } from "../src/shared/channels";
+import { normalizePageUrl } from "../src/shared/page-url";
 import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 
 async function withTab(
@@ -509,7 +509,7 @@ async function main(): Promise<void> {
             hasChanges: boolean;
             changes: Array<{ section: string; kind: string; summary: string }>;
           };
-          assert.equal(diff.url, pageSnapshots.normalizeUrl(pageUrlBase));
+          assert.equal(diff.url, normalizePageUrl(pageUrlBase));
           assert.equal(diff.hasChanges, true);
           assert.ok(
             diff.changes.some(

@@ -1,8 +1,11 @@
-import { app, safeStorage } from "electron";
+import { app } from "electron";
 import path from "path";
-import fs from "fs";
 import { randomUUID } from "crypto";
 import type { AutofillProfile } from "../../shared/autofill-types";
+import {
+  createDebouncedJsonPersistence,
+  loadJsonFile,
+} from "../persistence/json-file";
 
 const SAVE_DEBOUNCE_MS = 250;
 const PROFILE_FIELDS = [
@@ -25,8 +28,6 @@ interface AutofillState {
 }
 
 let state: AutofillState | null = null;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let saveDirty = false;
 
 function getFilePath(): string {
   return path.join(app.getPath("userData"), "vessel-autofill.json");
@@ -34,14 +35,6 @@ function getFilePath(): string {
 
 function getDefaultState(): AutofillState {
   return { profiles: [] };
-}
-
-function canUseSafeStorage(): boolean {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
-  }
 }
 
 function normalizeStoredProfile(value: unknown): AutofillProfile | null {
@@ -71,54 +64,31 @@ function normalizeStoredProfile(value: unknown): AutofillProfile | null {
 
 function load(): AutofillState {
   if (state) return state;
-  try {
-    const raw = fs.readFileSync(getFilePath());
-    const decoded =
-      canUseSafeStorage() && safeStorage.decryptString
-        ? safeStorage.decryptString(raw)
-        : raw.toString("utf-8");
-    const parsed = JSON.parse(decoded) as { profiles?: unknown[] };
-    state = {
-      profiles: Array.isArray(parsed.profiles)
-        ? parsed.profiles
-            .map(normalizeStoredProfile)
-            .filter((profile): profile is AutofillProfile => profile !== null)
-        : [],
-    };
-  } catch {
-    state = getDefaultState();
-  }
+  state = loadJsonFile({
+    filePath: getFilePath(),
+    fallback: getDefaultState(),
+    secure: true,
+    parse: (raw) => {
+      const parsed = raw as { profiles?: unknown[] };
+      return {
+        profiles: Array.isArray(parsed.profiles)
+          ? parsed.profiles
+              .map(normalizeStoredProfile)
+              .filter((profile): profile is AutofillProfile => profile !== null)
+          : [],
+      };
+    },
+  });
   return state;
 }
 
-function persistNow(): Promise<void> {
-  saveDirty = false;
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  if (!state) return Promise.resolve();
-  const payload = JSON.stringify(state, null, 2);
-  const data =
-    canUseSafeStorage() && safeStorage.encryptString
-      ? safeStorage.encryptString(payload)
-      : payload;
-  return fs.promises
-    .mkdir(path.dirname(getFilePath()), { recursive: true })
-    .then(() =>
-      fs.promises.writeFile(getFilePath(), data, typeof data === "string" ? { encoding: "utf-8", mode: 0o600 } : { mode: 0o600 }),
-    )
-    .catch((err) => console.error("[Vessel] Failed to save autofill:", err));
-}
-
-function scheduleSave(): void {
-  saveDirty = true;
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    if (saveDirty) void persistNow();
-  }, SAVE_DEBOUNCE_MS);
-}
+const persistence = createDebouncedJsonPersistence({
+  debounceMs: SAVE_DEBOUNCE_MS,
+  filePath: getFilePath(),
+  getValue: () => state,
+  logLabel: "autofill",
+  secure: true,
+});
 
 export function listProfiles(): AutofillProfile[] {
   return load().profiles;
@@ -140,7 +110,7 @@ export function addProfile(
     updatedAt: now,
   };
   s.profiles.push(profile);
-  scheduleSave();
+  persistence.schedule();
   return profile;
 }
 
@@ -156,7 +126,7 @@ export function updateProfile(
     ...updates,
     updatedAt: new Date().toISOString(),
   };
-  scheduleSave();
+  persistence.schedule();
   return s.profiles[idx];
 }
 
@@ -165,10 +135,10 @@ export function deleteProfile(id: string): boolean {
   const len = s.profiles.length;
   s.profiles = s.profiles.filter((p) => p.id !== id);
   if (s.profiles.length === len) return false;
-  scheduleSave();
+  persistence.schedule();
   return true;
 }
 
 export function flushPersist(): Promise<void> {
-  return saveDirty ? persistNow() : Promise.resolve();
+  return persistence.flush();
 }

@@ -24,14 +24,11 @@ import {
   verifySubscription,
   isPremiumActiveState,
 } from "../premium/manager";
-import * as vaultManager from "../vault/manager";
-import { readAuditLog } from "../vault/audit";
 import {
   trackProviderConfigured,
   trackSettingChanged,
   trackApprovalModeChanged,
   trackBookmarkAction,
-  trackVaultAction,
   trackPremiumFunnel,
 } from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
@@ -63,78 +60,17 @@ import {
   uninstallKit,
 } from "../automation/kit-registry";
 import { registerScheduleHandlers, getScheduledKitIds } from "../automation/scheduler";
-import * as autofillManager from "../autofill/manager";
-import { matchFields } from "../autofill/matcher";
-import { fillFormFields } from "../ai/page-actions";
-import type { AutofillProfile } from "../../shared/autofill-types";
-import * as pageSnapshots from "../content/page-snapshots";
-import { diffSnapshots } from "../content/page-diff";
-import type { PageDiff } from "../../shared/page-diff-types";
+import {
+  assertNumber,
+  assertString,
+  type SendToRendererViews,
+} from "./common";
+import { registerAutofillHandlers } from "./autofill";
+import { registerPageDiffHandlers } from "./page-diff";
+import { registerVaultHandlers } from "./vault";
+import { registerWindowControlHandlers } from "./window-controls";
 
 let activeChatProvider: AIProvider | null = null;
-const latestPageDiffs = new Map<string, PageDiff>();
-
-// --- IPC input validation helpers ---
-
-function assertString(value: unknown, name: string): asserts value is string {
-  if (typeof value !== "string") throw new Error(`${name} must be a string`);
-}
-
-function assertOptionalString(value: unknown, name: string): asserts value is string | undefined {
-  if (value !== undefined && typeof value !== "string") throw new Error(`${name} must be a string`);
-}
-
-function assertNumber(value: unknown, name: string): asserts value is number {
-  if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`${name} must be a number`);
-}
-
-const AUTOFILL_PROFILE_FIELDS = [
-  "label",
-  "firstName",
-  "lastName",
-  "email",
-  "phone",
-  "organization",
-  "addressLine1",
-  "addressLine2",
-  "city",
-  "state",
-  "postalCode",
-  "country",
-] as const;
-
-type EditableAutofillProfile = Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">;
-
-function sanitizeAutofillProfile(
-  value: unknown,
-): EditableAutofillProfile {
-  if (!value || typeof value !== "object") throw new Error("Invalid profile");
-  const raw = value as Record<string, unknown>;
-  const profile = {} as EditableAutofillProfile;
-  for (const field of AUTOFILL_PROFILE_FIELDS) {
-    assertString(raw[field], field);
-    profile[field] = raw[field] as never;
-  }
-  if (!profile.label.trim()) throw new Error("Label is required");
-  return profile;
-}
-
-function sanitizeAutofillUpdates(
-  value: unknown,
-): Partial<EditableAutofillProfile> {
-  if (!value || typeof value !== "object") throw new Error("Invalid updates");
-  const raw = value as Record<string, unknown>;
-  const updates: Partial<EditableAutofillProfile> = {};
-  for (const field of AUTOFILL_PROFILE_FIELDS) {
-    if (!(field in raw)) continue;
-    assertString(raw[field], field);
-    updates[field] = raw[field] as never;
-  }
-  if ("label" in updates && !updates.label?.trim()) {
-    throw new Error("Label is required");
-  }
-  return updates;
-}
 
 const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
 
@@ -199,7 +135,7 @@ export function registerIpcHandlers(
     }, 32);
   };
 
-  const sendToRendererViews = (channel: string, ...args: unknown[]) => {
+  const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
     devtoolsPanelView.webContents.send(channel, ...args);
@@ -882,67 +818,9 @@ export function registerIpcHandlers(
     return result;
   });
 
-  // --- Agent Credential Vault ---
+  registerVaultHandlers();
 
-  ipcMain.handle(Channels.VAULT_LIST, () => {
-    return vaultManager.listEntries();
-  });
-
-  ipcMain.handle(
-    Channels.VAULT_ADD,
-    (_, entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }) => {
-      if (!entry || typeof entry !== "object") throw new Error("Invalid vault entry");
-      assertString(entry.label, "label");
-      assertString(entry.domainPattern, "domainPattern");
-      assertString(entry.username, "username");
-      assertString(entry.password, "password");
-      if (!entry.label.trim() || !entry.domainPattern.trim() || !entry.username.trim() || !entry.password.trim()) {
-        throw new Error("Label, domain, username, and password are required");
-      }
-      assertOptionalString(entry.totpSecret, "totpSecret");
-      assertOptionalString(entry.notes, "notes");
-      trackVaultAction("credential_added");
-      const created = vaultManager.addEntry(entry);
-      return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
-    },
-  );
-
-  ipcMain.handle(
-    Channels.VAULT_UPDATE,
-    (_, id: string, updates: Partial<{ label: string; domainPattern: string; username: string; password: string; totpSecret: string; notes: string }>) => {
-      assertString(id, "id");
-      if (!updates || typeof updates !== "object") throw new Error("Invalid updates");
-      return vaultManager.updateEntry(id, updates) !== null;
-    },
-  );
-
-  ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
-    assertString(id, "id");
-    trackVaultAction("credential_removed");
-    return vaultManager.removeEntry(id);
-  });
-
-  ipcMain.handle(Channels.VAULT_AUDIT_LOG, (_, limit?: number) => {
-    return readAuditLog(limit);
-  });
-
-  // --- Window controls ---
-
-  ipcMain.handle(Channels.WINDOW_MINIMIZE, () => {
-    mainWindow.minimize();
-  });
-
-  ipcMain.handle(Channels.WINDOW_MAXIMIZE, () => {
-    if (mainWindow.isMaximized()) {
-      mainWindow.unmaximize();
-    } else {
-      mainWindow.maximize();
-    }
-  });
-
-  ipcMain.handle(Channels.WINDOW_CLOSE, () => {
-    mainWindow.close();
-  });
+  registerWindowControlHandlers(mainWindow);
 
   // --- Automation kits ---
 
@@ -963,101 +841,6 @@ export function registerIpcHandlers(
 
   registerScheduleHandlers(windowState, runtime, sendToRendererViews);
 
-  // --- Autofill ---
-
-  ipcMain.handle(Channels.AUTOFILL_LIST, () => {
-    return autofillManager.listProfiles();
-  });
-
-  ipcMain.handle(
-    Channels.AUTOFILL_ADD,
-    (_, profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">) => {
-      return autofillManager.addProfile(sanitizeAutofillProfile(profile));
-    },
-  );
-
-  ipcMain.handle(Channels.AUTOFILL_UPDATE, (_, id: unknown, updates: unknown) => {
-    assertString(id, "id");
-    return autofillManager.updateProfile(id, sanitizeAutofillUpdates(updates));
-  });
-
-  ipcMain.handle(Channels.AUTOFILL_DELETE, (_, id: unknown) => {
-    assertString(id, "id");
-    return autofillManager.deleteProfile(id);
-  });
-
-  ipcMain.handle(Channels.AUTOFILL_FILL, async (_, profileId: unknown) => {
-    assertString(profileId, "profileId");
-    const profile = autofillManager.getProfile(profileId);
-    if (!profile) throw new Error("Profile not found");
-    const wc = windowState.chromeView.webContents;
-    const content = await extractContent(wc);
-    const elements = content.interactiveElements || [];
-    const matches = matchFields(elements, profile);
-    if (matches.length === 0) {
-      return { filled: 0, skipped: 0, details: [] };
-    }
-    const fields = matches.map((m) => ({
-      index: m.fieldIndex,
-      selector: m.selector,
-      value: m.value,
-    }));
-    const results = await fillFormFields(wc, fields);
-    const filled = results.filter(
-      (r) =>
-        r.result.startsWith("Typed into:") ||
-        r.result.startsWith("Selected:"),
-    ).length;
-    return {
-      filled,
-      skipped: results.length - filled,
-      details: results.map((r, i) => ({
-        label: elements.find((e) => e.index === matches[i]?.fieldIndex)?.label || `Field ${i + 1}`,
-        value: matches[i]?.value || "",
-        matchedBy: matches[i]?.matchedBy || "unknown",
-        result: r.result,
-      })),
-    };
-  });
-
-  // --- Page Snapshots / What Changed ---
-
-  ipcMain.handle(Channels.PAGE_DIFF_GET, async () => {
-    const activeTab = windowState.tabManager.getActiveTab();
-    const wc = activeTab?.view.webContents;
-    if (!wc) return null;
-    const url = wc.getURL();
-    if (!pageSnapshots.shouldTrackSnapshotUrl(url)) return null;
-    const key = pageSnapshots.normalizeUrl(url);
-    return latestPageDiffs.get(key) ?? null;
-  });
-}
-
-export async function capturePageSnapshot(url: string, wc: Electron.WebContents, sendToRendererViews: (ch: string, ...args: unknown[]) => void): Promise<void> {
-  try {
-    if (!pageSnapshots.shouldTrackSnapshotUrl(url)) return;
-    const key = pageSnapshots.normalizeUrl(url);
-    const oldSnap = pageSnapshots.getSnapshot(key);
-    const content = await extractContent(wc);
-    const textContent = content.content || "";
-    const title = content.title || "";
-    const headings = content.headings || [];
-    const currentHeadings = headings.map((h) => `${"#".repeat(h.level)} ${h.text}`).join("\n");
-
-    if (oldSnap) {
-      const diff = diffSnapshots(oldSnap, textContent, title, currentHeadings);
-      if (diff.hasChanges) {
-        latestPageDiffs.set(key, diff);
-        sendToRendererViews(Channels.PAGE_CHANGED, diff);
-      } else {
-        latestPageDiffs.delete(key);
-      }
-    } else {
-      latestPageDiffs.delete(key);
-    }
-
-    pageSnapshots.saveSnapshot(url, title, textContent, headings);
-  } catch {
-    // snapshot capture is best-effort
-  }
+  registerAutofillHandlers(windowState);
+  registerPageDiffHandlers(windowState);
 }

@@ -1,6 +1,5 @@
 import { app } from "electron";
 import path from "path";
-import fs from "fs";
 import { randomUUID } from "crypto";
 import type {
   Bookmark,
@@ -11,6 +10,10 @@ import {
   getBookmarkSearchMatch,
   type BookmarkSearchField,
 } from "../../shared/bookmark-search";
+import {
+  createDebouncedJsonPersistence,
+  loadJsonFile,
+} from "../persistence/json-file";
 
 export const UNSORTED_ID = "unsorted";
 export const ARCHIVE_FOLDER_NAME = "Archive";
@@ -38,8 +41,6 @@ const SAVE_DEBOUNCE_MS = 250;
 
 let state: BookmarksState | null = null;
 const listeners = new Set<(state: BookmarksState) => void>();
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let saveDirty = false;
 
 function cloneState(current: BookmarksState): BookmarksState {
   return {
@@ -54,46 +55,29 @@ function getBookmarksPath(): string {
 
 function load(): BookmarksState {
   if (state) return state;
-  try {
-    const raw = fs.readFileSync(getBookmarksPath(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<BookmarksState>;
-    state = {
-      folders: Array.isArray(parsed.folders) ? parsed.folders : [],
-      bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
-    };
-  } catch {
-    state = { folders: [], bookmarks: [] };
-  }
+  state = loadJsonFile({
+    filePath: getBookmarksPath(),
+    fallback: { folders: [], bookmarks: [] },
+    parse: (raw) => {
+      const parsed = raw as Partial<BookmarksState>;
+      return {
+        folders: Array.isArray(parsed.folders) ? parsed.folders : [],
+        bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
+      };
+    },
+  });
   return state;
 }
 
-function persistNow(): Promise<void> {
-  saveDirty = false;
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  return fs.promises
-    .mkdir(path.dirname(getBookmarksPath()), { recursive: true })
-    .then(() =>
-      fs.promises.writeFile(
-        getBookmarksPath(),
-        JSON.stringify(state, null, 2),
-        "utf-8",
-      ),
-    )
-    .catch((err) => console.error("[Vessel] Failed to save bookmarks:", err));
-}
+const persistence = createDebouncedJsonPersistence({
+  debounceMs: SAVE_DEBOUNCE_MS,
+  filePath: getBookmarksPath(),
+  getValue: () => state,
+  logLabel: "bookmarks",
+});
 
 function save(): void {
-  saveDirty = true;
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    if (saveDirty) {
-      void persistNow();
-    }
-  }, SAVE_DEBOUNCE_MS);
+  persistence.schedule();
 }
 
 function emit(): void {
@@ -440,5 +424,5 @@ export function renameFolder(
 }
 
 export function flushPersist(): Promise<void> {
-  return saveDirty ? persistNow() : Promise.resolve();
+  return persistence.flush();
 }

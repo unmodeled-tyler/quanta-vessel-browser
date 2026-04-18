@@ -12,6 +12,7 @@ import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import type { PageDiff } from "../../../../shared/page-diff-types";
+import { normalizePageUrl } from "../../../../shared/page-url";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
@@ -41,16 +42,6 @@ const AddressBar: Component = () => {
   const [diffExpanded, setDiffExpanded] = createSignal(false);
   let diffCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const normalizePageDiffUrl = (rawUrl: string): string => {
-    try {
-      const url = new URL(rawUrl);
-      const pathname = url.pathname.replace(/\/+$/, "") || "/";
-      return `${url.origin}${pathname}`.toLowerCase();
-    } catch {
-      return rawUrl.trim().replace(/\/+$/, "").toLowerCase();
-    }
-  };
-
   const showIncomingDiff = (diff: PageDiff) => {
     setPageDiff(diff);
     setDiffExpanded(true);
@@ -77,7 +68,7 @@ const AddressBar: Component = () => {
     const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
       const tab = activeTab();
       if (!tab) return;
-      if (normalizePageDiffUrl(tab.url) !== diff.url) return;
+      if (normalizePageUrl(tab.url) !== diff.url) return;
       showIncomingDiff(diff);
     });
     onCleanup(() => {
@@ -108,7 +99,7 @@ const AddressBar: Component = () => {
     let cancelled = false;
     void window.vessel.pageDiff.get().then((diff) => {
       if (cancelled) return;
-      if (!diff || normalizePageDiffUrl(tab.url) !== diff.url) {
+      if (!diff || normalizePageUrl(tab.url) !== diff.url) {
         setPageDiff(null);
         setDiffExpanded(false);
         return;

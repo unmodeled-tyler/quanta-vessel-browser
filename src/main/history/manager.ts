@@ -1,15 +1,16 @@
 import { app } from "electron";
 import path from "path";
-import fs from "fs";
 import type { HistoryEntry, HistoryState } from "../../shared/types";
+import {
+  createDebouncedJsonPersistence,
+  loadJsonFile,
+} from "../persistence/json-file";
 
 const MAX_HISTORY_ENTRIES = 5000;
 const SAVE_DEBOUNCE_MS = 250;
 
 let state: HistoryState | null = null;
 const listeners = new Set<(state: HistoryState) => void>();
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let saveDirty = false;
 
 function getHistoryPath(): string {
   return path.join(app.getPath("userData"), "vessel-history.json");
@@ -17,45 +18,28 @@ function getHistoryPath(): string {
 
 function load(): HistoryState {
   if (state) return state;
-  try {
-    const raw = fs.readFileSync(getHistoryPath(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<HistoryState>;
-    state = {
-      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-    };
-  } catch {
-    state = { entries: [] };
-  }
+  state = loadJsonFile({
+    filePath: getHistoryPath(),
+    fallback: { entries: [] },
+    parse: (raw) => {
+      const parsed = raw as Partial<HistoryState>;
+      return {
+        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      };
+    },
+  });
   return state;
 }
 
-function persistNow(): Promise<void> {
-  saveDirty = false;
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  return fs.promises
-    .mkdir(path.dirname(getHistoryPath()), { recursive: true })
-    .then(() =>
-      fs.promises.writeFile(
-        getHistoryPath(),
-        JSON.stringify(state, null, 2),
-        "utf-8",
-      ),
-    )
-    .catch((err) => console.error("[Vessel] Failed to save history:", err));
-}
+const persistence = createDebouncedJsonPersistence({
+  debounceMs: SAVE_DEBOUNCE_MS,
+  filePath: getHistoryPath(),
+  getValue: () => state,
+  logLabel: "history",
+});
 
 function save(): void {
-  saveDirty = true;
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    if (saveDirty) {
-      void persistNow();
-    }
-  }, SAVE_DEBOUNCE_MS);
+  persistence.schedule();
 }
 
 function emit(): void {
@@ -135,5 +119,5 @@ export function clearAll(): void {
 }
 
 export function flushPersist(): Promise<void> {
-  return saveDirty ? persistNow() : Promise.resolve();
+  return persistence.flush();
 }
