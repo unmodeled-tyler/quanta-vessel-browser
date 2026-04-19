@@ -413,6 +413,40 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
 	      return;
 	    }
 
+	    if (method === "GET" && url.pathname === "/hash-diff") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "hash-diff",
+	          `
+	            <h1>Hash Route Demo</h1>
+	            <h2 id="hash-route">Route: alpha</h2>
+	            <p id="content">Showing client-side content for route "alpha".</p>
+	            <script>
+	              function currentRoute() {
+	                const hash = window.location.hash || "#/alpha";
+	                if (hash.startsWith("#!/")) return hash.slice(3) || "alpha";
+	                if (hash.startsWith("#/")) return hash.slice(2) || "alpha";
+	                return "anchor";
+	              }
+
+	              function applyHashRoute() {
+	                const route = currentRoute().toLowerCase();
+	                document.title = "hash-diff-" + route;
+	                document.getElementById("hash-route").textContent = "Route: " + route;
+	                document.getElementById("content").textContent =
+	                  'Showing client-side content for route "' + route + '".';
+	              }
+
+	              window.addEventListener("hashchange", applyHashRoute);
+	              applyHashRoute();
+	            </script>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
 	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,

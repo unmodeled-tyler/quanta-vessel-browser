@@ -46,6 +46,34 @@ function normalizeQueryValue(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function serializeSnapshotParams(
+  params: Array<readonly [string, string]>,
+): string {
+  return params
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join("&");
+}
+
+function normalizeSnapshotParams(
+  entries: Iterable<[string, string]>,
+  pathname: string,
+): Array<readonly [string, string]> {
+  return Array.from(entries)
+    .filter(([key, value]) =>
+      shouldKeepSnapshotQueryParam(pathname, key, value),
+    )
+    .map(([key, value]) => [
+      key.trim().toLowerCase(),
+      normalizeQueryValue(value),
+    ] as const)
+    .sort(([keyA, valueA], [keyB, valueB]) =>
+      keyA === keyB ? valueA.localeCompare(valueB) : keyA.localeCompare(keyB),
+    );
+}
+
 function shouldKeepSnapshotQueryParam(
   pathname: string,
   rawKey: string,
@@ -62,32 +90,54 @@ function shouldKeepSnapshotQueryParam(
   );
 }
 
+function buildSnapshotHashKey(hash: string, pathname: string): string | null {
+  let raw = hash.replace(/^#/, "").trim();
+  if (!raw) return null;
+
+  let bang = false;
+  if (raw.startsWith("!")) {
+    bang = true;
+    raw = raw.slice(1).trim();
+  }
+
+  if (raw.startsWith("/")) {
+    const [routePart, queryPart = ""] = raw.split("?");
+    const route = routePart.replace(/\/+$/, "") || "/";
+    const params = normalizeSnapshotParams(
+      new URLSearchParams(queryPart).entries(),
+      pathname,
+    );
+    const query = serializeSnapshotParams(params);
+    return `#${bang ? "!" : ""}${route.toLowerCase()}${
+      query ? `?${query}` : ""
+    }`;
+  }
+
+  const queryLike = raw.startsWith("?") ? raw.slice(1) : raw;
+  if (queryLike.includes("=")) {
+    const params = normalizeSnapshotParams(
+      new URLSearchParams(queryLike).entries(),
+      pathname,
+    );
+    if (params.length === 0) return null;
+    const query = serializeSnapshotParams(params);
+    return `#${bang ? "!" : ""}?${query}`;
+  }
+
+  return null;
+}
+
 export function buildPageSnapshotKey(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    const params = Array.from(url.searchParams.entries())
-      .filter(([key, value]) =>
-        shouldKeepSnapshotQueryParam(pathname, key, value),
-      )
-      .map(([key, value]) => [
-        key.trim().toLowerCase(),
-        normalizeQueryValue(value),
-      ] as const)
-      .sort(([keyA, valueA], [keyB, valueB]) =>
-        keyA === keyB ? valueA.localeCompare(valueB) : keyA.localeCompare(keyB),
-      );
-
-    const query = params
-      .map(
-        ([key, value]) =>
-          `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
-      )
-      .join("&");
+    const params = normalizeSnapshotParams(url.searchParams.entries(), pathname);
+    const query = serializeSnapshotParams(params);
+    const hash = buildSnapshotHashKey(url.hash, pathname);
 
     return `${url.origin.toLowerCase()}${pathname.toLowerCase()}${
       query ? `?${query}` : ""
-    }`;
+    }${hash || ""}`;
   } catch {
     return normalizePageUrl(rawUrl);
   }

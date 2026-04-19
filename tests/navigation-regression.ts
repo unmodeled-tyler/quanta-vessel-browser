@@ -629,6 +629,51 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "page snapshots preserve SPA hash routes but ignore plain anchors",
+      async () => {
+        const hashBase = `${harness.baseUrl}/hash-diff`;
+        assert.notEqual(
+          buildPageSnapshotKey(`${hashBase}#/alpha`),
+          buildPageSnapshotKey(`${hashBase}#/beta`),
+        );
+        assert.notEqual(
+          buildPageSnapshotKey(`${hashBase}#!/feed`),
+          buildPageSnapshotKey(`${hashBase}#!/settings`),
+        );
+        assert.equal(
+          buildPageSnapshotKey(`${hashBase}#faq`),
+          buildPageSnapshotKey(`${hashBase}#pricing`),
+        );
+
+        await withTab(`${hashBase}#/alpha`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          await waitForCondition(() => wc.getTitle() === "hash-diff-alpha", 5000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+          assert.equal(events.length, 0);
+
+          await wc.loadURL(`${hashBase}#/beta`);
+          await waitForCondition(() => wc.getTitle() === "hash-diff-beta", 5000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+
+          assert.equal(
+            events.length,
+            0,
+            `expected no diff between distinct SPA hash-route baselines, got: ${JSON.stringify(events)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "page snapshots preserve SPA hash routes but ignore plain anchors",
+    );
+
+    await runScenario(
       "page diff observer catches same-page DOM mutations",
       async () => {
         await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
