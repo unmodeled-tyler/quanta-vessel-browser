@@ -7,6 +7,10 @@ import { extractContent } from "./extractor";
 import type { SendToRendererViews } from "../ipc/common";
 
 const latestPageDiffs = new Map<string, PageDiff>();
+const recentPageDiffBursts = new Map<
+  string,
+  Array<{ detectedAt: string; summary: string }>
+>();
 const pendingPageSnapshotTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingPageSnapshotDueAt = new Map<number, number>();
 const lastMutationSnapshotAt = new Map<number, number>();
@@ -14,10 +18,38 @@ const lastMutationActivityAt = new Map<number, number>();
 
 const MIN_MUTATION_CAPTURE_INTERVAL_MS = 5000;
 const SETTLE_AFTER_ACTIVITY_MS = 1500;
+const MAX_RECENT_DIFF_BURSTS = 5;
 
 export function getLatestPageDiff(rawUrl: string): PageDiff | null {
   if (!pageSnapshots.shouldTrackSnapshotUrl(rawUrl)) return null;
   return latestPageDiffs.get(pageSnapshots.normalizeUrl(rawUrl)) ?? null;
+}
+
+function summarizeDiffBurst(diff: PageDiff): string {
+  const items = diff.changes
+    .slice(0, 2)
+    .map((change) => `${change.section}: ${change.summary}`);
+  return items.join(" | ");
+}
+
+function enrichWithBurstHistory(key: string, diff: PageDiff): PageDiff {
+  const detectedAt = new Date().toISOString();
+  const nextBurst = {
+    detectedAt,
+    summary: summarizeDiffBurst(diff),
+  };
+  const bursts = [...(recentPageDiffBursts.get(key) || []), nextBurst].slice(
+    -MAX_RECENT_DIFF_BURSTS,
+  );
+  recentPageDiffBursts.set(key, bursts);
+
+  return {
+    ...diff,
+    burstCount: bursts.length,
+    firstDetectedAt: bursts[0]?.detectedAt,
+    lastDetectedAt: bursts[bursts.length - 1]?.detectedAt,
+    recentBursts: bursts,
+  };
 }
 
 export async function capturePageSnapshot(
@@ -40,13 +72,15 @@ export async function capturePageSnapshot(
     if (oldSnap) {
       const diff = diffSnapshots(oldSnap, textContent, title, currentHeadings);
       if (diff.hasChanges) {
-        latestPageDiffs.set(key, diff);
-        sendToRendererViews(Channels.PAGE_CHANGED, diff);
+        const enrichedDiff = enrichWithBurstHistory(key, diff);
+        latestPageDiffs.set(key, enrichedDiff);
+        sendToRendererViews(Channels.PAGE_CHANGED, enrichedDiff);
       } else {
         latestPageDiffs.delete(key);
       }
     } else {
       latestPageDiffs.delete(key);
+      recentPageDiffBursts.delete(key);
     }
 
     pageSnapshots.saveSnapshot(url, title, textContent, headings);

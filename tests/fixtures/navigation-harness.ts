@@ -481,6 +481,33 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
 	      return;
 	    }
 
+	    if (method === "GET" && url.pathname === "/burst-history-page") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "burst-history-page",
+	          `
+	            <h1>Burst History Page</h1>
+	            <p id="status">idle</p>
+	            <button
+	              id="advance-burst"
+	              type="button"
+	              onclick="
+	                const status = document.getElementById('status');
+	                const current = Number(status.getAttribute('data-step') || '0') + 1;
+	                status.setAttribute('data-step', String(current));
+	                status.textContent = 'phase ' + current;
+	                document.title = 'burst-history-page-' + current;
+	              "
+	            >
+	              Advance burst
+	            </button>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
 	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,

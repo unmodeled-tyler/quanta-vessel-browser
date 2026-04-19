@@ -13,4 +13,11 @@ export interface PageDiff {
   hasChanges: boolean;
   oldSnapshot: { capturedAt: string; title: string };
   changes: ContentChange[];
+  burstCount?: number;
+  firstDetectedAt?: string;
+  lastDetectedAt?: string;
+  recentBursts?: Array<{
+    detectedAt: string;
+    summary: string;
+  }>;
 }

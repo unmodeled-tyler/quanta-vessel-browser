@@ -747,6 +747,70 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "page diff tracks recent burst history for repeated settled updates",
+      async () => {
+        await withTab(`${harness.baseUrl}/burst-history-page`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+            assert.equal(events.length, 0);
+
+            const first = await clickElementBySelector(wc, "#advance-burst");
+            assert.match(first, /Clicked: Advance burst/);
+            await waitForCondition(() => events.length === 1, 8000);
+
+            const second = await clickElementBySelector(wc, "#advance-burst");
+            assert.match(second, /Clicked: Advance burst/);
+            await waitForCondition(() => events.length === 2, 8000);
+
+            const latest = events[1]?.diff as {
+              burstCount?: number;
+              firstDetectedAt?: string;
+              lastDetectedAt?: string;
+              recentBursts?: Array<{ detectedAt: string; summary: string }>;
+              changes: Array<{ section: string; after?: string }>;
+            };
+
+            assert.equal(latest.burstCount, 2);
+            assert.ok(latest.firstDetectedAt, "expected firstDetectedAt");
+            assert.ok(latest.lastDetectedAt, "expected lastDetectedAt");
+            assert.equal(latest.recentBursts?.length, 2);
+            assert.match(
+              latest.recentBursts?.[0]?.summary || "",
+              /title: "burst-history-page" → "burst-history-page-1"/,
+            );
+            assert.match(
+              latest.recentBursts?.[1]?.summary || "",
+              /title: "burst-history-page-1" → "burst-history-page-2"/,
+            );
+
+            const titleChange = latest.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "burst-history-page-2");
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff tracks recent burst history for repeated settled updates",
+    );
+
+    await runScenario(
       "page diff observer catches same-page DOM mutations",
       async () => {
         await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
