@@ -125,6 +125,13 @@ const AddressBar: Component = () => {
     }
   };
 
+  const formatSectionLabel = (section: PageDiff["changes"][number]["section"]) =>
+    section === "title"
+      ? "Title"
+      : section === "headings"
+        ? "Headings"
+        : "Content";
+
   return (
     <div class="address-bar">
       <div class="nav-controls">
@@ -241,8 +248,48 @@ const AddressBar: Component = () => {
           <For each={pageDiff()!.changes}>
             {(change) => (
               <div class={`page-diff-item page-diff-${change.kind}`}>
-                <span class="page-diff-section">{change.section}</span>
-                <span class="page-diff-summary">{change.summary}</span>
+                <div class="page-diff-item-header">
+                  <span class="page-diff-section">
+                    {formatSectionLabel(change.section)}
+                  </span>
+                  <span class="page-diff-summary">{change.summary}</span>
+                </div>
+                <Show when={change.before || change.after}>
+                  <div class="page-diff-snippets">
+                    <Show when={change.before}>
+                      <div class="page-diff-snippet">
+                        <span class="page-diff-snippet-label">Before</span>
+                        <span class="page-diff-snippet-text">{change.before}</span>
+                      </div>
+                    </Show>
+                    <Show when={change.after}>
+                      <div class="page-diff-snippet">
+                        <span class="page-diff-snippet-label">After</span>
+                        <span class="page-diff-snippet-text">{change.after}</span>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+                <Show when={change.addedItems?.length}>
+                  <div class="page-diff-list-group">
+                    <span class="page-diff-list-label">Added</span>
+                    <ul class="page-diff-list">
+                      <For each={change.addedItems}>
+                        {(item) => <li>{item}</li>}
+                      </For>
+                    </ul>
+                  </div>
+                </Show>
+                <Show when={change.removedItems?.length}>
+                  <div class="page-diff-list-group">
+                    <span class="page-diff-list-label">Removed</span>
+                    <ul class="page-diff-list">
+                      <For each={change.removedItems}>
+                        {(item) => <li>{item}</li>}
+                      </For>
+                    </ul>
+                  </div>
+                </Show>
               </div>
             )}
           </For>

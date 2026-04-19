@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 
-import { app, BaseWindow } from "electron";
+import { app, BaseWindow, ipcMain } from "electron";
 
 import { buildScopedContext } from "../src/main/ai/context-builder";
 import { extractContent } from "../src/main/content/extractor";
@@ -66,6 +66,18 @@ async function runScenario(
   process.stdout.write(`- ${name}... `);
   await scenario();
   process.stdout.write("ok\n");
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 5000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for condition`);
 }
 
 async function main(): Promise<void> {
@@ -507,36 +519,56 @@ async function main(): Promise<void> {
           const diff = events[0]?.diff as {
             url: string;
             hasChanges: boolean;
-            changes: Array<{ section: string; kind: string; summary: string }>;
+            changes: Array<{
+              section: string;
+              kind: string;
+              summary: string;
+              before?: string;
+              after?: string;
+              addedItems?: string[];
+              removedItems?: string[];
+            }>;
           };
           assert.equal(diff.url, normalizePageUrl(pageUrlBase));
           assert.equal(diff.hasChanges, true);
+          const titleChange = diff.changes.find(
+            (change) => change.section === "title",
+          );
           assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "title" &&
-                change.kind === "changed" &&
-                /page-diff-original/.test(change.summary) &&
-                /page-diff-updated/.test(change.summary),
-            ),
+            titleChange,
             `expected title change, got: ${JSON.stringify(diff.changes)}`,
           );
-          assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "headings" &&
-                change.kind === "added" &&
-                /New: ## New Features/.test(change.summary),
-            ),
-            `expected heading change, got: ${JSON.stringify(diff.changes)}`,
+          assert.equal(titleChange?.kind, "changed");
+          assert.equal(titleChange?.before, "page-diff-original");
+          assert.equal(titleChange?.after, "page-diff-updated");
+
+          const headingChange = diff.changes.find(
+            (change) => change.section === "headings",
           );
           assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "content" &&
-                change.kind === "changed",
-            ),
+            headingChange,
+            `expected heading change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.equal(headingChange?.kind, "changed");
+          assert.deepEqual(headingChange?.addedItems, ["## New Features"]);
+          assert.deepEqual(headingChange?.removedItems, ["## Overview"]);
+
+          const contentChange = diff.changes.find(
+            (change) => change.section === "content",
+          );
+          assert.ok(
+            contentChange,
             `expected content change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.equal(contentChange?.kind, "changed");
+          assert.match(contentChange?.summary || "", /updated section/);
+          assert.match(
+            contentChange?.before || "",
+            /Initial release notes for the navigation harness baseline\./,
+          );
+          assert.match(
+            contentChange?.after || "",
+            /Added page diff summaries for returning visits with address-bar visibility\./,
           );
 
           await capturePageSnapshot(wc.getURL(), wc, (channel, diffAgain) => {
@@ -552,6 +584,64 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "page snapshots emit diffs for changed content on the same normalized URL",
+    );
+
+    await runScenario(
+      "page diff observer catches same-page DOM mutations",
+      async () => {
+        await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            void capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+            assert.equal(events.length, 0);
+
+            const result = await clickElementBySelector(wc, "#update-same-page");
+            assert.match(result, /Clicked: Update without navigating/);
+
+            await waitForCondition(() => events.length > 0, 5000);
+            assert.equal(events[0]?.channel, Channels.PAGE_CHANGED);
+
+            const diff = events[0]?.diff as {
+              hasChanges: boolean;
+              changes: Array<{
+                section: string;
+                before?: string;
+                after?: string;
+              }>;
+            };
+            assert.equal(diff.hasChanges, true);
+
+            const titleChange = diff.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "same-page-action-updated");
+
+            const contentChange = diff.changes.find(
+              (change) => change.section === "content",
+            );
+            assert.ok(contentChange, `expected content diff, got: ${JSON.stringify(diff)}`);
+            assert.match(contentChange?.before || "", /idle/);
+            assert.match(contentChange?.after || "", /updated/);
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff observer catches same-page DOM mutations",
     );
 
     await runScenario(

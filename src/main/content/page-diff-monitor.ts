@@ -7,6 +7,7 @@ import { extractContent } from "./extractor";
 import type { SendToRendererViews } from "../ipc/common";
 
 const latestPageDiffs = new Map<string, PageDiff>();
+const pendingPageSnapshotTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
 export function getLatestPageDiff(rawUrl: string): PageDiff | null {
   if (!pageSnapshots.shouldTrackSnapshotUrl(rawUrl)) return null;
@@ -46,4 +47,24 @@ export async function capturePageSnapshot(
   } catch {
     // Snapshot capture is best-effort.
   }
+}
+
+export function schedulePageSnapshotCapture(
+  wc: WebContents,
+  sendToRendererViews: SendToRendererViews,
+  delayMs = 1200,
+): void {
+  if (wc.isDestroyed()) return;
+
+  const wcId = wc.id;
+  const existing = pendingPageSnapshotTimers.get(wcId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingPageSnapshotTimers.delete(wcId);
+    if (wc.isDestroyed()) return;
+    void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);
+  }, delayMs);
+
+  pendingPageSnapshotTimers.set(wcId, timer);
 }

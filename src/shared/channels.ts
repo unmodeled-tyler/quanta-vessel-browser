@@ -138,4 +138,5 @@ export const Channels = {
   // Page snapshots / What Changed
   PAGE_CHANGED: "page:changed",
   PAGE_DIFF_GET: "page:diff-get",
+  PAGE_DIFF_DIRTY: "page:diff-dirty",
 } as const;

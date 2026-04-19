@@ -18,6 +18,7 @@ coverage/
 .vessel-test-data/
 .mcpregistry_*
 tmp/
+*.tests/*
 
 # AI tool configs (personal, not project-level)
 .claude/settings.json
@@ -57,3 +58,6 @@ docs/TEST-CHALLENGE-URLS.md
 docs/superpowers/plans/2026-03-28-linux-app-store-distribution.md
 docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
+tests/navigation-regression.ts
+tests/navigation-regression.ts
+tests/navigation-regression.ts
