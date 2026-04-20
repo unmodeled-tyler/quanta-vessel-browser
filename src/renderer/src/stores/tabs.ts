@@ -32,6 +32,12 @@ function init() {
   return initPromise;
 }
 
+const patchTab = (id: string, patch: Partial<TabState>) => {
+  setTabs((prev) =>
+    prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+  );
+};
+
 export function useTabs() {
   init();
   return {
@@ -56,6 +62,13 @@ export function useTabs() {
     reload: () => {
       const id = activeTabId();
       if (id) window.vessel.tabs.reload(id);
+    },
+    toggleAdBlock: async (id: string): Promise<boolean | null> => {
+      const newState = await window.vessel.tabs.toggleAdBlock(id);
+      if (newState !== null && newState !== undefined) {
+        patchTab(id, { adBlockingEnabled: newState });
+      }
+      return newState;
     },
   };
 }

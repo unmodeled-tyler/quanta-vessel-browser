@@ -404,7 +404,8 @@
 }
 
 .nav-btn-muted {
-    opacity: 0.4;
+    opacity: 0.5;
+    filter: grayscale(0.6);
 }
 
 .nav-btn:disabled {
