@@ -198,10 +198,8 @@ export function stopTelemetry(): void {
     sessionStartedAt = null;
   }
 
-  if (flushTimer) {
-    clearInterval(flushTimer);
-    flushTimer = null;
-  }
+  clearInterval(flushTimer);
+  flushTimer = null;
 
   // Final synchronous flush on shutdown
   void flush();
