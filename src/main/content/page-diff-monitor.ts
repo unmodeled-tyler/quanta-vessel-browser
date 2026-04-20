@@ -15,6 +15,21 @@ const pendingPageSnapshotTimers = new Map<number, ReturnType<typeof setTimeout>>
 const pendingPageSnapshotDueAt = new Map<number, number>();
 const lastMutationSnapshotAt = new Map<number, number>();
 const lastMutationActivityAt = new Map<number, number>();
+const destroyListenerAttached = new WeakSet<WebContents>();
+
+function attachDestroyCleanup(wc: WebContents): void {
+  if (destroyListenerAttached.has(wc)) return;
+  destroyListenerAttached.add(wc);
+  wc.once("destroyed", () => {
+    const wcId = wc.id;
+    const timer = pendingPageSnapshotTimers.get(wcId);
+    if (timer) clearTimeout(timer);
+    pendingPageSnapshotTimers.delete(wcId);
+    pendingPageSnapshotDueAt.delete(wcId);
+    lastMutationSnapshotAt.delete(wcId);
+    lastMutationActivityAt.delete(wcId);
+  });
+}
 
 const MIN_MUTATION_CAPTURE_INTERVAL_MS = 5000;
 const SETTLE_AFTER_ACTIVITY_MS = 1500;
@@ -77,6 +92,7 @@ export async function capturePageSnapshot(
         sendToRendererViews(Channels.PAGE_CHANGED, enrichedDiff);
       } else {
         latestPageDiffs.delete(key);
+        recentPageDiffBursts.delete(key);
       }
     } else {
       latestPageDiffs.delete(key);
@@ -108,6 +124,7 @@ function scheduleTimerAt(
   sendToRendererViews: SendToRendererViews,
   dueAt: number,
 ): void {
+  attachDestroyCleanup(wc);
   const wcId = wc.id;
   const existing = pendingPageSnapshotTimers.get(wcId);
   if (existing) clearTimeout(existing);

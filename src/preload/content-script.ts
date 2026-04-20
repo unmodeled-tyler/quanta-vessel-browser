@@ -247,6 +247,12 @@ function startPageDiffObserver(): void {
     }, PAGE_DIFF_MUTATION_DEBOUNCE_MS);
   });
 
+  const resetSignature = () => {
+    lastPageDiffSignature = "";
+  };
+  window.addEventListener("popstate", resetSignature);
+  window.addEventListener("hashchange", resetSignature);
+
   observer.observe(document.documentElement, {
     subtree: true,
     childList: true,

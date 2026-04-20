@@ -6,6 +6,7 @@ const [activeTabId, setActiveTabId] = createSignal('');
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
+let unsubscribeStateUpdate: (() => void) | null = null;
 
 function init() {
   if (initPromise) return initPromise;
@@ -13,7 +14,11 @@ function init() {
   initialized = true;
   initPromise = (async () => {
     try {
-      window.vessel.tabs.onStateUpdate(
+      if (unsubscribeStateUpdate) {
+        unsubscribeStateUpdate();
+        unsubscribeStateUpdate = null;
+      }
+      unsubscribeStateUpdate = window.vessel.tabs.onStateUpdate(
         (newTabs: TabState[], newActiveId: string) => {
           setTabs(newTabs);
           setActiveTabId(newActiveId);
@@ -31,6 +36,12 @@ function init() {
   })();
   return initPromise;
 }
+
+const patchTab = (id: string, patch: Partial<TabState>) => {
+  setTabs((prev) =>
+    prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+  );
+};
 
 export function useTabs() {
   init();
@@ -56,6 +67,13 @@ export function useTabs() {
     reload: () => {
       const id = activeTabId();
       if (id) window.vessel.tabs.reload(id);
+    },
+    toggleAdBlock: async (id: string): Promise<boolean | null> => {
+      const newState = await window.vessel.tabs.toggleAdBlock(id);
+      if (newState !== null && newState !== undefined) {
+        patchTab(id, { adBlockingEnabled: newState });
+      }
+      return newState;
     },
   };
 }

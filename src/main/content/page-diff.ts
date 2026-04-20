@@ -5,6 +5,9 @@ export type { PageDiff, ContentChange };
 
 const MAX_DETAIL_ITEMS = 3;
 const MIN_BLOCK_SIMILARITY = 0.82;
+// Cap LCS inputs: table is O(n*m). 500*500 ≈ 2MB, acceptable; unbounded pages
+// (long feeds, docs) could otherwise allocate hundreds of MB in main.
+const MAX_DIFF_BLOCKS = 500;
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -167,8 +170,10 @@ export function diffSnapshots(oldSnap: PageSnapshot, currentContent: string, cur
   const oldHeadings = oldSnap.headings.split("\n").filter(Boolean);
   const newHeadings = currentHeadings.split("\n").filter(Boolean);
   if (oldHeadings.join("\n") !== newHeadings.join("\n")) {
-    const added = newHeadings.filter((h) => !oldHeadings.includes(h));
-    const removed = oldHeadings.filter((h) => !newHeadings.includes(h));
+    const oldSet = new Set(oldHeadings);
+    const newSet = new Set(newHeadings);
+    const added = newHeadings.filter((h) => !oldSet.has(h));
+    const removed = oldHeadings.filter((h) => !newSet.has(h));
     const parts: string[] = [];
     if (added.length > 0) parts.push(`New: ${added.join(", ")}`);
     if (removed.length > 0) parts.push(`Gone: ${removed.join(", ")}`);
@@ -188,8 +193,10 @@ export function diffSnapshots(oldSnap: PageSnapshot, currentContent: string, cur
     }
   }
 
-  const oldBlocks = extractTextBlocks(oldSnap.textContent);
-  const newBlocks = extractTextBlocks(currentContent);
+  const rawOldBlocks = extractTextBlocks(oldSnap.textContent);
+  const rawNewBlocks = extractTextBlocks(currentContent);
+  const oldBlocks = rawOldBlocks.slice(0, MAX_DIFF_BLOCKS);
+  const newBlocks = rawNewBlocks.slice(0, MAX_DIFF_BLOCKS);
   const overallSimilarity = similarityScore(oldSnap.textContent, currentContent);
 
   if (overallSimilarity < 0.98) {

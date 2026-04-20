@@ -39,11 +39,23 @@ function sanitizeOutput(output: string): string {
   return output.replace(/"base64":"[A-Za-z0-9+/=]{100,}"/g, '"base64":"[stripped]"');
 }
 
-function appendTrace(entry: TraceEntry): void {
+const MAX_TRACE_FILE_BYTES = 10 * 1024 * 1024;
+
+async function appendTrace(entry: TraceEntry): Promise<void> {
   try {
     const dir = getTracesDir();
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(getTodayFile(), JSON.stringify(entry) + "\n", "utf-8");
+    await fs.promises.mkdir(dir, { recursive: true });
+    const file = getTodayFile();
+    try {
+      const stat = await fs.promises.stat(file);
+      if (stat.size >= MAX_TRACE_FILE_BYTES) {
+        const rotated = file.replace(/\.jsonl$/, `.${Date.now()}.jsonl`);
+        await fs.promises.rename(file, rotated);
+      }
+    } catch {
+      // File does not exist yet — nothing to rotate.
+    }
+    await fs.promises.appendFile(file, JSON.stringify(entry) + "\n", "utf-8");
   } catch (err) {
     console.warn("[trace-logger] Failed to write trace:", err);
   }
@@ -87,7 +99,7 @@ export class TraceSession {
   end(responseText: string, error?: string): void {
     // Strip internal tool-marker tokens emitted by the provider (<<tool:navigate:...>>)
     const clean = responseText.replace(/<<tool:[^>]+>>\n?/g, "").trim();
-    appendTrace({
+    void appendTrace({
       id: this.id,
       ts: this.startTs,
       query: this.query,

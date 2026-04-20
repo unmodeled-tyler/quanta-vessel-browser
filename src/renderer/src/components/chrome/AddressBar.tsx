@@ -20,7 +20,7 @@ import {
 import "./chrome.css";
 
 const AddressBar: Component = () => {
-  const { activeTab, navigate, goBack, goForward, reload } = useTabs();
+  const { activeTab, activeTabId, navigate, goBack, goForward, reload, toggleAdBlock } = useTabs();
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
   const [inputValue, setInputValue] = createSignal("");
@@ -344,6 +344,41 @@ const AddressBar: Component = () => {
       </Show>
 
       <div class="toolbar-actions">
+        <button
+          class="nav-btn"
+          classList={{
+            active: !!activeTab()?.adBlockingEnabled,
+            "nav-btn-muted": !activeTab()?.adBlockingEnabled,
+          }}
+          onClick={async () => {
+            const id = activeTabId();
+            if (!id) return;
+            await toggleAdBlock(id);
+          }}
+          title={activeTab()?.adBlockingEnabled ? "Ad Block: On (click to disable)" : "Ad Block: Off (click to enable)"}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <Show when={activeTab()?.adBlockingEnabled}>
+              <path
+                d="M3 3 L11 3 L11 9 Q7 13 3 9 Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linejoin="round"
+              />
+            </Show>
+            <Show when={!activeTab()?.adBlockingEnabled}>
+              <path
+                d="M3 3 L11 3 L11 9 Q7 13 3 9 Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linejoin="round"
+              />
+              <line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </Show>
+          </svg>
+        </button>
         <button
           class="nav-btn"
           classList={{ active: !!activeTab()?.isReaderMode }}
