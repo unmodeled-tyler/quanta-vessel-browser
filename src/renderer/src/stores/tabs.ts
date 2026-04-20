@@ -6,6 +6,7 @@ const [activeTabId, setActiveTabId] = createSignal('');
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
+let unsubscribeStateUpdate: (() => void) | null = null;
 
 function init() {
   if (initPromise) return initPromise;
@@ -13,7 +14,11 @@ function init() {
   initialized = true;
   initPromise = (async () => {
     try {
-      window.vessel.tabs.onStateUpdate(
+      if (unsubscribeStateUpdate) {
+        unsubscribeStateUpdate();
+        unsubscribeStateUpdate = null;
+      }
+      unsubscribeStateUpdate = window.vessel.tabs.onStateUpdate(
         (newTabs: TabState[], newActiveId: string) => {
           setTabs(newTabs);
           setActiveTabId(newActiveId);

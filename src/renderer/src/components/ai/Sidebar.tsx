@@ -1337,7 +1337,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 <button
                   class="history-clear-btn"
                   onClick={async () => {
-                    await history.search("").then(() => {});
                     await history.clear();
                   }}
                 >

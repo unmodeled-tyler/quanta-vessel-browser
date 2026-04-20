@@ -6,7 +6,6 @@ import {
 } from "solid-js";
 import { useRuntime } from "../../stores/runtime";
 import "./chrome.css";
-import type { FlowState, FlowStep, TaskTrackerState, TaskTrackerStep } from "../../../../shared/types";
 
 const FlowProgress: Component = () => {
   const { runtimeState } = useRuntime();
@@ -24,7 +23,7 @@ const FlowProgress: Component = () => {
     }
   };
 
-  const progressPercent = (steps: { status: string }[], currentIndex: number) => {
+  const progressPercent = (steps: { status: string }[]) => {
     if (steps.length === 0) return 0;
     const done = steps.filter((s) => s.status === "done" || s.status === "skipped").length;
     return Math.round((done / steps.length) * 100);
@@ -38,12 +37,12 @@ const FlowProgress: Component = () => {
             <div class="flow-progress-section">
               <div class="flow-progress-header">
                 <span class="flow-progress-goal">{t().goal}</span>
-                <span class="flow-progress-pct">{progressPercent(t().steps, t().currentStepIndex)}%</span>
+                <span class="flow-progress-pct">{progressPercent(t().steps)}%</span>
               </div>
               <div class="flow-progress-bar-track">
                 <div
                   class="flow-progress-bar-fill"
-                  style={{ width: `${progressPercent(t().steps, t().currentStepIndex)}%` }}
+                  style={{ width: `${progressPercent(t().steps)}%` }}
                 />
               </div>
               <div class="flow-steps">
@@ -70,12 +69,12 @@ const FlowProgress: Component = () => {
             <div class="flow-progress-section">
               <div class="flow-progress-header">
                 <span class="flow-progress-goal">{f().goal}</span>
-                <span class="flow-progress-pct">{progressPercent(f().steps, f().currentStepIndex)}%</span>
+                <span class="flow-progress-pct">{progressPercent(f().steps)}%</span>
               </div>
               <div class="flow-progress-bar-track">
                 <div
                   class="flow-progress-bar-fill"
-                  style={{ width: `${progressPercent(f().steps, f().currentStepIndex)}%` }}
+                  style={{ width: `${progressPercent(f().steps)}%` }}
                 />
               </div>
               <div class="flow-steps">

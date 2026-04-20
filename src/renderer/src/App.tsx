@@ -18,6 +18,14 @@ import { useTabs } from "./stores/tabs";
 import { setupKeybindings } from "./lib/keybindings";
 import { useAnimatedPresence } from "./lib/useAnimatedPresence";
 
+try {
+  const cached = localStorage.getItem("vessel:theme");
+  if (cached) document.documentElement.setAttribute("data-theme", cached);
+  else document.documentElement.setAttribute("data-theme", "dark");
+} catch {
+  document.documentElement.setAttribute("data-theme", "dark");
+}
+
 const App: Component = () => {
   const view =
     new URLSearchParams(window.location.search).get("view") || "chrome";
@@ -66,10 +74,13 @@ const App: Component = () => {
     }
   };
 
-  // Apply theme from settings
   const applyTheme = async () => {
     const s = await window.vessel.settings.get();
-    document.documentElement.setAttribute("data-theme", s.theme ?? "dark");
+    const theme = s.theme ?? "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("vessel:theme", theme);
+    } catch {}
   };
 
   onMount(() => {

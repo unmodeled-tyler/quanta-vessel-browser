@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import * as historyManager from "../history/manager";
@@ -140,6 +140,14 @@ export function registerIpcHandlers(
       flushRuntimeUpdate();
     }, 32);
   };
+
+  app.on("before-quit", () => {
+    if (runtimeUpdateTimer) {
+      clearTimeout(runtimeUpdateTimer);
+      runtimeUpdateTimer = null;
+    }
+    flushRuntimeUpdate();
+  });
 
   const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
     chromeView.webContents.send(channel, ...args);
@@ -695,15 +703,25 @@ export function registerIpcHandlers(
     if (findWiredWcId === wc.id) return;
     if (findWiredWcId !== null && findResultListener) {
       const prev = tabManager.findTabByWebContentsId(findWiredWcId);
-      prev?.view.webContents.removeListener("found-in-page", findResultListener);
+      const prevWc = prev?.view.webContents;
+      if (prevWc && !prevWc.isDestroyed()) {
+        prevWc.removeListener("found-in-page", findResultListener);
+      }
     }
     findWiredWcId = wc.id;
-    findResultListener = (_event, result) => {
+    const listener = (_event: Electron.Event, result: Electron.Result) => {
       if (!chromeView.webContents.isDestroyed()) {
         chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
       }
     };
-    wc.on("found-in-page", findResultListener);
+    findResultListener = listener;
+    wc.on("found-in-page", listener);
+    wc.once("destroyed", () => {
+      if (findWiredWcId === wc.id) {
+        findWiredWcId = null;
+        findResultListener = null;
+      }
+    });
   }
 
   ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
