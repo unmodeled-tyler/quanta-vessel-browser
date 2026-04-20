@@ -23,17 +23,20 @@ const destroyListenerAttached = new WeakSet<WebContents>();
  * duplicate attachments and ensure cleanup handlers don't prevent GC of the
  * webContents object.
  */
+function cleanupTimersForWcId(wcId: number): void {
+  const timer = pendingPageSnapshotTimers.get(wcId);
+  if (timer) clearTimeout(timer);
+  pendingPageSnapshotTimers.delete(wcId);
+  pendingPageSnapshotDueAt.delete(wcId);
+  lastMutationSnapshotAt.delete(wcId);
+  lastMutationActivityAt.delete(wcId);
+}
+
 function attachDestroyCleanup(wc: WebContents): void {
   if (destroyListenerAttached.has(wc)) return;
   destroyListenerAttached.add(wc);
   wc.once("destroyed", () => {
-    const wcId = wc.id;
-    const timer = pendingPageSnapshotTimers.get(wcId);
-    if (timer) clearTimeout(timer);
-    pendingPageSnapshotTimers.delete(wcId);
-    pendingPageSnapshotDueAt.delete(wcId);
-    lastMutationSnapshotAt.delete(wcId);
-    lastMutationActivityAt.delete(wcId);
+    cleanupTimersForWcId(wc.id);
   });
 }
 
@@ -136,8 +139,7 @@ function scheduleTimerAt(
   if (existing) clearTimeout(existing);
 
   const timer = setTimeout(() => {
-    pendingPageSnapshotTimers.delete(wcId);
-    pendingPageSnapshotDueAt.delete(wcId);
+    cleanupTimersForWcId(wcId);
     if (wc.isDestroyed()) return;
     lastMutationSnapshotAt.set(wcId, Date.now());
     void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);

@@ -78,7 +78,8 @@ import { registerWindowControlHandlers } from "./window-controls";
 
 let activeChatProvider: AIProvider | null = null;
 
-const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
+const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
+type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -95,10 +96,9 @@ export function registerIpcHandlers(
       : "https://vesselpremium.quantaintellect.com";
 
   const clearSidebarResizeRecoveryTimer = () => {
-    if (sidebarResizeRecoveryTimer) {
-      clearTimeout(sidebarResizeRecoveryTimer);
-      sidebarResizeRecoveryTimer = null;
-    }
+    if (!sidebarResizeRecoveryTimer) return;
+    clearTimeout(sidebarResizeRecoveryTimer);
+    sidebarResizeRecoveryTimer = null;
   };
 
   const restoreSidebarLayoutAfterResize = () => {
@@ -518,7 +518,7 @@ export function registerIpcHandlers(
     Channels.AGENT_SET_APPROVAL_MODE,
     (_, mode: ApprovalMode): AgentRuntimeState => {
       assertString(mode, "mode");
-      if (!VALID_APPROVAL_MODES.has(mode)) {
+      if (!VALID_APPROVAL_MODES.includes(mode as ValidApprovalMode)) {
         throw new Error(`Invalid approval mode: ${mode}`);
       }
       trackApprovalModeChanged(mode);
@@ -866,20 +866,23 @@ export function registerIpcHandlers(
     return state;
   });
 
+  const PREMIUM_TRACKABLE_STEPS = [
+    "chat_banner_viewed",
+    "chat_banner_clicked",
+    "settings_banner_viewed",
+    "settings_banner_clicked",
+    "welcome_banner_clicked",
+    "premium_gate_seen",
+    "premium_gate_clicked",
+    "iteration_limit_seen",
+    "iteration_limit_clicked",
+  ] as const;
+  type PremiumTrackableStep = typeof PREMIUM_TRACKABLE_STEPS[number];
+
   ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (_, step: string) => {
     assertString(step, "step");
-    if (
-      step === "chat_banner_viewed" ||
-      step === "chat_banner_clicked" ||
-      step === "settings_banner_viewed" ||
-      step === "settings_banner_clicked" ||
-      step === "welcome_banner_clicked" ||
-      step === "premium_gate_seen" ||
-      step === "premium_gate_clicked" ||
-      step === "iteration_limit_seen" ||
-      step === "iteration_limit_clicked"
-    ) {
-      trackPremiumFunnel(step);
+    if (PREMIUM_TRACKABLE_STEPS.includes(step as PremiumTrackableStep)) {
+      trackPremiumFunnel(step as PremiumTrackableStep);
     }
   });
 

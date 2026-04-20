@@ -43,6 +43,11 @@ export interface PageSchema {
   confidence: number;
 }
 
+/** Normalize a string for consistent comparison (lowercase + trim). */
+function normalizeString(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 function mapInputType(el: InteractiveElement): FormField["type"] {
   const inputType = el.inputType ?? el.type ?? "text";
   switch (inputType.toLowerCase()) {
@@ -112,19 +117,19 @@ function mapActionButtons(interactiveElements: InteractiveElement[]): ActionButt
     seen.add(label);
 
     let intent: ActionButton["intent"] | undefined;
-    const lower = label.toLowerCase();
+    const normalized = normalizeString(label);
 
-    if (/\b(add to cart|buy now|add to bag|add to basket|shop now)\b/i.test(label)) {
+    if (/\b(add to cart|buy now|add to bag|add to basket|shop now)\b/.test(normalized)) {
       intent = "addToCart";
-    } else if (/\b(login|sign in|log in|signin|log-in)\b/i.test(label)) {
+    } else if (/\b(login|sign in|log in|signin|log-in)\b/.test(normalized)) {
       intent = "login";
-    } else if (/\b(submit|send|continue|next|proceed|register|create account|sign up)\b/i.test(label)) {
+    } else if (/\b(submit|send|continue|next|proceed|register|create account|sign up)\b/.test(normalized)) {
       intent = "submit";
-    } else if (/\b(cancel|back|return|go back|close)\b/i.test(label)) {
+    } else if (/\b(cancel|back|return|go back|close)\b/.test(normalized)) {
       intent = "cancel";
-    } else if (/\b(download|export|save as)\b/i.test(label)) {
+    } else if (/\b(download|export|save as)\b/.test(normalized)) {
       intent = "download";
-    } else if (/\b(search|find|go|submit search)\b/i.test(label)) {
+    } else if (/\b(search|find|go|submit search)\b/.test(normalized)) {
       intent = "search";
     } else if (el.href || el.url) {
       intent = "navigate";
@@ -211,7 +216,7 @@ export function inferPageSchema(page: PageContent): PageSchema {
   const forms = page.forms ?? [];
   const interactiveElements = page.interactiveElements ?? [];
 
-  const urlLower = url.toLowerCase();
+  const urlLower = normalizeString(url);
 
   // --- Detect pageType from structured data (highest priority) ---
   const jsonLdTypes: string[] = [];
@@ -243,11 +248,11 @@ export function inferPageSchema(page: PageContent): PageSchema {
   // --- Refine from meta tags ---
   const ogType = metaTags?.["og:type"];
   if (ogType) {
-    const lower = ogType.toLowerCase();
-    if (/^product$/i.test(lower) && pageType !== "product") {
+    const normalized = normalizeString(ogType);
+    if (/^product$/i.test(normalized) && pageType !== "product") {
       pageType = "product";
       confidence += 0.15;
-    } else if (/^article|blog|news/i.test(lower) && pageType !== "article") {
+    } else if (/^article|blog|news/i.test(normalized) && pageType !== "article") {
       pageType = "article";
       confidence += 0.15;
     }
@@ -276,16 +281,16 @@ export function inferPageSchema(page: PageContent): PageSchema {
     f.fields.some(
       (el) =>
         el.type === "submit" ||
-        (el.inputType ?? "").toLowerCase() === "submit" ||
-        (el.name ?? "").toLowerCase() === "submit",
+        normalizeString(el.inputType) === "submit" ||
+        normalizeString(el.name) === "submit",
     )
   );
 
   const hasPriceSelectors = interactiveElements.some(
     (el) =>
       el.selector?.includes("price") ||
-      el.label?.toLowerCase().includes("price") ||
-      el.name?.toLowerCase().includes("price") ||
+      normalizeString(el.label).includes("price") ||
+      normalizeString(el.name).includes("price") ||
       el.selector?.includes("cost") ||
       el.selector?.includes("amount"),
   );
