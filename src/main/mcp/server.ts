@@ -8,6 +8,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import type { PageContent } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import { errorResult } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import {
@@ -4480,14 +4481,12 @@ export function startMcpServer(
       if (httpServer === server) {
         httpServer = null;
       }
-      finish({
-        ok: false,
+      finish(errorResult(message, {
         configuredPort: port,
         activePort: null,
         endpoint: null,
         authToken: null,
-        error: message,
-      });
+      }));
     });
 
     server.listen(port, "127.0.0.1", () => {

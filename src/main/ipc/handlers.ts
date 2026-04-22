@@ -43,6 +43,7 @@ import type {
   VesselSettings,
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
@@ -385,13 +386,13 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
     try {
       if (!config || typeof config !== "object" || !("id" in config)) {
-        return { ok: false, models: [], error: "Invalid provider configuration" };
+        return errorResult("Invalid provider configuration", { models: [] });
       }
       return await fetchProviderModels(
         config as Parameters<typeof fetchProviderModels>[0],
       );
     } catch (err: unknown) {
-      return { ok: false, models: [], error: err instanceof Error ? err.message : "Unknown error" };
+      return errorResult(getErrorMessage(err), { models: [] });
     }
   });
 
@@ -839,7 +840,7 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (_, email: string) => {
     assertString(email, "email");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return { ok: false, error: "Invalid email format" };
+      return errorResult("Invalid email format");
     }
     trackPremiumFunnel("activation_attempted");
     const result = await requestActivationCode(email);
@@ -856,11 +857,9 @@ export function registerIpcHandlers(
       assertString(code, "code");
       assertString(challengeToken, "challengeToken");
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-        return {
-          ok: false,
+        return errorResult("Invalid email format", {
           state: getPremiumState(),
-          error: "Invalid email format",
-        };
+        });
       }
       trackPremiumFunnel("activation_attempted");
       const result = await verifyActivationCode(email, code, challengeToken);
