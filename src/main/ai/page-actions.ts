@@ -72,12 +72,12 @@ export interface ActionContext {
   toolProfile?: AgentToolProfile;
 }
 
-function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
+export function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
   return normalizeBookmarkMetadata({
-    intent: args.intent,
-    expectedContent: args.expectedContent,
-    keyFields: args.keyFields,
-    agentHints: args.agentHints,
+    intent: args.intent ?? args.intent,
+    expectedContent: args.expectedContent ?? args.expected_content,
+    keyFields: args.keyFields ?? args.key_fields,
+    agentHints: args.agentHints ?? args.agent_hints,
   });
 }
 
@@ -99,7 +99,7 @@ export interface FillFormFieldResult {
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
 
-async function loadPermittedUrl(
+export async function loadPermittedUrl(
   wc: WebContents,
   url: string,
 ): Promise<void> {
@@ -504,7 +504,7 @@ async function getPostClickNavSummary(
   return "";
 }
 
-async function scrollPage(
+export async function scrollPage(
   wc: WebContents,
   deltaY: number,
 ): Promise<{
@@ -559,7 +559,7 @@ async function scrollPage(
 
 
 
-async function clickElement(
+export async function clickElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -681,7 +681,7 @@ async function clickElement(
     : "Clicked via pointer events";
 }
 
-async function activateElement(
+export async function activateElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -720,7 +720,7 @@ async function activateElement(
   return "Activated element via DOM click";
 }
 
-async function describeElementForClick(
+export async function describeElementForClick(
   wc: WebContents,
   selector: string,
 ): Promise<
@@ -1284,7 +1284,7 @@ function recordProductAddedToCart(url: string, productName: string): void {
 /**
  * Check if the given product URL was already added to cart during this session.
  */
-function isProductAlreadyInCart(url: string): boolean {
+export function isProductAlreadyInCart(url: string): boolean {
   pruneCartAddedProducts();
   return cartAddedProducts.has(normalizeCartProductKey(url));
 }
@@ -1293,7 +1293,7 @@ function isProductAlreadyInCart(url: string): boolean {
  * Build a summary of products already added to cart, filtered to the current
  * site when a URL is available so unrelated domains do not leak into the prompt.
  */
-function getCartAddedSummary(url?: string): string {
+export function getCartAddedSummary(url?: string): string {
   pruneCartAddedProducts();
   const origin = cartOrigin(url);
   const items = Array.from(cartAddedProducts.entries())
@@ -1317,7 +1317,7 @@ export function clearCartState(): void {
   clickStreakCount = 0;
 }
 
-async function buildCartSuccessSuffix(
+export async function buildCartSuccessSuffix(
   wc: WebContents,
   productUrl: string,
   overlayHint?: string | null,
@@ -1341,7 +1341,7 @@ async function buildCartSuccessSuffix(
   return `\n${overlayHint}${actionsSuffix}${cartSummary}`;
 }
 
-async function clickResolvedSelector(
+export async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -1659,7 +1659,7 @@ async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null>
  * When a cart dialog is open, extract its interactive actions (buttons/links)
  * so the model can act on them without needing to call read_page.
  */
-async function getCartDialogActions(wc: WebContents): Promise<string | null> {
+export async function getCartDialogActions(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     actions: string[];
@@ -1713,7 +1713,7 @@ async function getCartDialogActions(wc: WebContents): Promise<string | null> {
  * Lightweight post-click check: did a dialog / cart-drawer appear?
  * Runs a small DOM query instead of a full extraction so it stays fast.
  */
-async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
+export async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     label: string;
@@ -2598,7 +2598,7 @@ export async function fillFormFields(
   return results;
 }
 
-function getTabByMatch(
+export function getTabByMatch(
   tabManager: TabManager,
   match?: string,
 ): { id: string; title: string; url: string } | null {
@@ -2615,7 +2615,7 @@ function getTabByMatch(
   );
 }
 
-function isDangerousAction(name: string): boolean {
+export function isDangerousAction(name: string): boolean {
   return [
     "navigate",
     "open_bookmark",
@@ -2626,6 +2626,7 @@ function isDangerousAction(name: string): boolean {
     "press_key",
     "create_tab",
     "switch_tab",
+    "close_tab",
     "restore_checkpoint",
     "load_session",
     "login",
@@ -2751,7 +2752,7 @@ async function setElementValue(
     : result || "Error: Could not type into element";
 }
 
-async function typeKeystroke(
+export async function typeKeystroke(
   wc: WebContents,
   selector: string,
   value: string,
@@ -2806,7 +2807,7 @@ async function typeKeystroke(
     : result || "Error: Could not type into element";
 }
 
-async function hoverElement(
+export async function hoverElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -2842,7 +2843,7 @@ async function hoverElement(
   return `Hovered: ${label}`;
 }
 
-async function focusElement(
+export async function focusElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -2860,7 +2861,7 @@ async function focusElement(
   `);
 }
 
-async function waitForCondition(
+export async function waitForCondition(
   wc: WebContents,
   args: Record<string, any>,
 ): Promise<string> {
@@ -2946,14 +2947,18 @@ function findCheckpoint(
   return null;
 }
 
-function resolveBookmarkFolderTarget(args: Record<string, any>): {
+export function resolveBookmarkFolderTarget(args: Record<string, any>): {
   folderId?: string;
   folderName: string;
   createdFolder?: string;
   error?: string;
 } {
   const folderId =
-    typeof args.folderId === "string" ? args.folderId.trim() : "";
+    typeof args.folderId === "string"
+      ? args.folderId.trim()
+      : typeof args.folder_id === "string"
+        ? args.folder_id.trim()
+        : "";
   if (folderId) {
     if (folderId === bookmarkManager.UNSORTED_ID) {
       return {
@@ -2971,9 +2976,11 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
   const folderName =
     typeof args.folderName === "string" && args.folderName.trim()
       ? args.folderName.trim()
-      : args.archive
-        ? bookmarkManager.ARCHIVE_FOLDER_NAME
-        : "";
+      : typeof args.folder_name === "string" && args.folder_name.trim()
+        ? args.folder_name.trim()
+        : args.archive
+          ? bookmarkManager.ARCHIVE_FOLDER_NAME
+          : "";
   if (!folderName || folderName.toLowerCase() === "unsorted") {
     return {
       folderId: bookmarkManager.UNSORTED_ID,
@@ -2986,14 +2993,18 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
     return { folderId: existing.id, folderName: existing.name };
   }
 
-  if (args.createFolderIfMissing === false) {
+  const createIfMissing =
+    args.createFolderIfMissing ?? args.create_folder_if_missing;
+  if (createIfMissing === false) {
     return { folderName, error: `Folder "${folderName}" not found` };
   }
 
   const folderSummary =
     typeof args.folderSummary === "string" && args.folderSummary.trim()
       ? args.folderSummary.trim()
-      : undefined;
+      : typeof args.folder_summary === "string" && args.folder_summary.trim()
+        ? args.folder_summary.trim()
+        : undefined;
   const { folder } = bookmarkManager.ensureFolder(folderName, folderSummary);
   return {
     folderId: folder.id,
@@ -3002,7 +3013,7 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
   };
 }
 
-function formatFolderStatus(limit = 6): string {
+export function formatFolderStatus(limit = 6): string {
   const folders = bookmarkManager.listFolderOverviews();
   const summary = folders
     .slice(0, limit)
@@ -3011,14 +3022,14 @@ function formatFolderStatus(limit = 6): string {
   return `Folder status: ${summary}${folders.length > limit ? ", ..." : ""}`;
 }
 
-function describeFolder(folderId?: string): string {
+export function describeFolder(folderId?: string): string {
   if (!folderId || folderId === bookmarkManager.UNSORTED_ID) {
     return "Unsorted";
   }
   return bookmarkManager.getFolder(folderId)?.name ?? folderId;
 }
 
-function composeDuplicateBookmarkResponse(args: {
+export function composeDuplicateBookmarkResponse(args: {
   url: string;
   folderName: string;
   bookmarkId: string;
@@ -3026,7 +3037,7 @@ function composeDuplicateBookmarkResponse(args: {
   return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with onDuplicate="update" to refresh the existing bookmark or onDuplicate="duplicate" to keep both entries.`;
 }
 
-function composeFolderAwareResponse(
+export function composeFolderAwareResponse(
   message: string,
   createdFolder?: string,
 ): string {
@@ -3034,7 +3045,7 @@ function composeFolderAwareResponse(
   return `${prefix}${message}\n${formatFolderStatus()}`;
 }
 
-async function selectOption(
+export async function selectOption(
   wc: WebContents,
   args: Record<string, any>,
 ): Promise<string> {
@@ -3077,7 +3088,7 @@ async function selectOption(
     : result || "Error: Could not select option";
 }
 
-async function submitForm(
+export async function submitForm(
   wc: WebContents,
   args: Record<string, any>,
 ): Promise<string> {
@@ -3281,6 +3292,42 @@ async function submitForm(
   }
 
   return "Submitted form";
+}
+
+export async function pressKeyDirect(
+  wc: WebContents,
+  key: string,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  return pressKey(wc, { key, index, selector });
+}
+
+export async function submitFormDirect(
+  wc: WebContents,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  return submitForm(wc, { index, selector });
+}
+
+export async function selectOptionDirect(
+  wc: WebContents,
+  index?: number,
+  selector?: string,
+  label?: string,
+  value?: string,
+): Promise<string> {
+  return selectOption(wc, { index, selector, label, value });
+}
+
+export async function waitForConditionDirect(
+  wc: WebContents,
+  text?: string,
+  selector?: string,
+  timeoutMs?: number,
+): Promise<string> {
+  return waitForCondition(wc, { text, selector, timeoutMs });
 }
 
 export {
