@@ -42,6 +42,7 @@ import type {
   SessionSnapshot,
   VesselSettings,
 } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
@@ -78,6 +79,7 @@ import { registerWindowControlHandlers } from "./window-controls";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 
 let activeChatProvider: AIProvider | null = null;
+const logger = createLogger("IPC");
 
 const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
 type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
@@ -175,7 +177,8 @@ export function registerIpcHandlers(
       let parsed: URL;
       try {
         parsed = new URL(rawUrl);
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to parse premium checkout URL while watching checkout tab:", err);
         return;
       }
 
@@ -247,7 +250,8 @@ export function registerIpcHandlers(
     if (wc.isDestroyed()) return 0;
     try {
       return (await getHighlightCount(wc)) ?? 0;
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to get active highlight count:", err);
       return 0;
     }
   };
@@ -636,11 +640,14 @@ export function registerIpcHandlers(
       const wc = activeTab.view.webContents;
       const result = await captureSelectionHighlight(wc);
       if (result.success && result.text) {
-        await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
+        await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch((err) =>
+          logger.warn("Failed to highlight captured selection:", err),
+        );
         await emitHighlightCount();
       }
       return result;
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to capture highlight from active tab:", err);
       return { success: false, message: "Could not capture selection" };
     }
   });
@@ -671,8 +678,8 @@ export function registerIpcHandlers(
           chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
         }
       });
-    } catch {
-      // Silently ignore errors from auto-highlight
+    } catch (err) {
+      logger.warn("Failed to persist auto-highlight selection:", err);
     }
   });
 
@@ -689,7 +696,8 @@ export function registerIpcHandlers(
     if (wc.isDestroyed()) return false;
     try {
       return scrollToHighlight(wc, index);
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to scroll to highlight:", err);
       return false;
     }
   });
@@ -705,7 +713,8 @@ export function registerIpcHandlers(
         await emitHighlightCount();
       }
       return removed;
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to remove highlight at index:", err);
       return false;
     }
   });
@@ -721,7 +730,8 @@ export function registerIpcHandlers(
         await emitHighlightCount();
       }
       return cleared;
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to clear highlight elements:", err);
       return false;
     }
   });

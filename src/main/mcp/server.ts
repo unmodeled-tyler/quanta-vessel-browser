@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { PageContent } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 import type { AgentRuntime } from "../agent/runtime";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import {
@@ -94,6 +95,7 @@ import { appendAuditEntry } from "../vault/audit";
 import { trackVaultAction } from "../telemetry/posthog";
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
+const logger = createLogger("MCP");
 
 // Well-known path where external MCP clients (e.g. Hermes) can read the
 // current auth token and endpoint. Written on successful start. The token is
@@ -149,7 +151,7 @@ function writeMcpAuthFile(endpoint: string, token: string): void {
       { mode: 0o600 },
     );
   } catch (err) {
-    console.warn("[Vessel MCP] Failed to write auth file:", err);
+    logger.warn("Failed to write auth file:", err);
   }
 }
 
@@ -176,7 +178,7 @@ function clearMcpAuthFile(): void {
       { mode: 0o600 },
     );
   } catch (err) {
-    console.warn("[Vessel MCP] Failed to clear auth file:", err);
+    logger.warn("Failed to clear auth file:", err);
   }
 }
 
@@ -305,8 +307,8 @@ async function getPostActionState(
           warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
         }
       }
-    } catch {
-      // Best-effort post-action warning only
+    } catch (err) {
+      logger.warn("Failed to compute post-action state warning:", err);
     }
 
     return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
@@ -429,7 +431,7 @@ async function waitForConditionMcp(
   };
 
   if (expectedSelector) {
-    const diagnostic = await wc.executeJavaScript(`
+  const diagnostic = await wc.executeJavaScript(`
       (function() {
         try {
           var count = document.querySelectorAll(${JSON.stringify(expectedSelector)}).length;
@@ -438,7 +440,10 @@ async function waitForConditionMcp(
           return 'selector error: ' + e.message;
         }
       })()
-    `).catch(() => null);
+    `).catch((err) => {
+      logger.warn("Failed to gather wait_for timeout diagnostic:", err);
+      return null;
+    });
     if (typeof diagnostic === "string" && diagnostic.trim()) {
       timeoutPayload.diagnostic = diagnostic;
     }
@@ -550,8 +555,8 @@ function registerTools(
           pageTitle = wc.getTitle();
           const page = await extractContent(wc);
           pageType = detectPageType(page);
-        } catch {
-          // Fall back to GENERAL
+        } catch (err) {
+          logger.warn("Failed to detect page type for tool scoring, falling back to GENERAL:", err);
         }
       }
 
@@ -2095,7 +2100,9 @@ function registerTools(
             h.label,
             undefined,
             h.color,
-          ).catch(() => {});
+          ).catch((err) =>
+            logger.warn("Failed to restore highlight after removal:", err),
+          );
         }
       }
 
@@ -3231,7 +3238,8 @@ function registerTools(
       let page: PageContent;
       try {
         page = await extractContent(wc);
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to extract page while generating suggestions:", err);
         return asTextResponse(
           "Could not read page. Try navigate to a working URL.",
         );
@@ -3995,7 +4003,8 @@ function registerTools(
         if (!tab) return asTextResponse("Error: No active tab and no domain specified");
         try {
           targetDomain = new URL(tab.state.url).hostname;
-        } catch {
+        } catch (err) {
+          logger.warn("Failed to parse active tab URL for vault_status:", err);
           return asTextResponse("Error: Could not parse active tab URL");
         }
       }
@@ -4082,7 +4091,8 @@ function registerTools(
       let hostname: string;
       try {
         hostname = new URL(tab.state.url).hostname;
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to parse active tab URL for vault_login:", err);
         return asTextResponse("Error: Could not parse active tab URL");
       }
 
@@ -4213,7 +4223,8 @@ function registerTools(
       let hostname: string;
       try {
         hostname = new URL(tab.state.url).hostname;
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to parse active tab URL for vault_totp:", err);
         return asTextResponse("Error: Could not parse active tab URL");
       }
 
@@ -4433,7 +4444,7 @@ export function startMcpServer(
         await mcpServer.connect(transport);
         await transport.handleRequest(req, res);
       } catch (error) {
-        console.error("[Vessel MCP] Error handling request:", error);
+        logger.error("Error handling request:", error);
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(
@@ -4457,7 +4468,7 @@ export function startMcpServer(
         error.code === "EADDRINUSE"
           ? `Port ${port} is already in use. MCP server not started.`
           : error.message;
-      console.error("[Vessel MCP] Server error:", error);
+      logger.error("Server error:", error);
       clearMcpAuthFile();
       setMcpHealth({
         configuredPort: port,

@@ -65,12 +65,15 @@ import { MAX_AGENT_DEBUG_CONTENT_LENGTH } from "./content-limits";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
+import { createLogger } from "../../shared/logger";
 
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
   toolProfile?: AgentToolProfile;
 }
+
+const logger = createLogger("PageActions");
 
 export function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
   return normalizeBookmarkMetadata({
@@ -335,7 +338,9 @@ async function executePageScript<T>(
     }
 
     return result as T;
-  } catch {
+  } catch (err) {
+    const label = options?.label ? ` (${options.label})` : "";
+    logger.warn(`Failed to execute page script${label}:`, err);
     return null;
   } finally {
     if (timer) {
@@ -459,8 +464,8 @@ async function getPostSearchSummary(wc: WebContents): Promise<string> {
           : scoped;
       return `\nSearch results snapshot:\n${truncated}`;
     }
-  } catch {
-    // Fall back to the lighter title/overlay summary below.
+  } catch (err) {
+    logger.warn("Failed to build post-search summary, falling back to nav summary:", err);
   }
 
   const fallback = await getPostNavSummary(wc);
@@ -497,8 +502,8 @@ async function getPostClickNavSummary(
           : scoped;
       return `\nPage snapshot after navigation:\n${truncated}`;
     }
-  } catch {
-    // Fall through to empty return — getPostActionState still provides URL/title.
+  } catch (err) {
+    logger.warn("Failed to build post-click navigation summary:", err);
   }
 
   return "";
@@ -1123,8 +1128,8 @@ async function restoreLocaleSnapshot(
         return;
       }
     }
-  } catch {
-    // Fall back to reloading the last known-good URL below.
+  } catch (err) {
+    logger.warn("Failed to restore locale via history navigation, trying URL reload fallback:", err);
   }
 
   if (snapshot.url && snapshot.url !== wc.getURL()) {
@@ -1133,8 +1138,8 @@ async function restoreLocaleSnapshot(
       await wc.loadURL(snapshot.url);
       await waitForLoad(wc, 3000);
       return;
-    } catch {
-      // Ignore and let the caller continue with the restored best effort.
+    } catch (err) {
+      logger.warn("Failed to restore locale via safe URL load, trying page reload fallback:", err);
     }
   }
 
@@ -1142,8 +1147,8 @@ async function restoreLocaleSnapshot(
     try {
       await wc.reload();
       await waitForLoad(wc, 3000);
-    } catch {
-      // Best-effort recovery only.
+    } catch (err) {
+      logger.warn("Failed to restore locale via page reload:", err);
     }
   }
 }
@@ -1584,17 +1589,17 @@ export async function clickResolvedSelector(
   if (sameTabLinkTarget) {
     const validation = await validateLinkDestination(elInfo.href!);
     if (validation.status !== "dead") {
-      try {
-        await loadPermittedUrl(wc, elInfo.href!);
-        await waitForLoad(wc, 8000);
-        const hrefFallbackUrl = wc.getURL();
-        if (hrefFallbackUrl !== beforeUrl) {
-          return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+        try {
+          await loadPermittedUrl(wc, elInfo.href!);
+          await waitForLoad(wc, 8000);
+          const hrefFallbackUrl = wc.getURL();
+          if (hrefFallbackUrl !== beforeUrl) {
+            return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+          }
+        } catch (err) {
+          logger.warn("Failed href fallback after click, returning generic click result:", err);
         }
-      } catch {
-        // Fall through to the generic click result when href fallback fails.
       }
-    }
   }
 
   // Final fallback: click didn't navigate, no overlay, no href fallback.
@@ -1649,8 +1654,8 @@ async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null>
       await sleep(500);
       return result;
     }
-  } catch {
-    // Fall through — caller will show dialog actions as fallback
+  } catch (err) {
+    logger.warn("Failed to auto-dismiss cart dialog, falling back to dialog actions:", err);
   }
   return null;
 }
@@ -4404,7 +4409,8 @@ export async function executeAction(
                 }, 6000),
               ),
             ]);
-          } catch {
+          } catch (err) {
+            logger.warn("Failed to extract content for read_page, falling back to lighter recovery:", err);
             content = null;
           }
 
@@ -4427,12 +4433,13 @@ export async function executeAction(
                     extractContent(wc),
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
                   ]);
-                } catch {
+                } catch (err) {
+                  logger.warn("Failed to re-extract content after iframe consent dismissal:", err);
                   content = null;
                 }
               }
-            } catch {
-              // iframe dismiss failed — fall through to emergency extraction
+            } catch (err) {
+              logger.warn("Failed iframe consent dismissal during read_page recovery:", err);
             }
           }
 
@@ -4967,7 +4974,8 @@ export async function executeAction(
           let page;
           try {
             page = await extractContent(wc);
-          } catch {
+          } catch (err) {
+            logger.warn("Failed to extract content for suggest:", err);
             return "Could not read page. Try navigate to a working URL.";
           }
 
