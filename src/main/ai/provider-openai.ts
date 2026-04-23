@@ -845,9 +845,16 @@ export class OpenAICompatProvider implements AIProvider {
     const baseURL =
       config.baseUrl || meta?.defaultBaseUrl || 'https://api.openai.com/v1';
 
+    const isOpenRouter = baseURL.includes('openrouter.ai');
     this.client = new OpenAI({
       apiKey: config.apiKey || 'ollama',
       baseURL,
+      ...(isOpenRouter && {
+        defaultHeaders: {
+          'HTTP-Referer': 'https://github.com/unmodeled/vessel-browser',
+          'X-Title': 'Vessel',
+        },
+      }),
     });
     this.providerId = config.id;
     this.model = config.model || meta?.defaultModel || 'gpt-4o';
