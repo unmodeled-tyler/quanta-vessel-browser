@@ -31,6 +31,7 @@ export const Channels = {
   AGENT_CHECKPOINT_CREATE: "agent:checkpoint-create",
   AGENT_CHECKPOINT_RESTORE: "agent:checkpoint-restore",
   AGENT_CHECKPOINT_UPDATE_NOTE: "agent:checkpoint-update-note",
+  AGENT_UNDO_LAST_ACTION: "agent:undo-last-action",
   AGENT_SESSION_CAPTURE: "agent:session-capture",
   AGENT_SESSION_RESTORE: "agent:session-restore",
 

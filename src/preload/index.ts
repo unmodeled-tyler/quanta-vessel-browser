@@ -157,6 +157,8 @@ const api = {
       note?: string,
     ): Promise<AgentCheckpoint | null> =>
       ipcRenderer.invoke(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, checkpointId, note),
+    undoLastAction: (): Promise<string | null> =>
+      ipcRenderer.invoke(Channels.AGENT_UNDO_LAST_ACTION),
     captureSession: (note?: string): Promise<SessionSnapshot> =>
       ipcRenderer.invoke(Channels.AGENT_SESSION_CAPTURE, note),
     restoreSession: (

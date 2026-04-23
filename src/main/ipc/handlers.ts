@@ -576,6 +576,10 @@ export function registerIpcHandlers(
     runtime.updateCheckpointNote(checkpointId, note || ""),
   );
 
+  ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, () =>
+    runtime.undoLastAction(),
+  );
+
   ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (_, note?: string) =>
     runtime.captureSession(note),
   );

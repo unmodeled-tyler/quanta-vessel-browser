@@ -3229,6 +3229,25 @@ function registerTools(
     },
   );
 
+  server.registerTool(
+    "undo_last_action",
+    {
+      title: "Undo Last Action",
+      description:
+        "Undo the most recent agent action by restoring the browser to its state before that action ran. Works for click, type, submit, navigate, and similar mutating actions.",
+    },
+    async () => {
+      const undone = runtime.undoLastAction();
+      if (!undone)
+        return asTextResponse(
+          "Nothing to undo. No undo snapshots available.",
+        );
+      return asTextResponse(
+        `Undid action: ${undone}. Browser restored to state before that action.`,
+      );
+    },
+  );
+
   // --- Speedee Suggestion Engine ---
 
   server.registerTool(

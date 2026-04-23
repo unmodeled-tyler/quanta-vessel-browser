@@ -127,6 +127,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     createCheckpoint,
     restoreCheckpoint,
     updateCheckpointNote,
+    undoLastAction,
     restoreSession,
   } = useRuntime();
   const {
@@ -963,6 +964,20 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 >
                   Restore session
                 </button>
+                <Show when={runtimeState().canUndo}>
+                  <button
+                    class="agent-primary-button"
+                    type="button"
+                    onClick={() => void undoLastAction()}
+                    title={
+                      runtimeState().undoInfo
+                        ? `Undo: ${runtimeState().undoInfo!.actionName}`
+                        : "Undo last action"
+                    }
+                  >
+                    Undo last action
+                  </button>
+                </Show>
               </div>
 
               <div class="agent-muted">{approvalModeDescription()}</div>
