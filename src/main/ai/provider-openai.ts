@@ -1028,6 +1028,9 @@ export class OpenAICompatProvider implements AIProvider {
           );
           if (recoveredToolCalls.length > 0) {
             toolCalls = recoveredToolCalls;
+            // The raw text containing tool-call JSON was already streamed to
+            // the UI. Emit a signal so the renderer collapses it.
+            if (textAccum.trim()) onChunk('<<erase_prev>>');
           } else {
             const narratedToolCalls = recoverNarratedActionToolCalls(
               textAccum,
@@ -1035,6 +1038,7 @@ export class OpenAICompatProvider implements AIProvider {
             );
             if (narratedToolCalls.length > 0) {
               toolCalls = narratedToolCalls;
+              if (textAccum.trim()) onChunk('<<erase_prev>>');
             }
           }
         }
