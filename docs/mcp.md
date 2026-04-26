@@ -9,7 +9,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 3. Optional: set an Obsidian vault path or session preferences
 4. Start Hermes Agent, OpenClaw, Codex, or another MCP client and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command, or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
-6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
+6. Use the Bookmarks panel to organize saved pages into folders, export them for other browsers, and expose those bookmarks back to the agent over MCP
 
 ## Integration Notes
 
@@ -18,6 +18,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 - Harnesses should treat Vessel as the persistent, human-visible browser rather than launching a separate browser session
 - Approval policy is controlled live from the Supervisor panel rather than a separate global settings screen
 - Settings show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
+- The Bookmarks panel can export browser-compatible HTML, HTML with Vessel notes/agent metadata, or a full Vessel JSON archive; export is a user-facing UI action, not an MCP tool
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory tools

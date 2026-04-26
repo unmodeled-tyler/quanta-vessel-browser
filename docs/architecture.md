@@ -19,7 +19,7 @@ That means the product optimizes for:
 | UI Framework | SolidJS |
 | Language | TypeScript |
 | Build | electron-vite + Vite |
-| AI Control | External agent harnesses (Hermes Agent, OpenClaw, MCP clients) |
+| AI Control | External agent harnesses (Hermes Agent, OpenClaw, MCP clients) + built-in chat providers |
 | Content Extraction | @mozilla/readability |
 
 ## High-Level Layout
@@ -28,8 +28,9 @@ That means the product optimizes for:
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
 ├── AgentRuntime (session + supervision)  ├── CommandBar (secondary surface)
-├── MCP server for external agents        ├── Supervisor Sidebar (resizable)
-├── Supervision, bookmarks, checkpoints   └── Signal stores (tabs, ai, ui)
+├── MCP server for external agents        ├── AI Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate)
+├── Supervision, bookmarks, checkpoints   ├── DevTools Panel, Agent Transcript Dock
+├── Sessions, vault, history, memory      └── Signal stores (tabs, ai, ui, runtime, bookmarks)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
 
@@ -45,8 +46,15 @@ src/
 │   ├── agent/            # Agent runtime, checkpoints, supervision
 │   ├── content/          # Readability extraction, reader mode
 │   ├── config/           # Settings persistence
+│   ├── bookmarks/        # Bookmark/folder persistence and browser-compatible export
+│   ├── history/          # Browse history persistence
 │   ├── ipc/              # IPC handler registry
+│   ├── memory/           # Obsidian vault hooks
 │   ├── mcp/              # MCP server for external agent control
+│   ├── network/          # Ad blocking, URL safety, downloads
+│   ├── premium/          # Premium state and subscription integration
+│   ├── sessions/         # Named session save/load/delete
+│   ├── vault/            # Encrypted credential vault
 │   ├── window.ts         # Window layout manager
 │   └── index.ts          # App entry point
 ├── preload/              # contextBridge scripts
@@ -55,12 +63,13 @@ src/
 ├── renderer/             # SolidJS browser UI
 │   └── src/
 │       ├── components/
-│       │   ├── chrome/   # TitleBar, TabBar, AddressBar
-│       │   ├── ai/       # CommandBar, Sidebar
+│       │   ├── chrome/   # TitleBar, TabBar, AddressBar, transcript dock
+│       │   ├── ai/       # CommandBar, Sidebar, Automation, Changes
+│       │   ├── devtools/ # Console, network, and agent activity panel
 │       │   └── shared/   # Settings panel
 │       ├── stores/       # SolidJS signal stores
 │       ├── styles/       # Theme and global CSS
-│       └── lib/          # Keybindings
+│       └── lib/          # Keybindings, markdown, automation kit helpers
 └── shared/               # Types and IPC channel constants
 ```
 
