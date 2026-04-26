@@ -38,6 +38,17 @@ function sanitizePdfFilename(title: string): string {
   return `${base}.pdf`;
 }
 
+function sanitizePageFilename(title: string, ext: string): string {
+  const clean = title
+    .replace(/[<>:\"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const escapedExt = ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`\\.${escapedExt}$`, "i");
+  const base = (clean || "Vessel Page").replace(regex, "");
+  return `${base}.${ext}`;
+}
+
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
   private order: string[] = [];
@@ -320,6 +331,30 @@ export class TabManager {
       printBackground: true,
     });
     await fs.writeFile(filePath, data);
+    return filePath;
+  }
+
+  async savePage(
+    id: string,
+    format: "MHTML" | "HTMLComplete" = "MHTML",
+  ): Promise<string | null> {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+
+    const ext = format === "MHTML" ? "mhtml" : "html";
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save Page As",
+      defaultPath: sanitizePageFilename(
+        tab.state.title || "Vessel Page",
+        ext,
+      ),
+      filters: [
+        { name: format === "MHTML" ? "MHTML" : "HTML", extensions: [ext] },
+      ],
+    });
+    if (canceled || !filePath) return null;
+
+    await tab.view.webContents.savePage(filePath, format);
     return filePath;
   }
 
