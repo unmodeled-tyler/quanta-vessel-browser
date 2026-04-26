@@ -122,6 +122,7 @@ export class Tab {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     };
     if (options?.sessionPartition) {
       webPreferences.session = session.fromPartition(options.sessionPartition);

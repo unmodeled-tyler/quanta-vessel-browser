@@ -217,6 +217,7 @@ export function createMainWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     },
   });
 
@@ -229,6 +230,7 @@ export function createMainWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     },
   });
 
@@ -246,6 +248,7 @@ export function createMainWindow(
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     },
   });
 
