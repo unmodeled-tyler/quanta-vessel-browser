@@ -9,6 +9,8 @@ import type {
   AutomationKit,
   Bookmark,
   BookmarkFolder,
+  BookmarkExportResult,
+  BookmarkHtmlExportOptions,
   BookmarksState,
   HistoryState,
   PremiumState,
@@ -314,6 +316,12 @@ const api = {
       ipcRenderer.invoke(Channels.BOOKMARK_UPDATE, id, updates),
     removeBookmark: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(Channels.BOOKMARK_REMOVE, id),
+    exportHtml: (
+      options?: BookmarkHtmlExportOptions,
+    ): Promise<BookmarkExportResult | null> =>
+      ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_HTML, options),
+    exportJson: (): Promise<BookmarkExportResult | null> =>
+      ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_JSON),
     createFolder: (name: string): Promise<BookmarkFolder> =>
       ipcRenderer.invoke(Channels.FOLDER_CREATE, name),
     createFolderWithSummary: (

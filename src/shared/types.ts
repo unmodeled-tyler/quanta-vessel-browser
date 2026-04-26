@@ -536,6 +536,15 @@ export interface BookmarksState {
   bookmarks: Bookmark[];
 }
 
+export interface BookmarkHtmlExportOptions {
+  includeNotes?: boolean;
+}
+
+export interface BookmarkExportResult {
+  filePath: string;
+  count: number;
+}
+
 // --- Automation Kits ---
 
 export type KitInputType = "text" | "url" | "number" | "textarea";

@@ -1,4 +1,5 @@
-import { app, ipcMain, Menu, MenuItem } from "electron";
+import { app, dialog, ipcMain, Menu, MenuItem } from "electron";
+import { promises as fs } from "fs";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import * as historyManager from "../history/manager";
@@ -775,6 +776,45 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
     trackBookmarkAction("remove");
     return bookmarkManager.removeBookmark(id);
+  });
+
+  ipcMain.handle(
+    Channels.BOOKMARKS_EXPORT_HTML,
+    async (_, options?: { includeNotes?: boolean }) => {
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        title: "Export Bookmarks",
+        defaultPath: "vessel-bookmarks.html",
+        filters: [{ name: "HTML Bookmarks", extensions: ["html"] }],
+      });
+      if (canceled || !filePath) return null;
+
+      const content = bookmarkManager.exportBookmarksHtml({
+        includeNotes: options?.includeNotes ?? false,
+      });
+      await fs.writeFile(filePath, content, "utf-8");
+      trackBookmarkAction("export");
+      return {
+        filePath,
+        count: bookmarkManager.getState().bookmarks.length,
+      };
+    },
+  );
+
+  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Export Vessel Bookmark Archive",
+      defaultPath: "vessel-bookmarks.json",
+      filters: [{ name: "Vessel Bookmark Archive", extensions: ["json"] }],
+    });
+    if (canceled || !filePath) return null;
+
+    const content = bookmarkManager.exportBookmarksJson();
+    await fs.writeFile(filePath, content, "utf-8");
+    trackBookmarkAction("export");
+    return {
+      filePath,
+      count: bookmarkManager.getState().bookmarks.length,
+    };
   });
 
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {

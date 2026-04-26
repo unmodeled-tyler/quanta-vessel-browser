@@ -145,6 +145,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     saveBookmark,
     updateBookmark,
     removeBookmark,
+    exportHtml,
+    exportJson,
     createFolderWithSummary,
     removeFolder,
     renameFolder,
@@ -376,6 +378,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderSummary, setNewFolderSummary] = createSignal("");
   const [bookmarkSearchQuery, setBookmarkSearchQuery] = createSignal("");
+  const [bookmarkExportMessage, setBookmarkExportMessage] = createSignal("");
+  const [bookmarkExporting, setBookmarkExporting] = createSignal(false);
   const [editingFolderId, setEditingFolderId] = createSignal<string | null>(
     null,
   );
@@ -765,6 +769,32 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     }
   };
 
+  const handleExportBookmarks = async (
+    format: "html" | "html-with-notes" | "json",
+  ) => {
+    setBookmarkExporting(true);
+    setBookmarkExportMessage("");
+    try {
+      const result =
+        format === "json"
+          ? await exportJson()
+          : await exportHtml({ includeNotes: format === "html-with-notes" });
+      if (!result) {
+        setBookmarkExportMessage("Export canceled.");
+        return;
+      }
+      setBookmarkExportMessage(
+        `Exported ${result.count} bookmarks to ${result.filePath}`,
+      );
+    } catch (error) {
+      setBookmarkExportMessage(
+        error instanceof Error ? error.message : "Could not export bookmarks.",
+      );
+    } finally {
+      setBookmarkExporting(false);
+    }
+  };
+
   const toggleFolderExpanded = (folderId: string) => {
     setExpandedFolderIds((current) =>
       current.includes(folderId)
@@ -1098,6 +1128,48 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 onInput={(e) => setBookmarkSearchQuery(e.currentTarget.value)}
                 placeholder="Search titles, URLs, notes, and folders"
               />
+
+              <div class="bookmark-export-card">
+                <div>
+                  <div class="bookmark-panel-title">Export</div>
+                  <div class="bookmark-panel-subtitle">
+                    Save browser-ready HTML or a full Vessel archive
+                  </div>
+                </div>
+                <div class="bookmark-export-actions">
+                  <button
+                    class="bookmark-secondary-button"
+                    type="button"
+                    disabled={bookmarkExporting()}
+                    onClick={() => void handleExportBookmarks("html")}
+                  >
+                    Browser HTML
+                  </button>
+                  <button
+                    class="bookmark-secondary-button"
+                    type="button"
+                    disabled={bookmarkExporting()}
+                    onClick={() =>
+                      void handleExportBookmarks("html-with-notes")
+                    }
+                  >
+                    HTML + notes
+                  </button>
+                  <button
+                    class="bookmark-secondary-button"
+                    type="button"
+                    disabled={bookmarkExporting()}
+                    onClick={() => void handleExportBookmarks("json")}
+                  >
+                    Vessel JSON
+                  </button>
+                </div>
+                <Show when={bookmarkExportMessage()}>
+                  <div class="bookmark-export-message">
+                    {bookmarkExportMessage()}
+                  </div>
+                </Show>
+              </div>
 
               <div class="bookmark-save-shell">
                 <button

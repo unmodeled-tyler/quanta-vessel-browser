@@ -527,6 +527,7 @@
 }
 
 .bookmark-save-card,
+.bookmark-export-card,
 .bookmark-folder-section {
     display: flex;
     flex-direction: column;
@@ -535,6 +536,19 @@
     border-radius: var(--radius-md);
     background: var(--surface-elevated);
     border: 1px solid var(--border-glass);
+}
+
+.bookmark-export-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.bookmark-export-message {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
 }
 
 .bookmark-save-shell {

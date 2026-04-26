@@ -131,7 +131,9 @@ export function trackApprovalModeChanged(mode: string): void {
   trackEvent("approval_mode_changed", { mode });
 }
 
-export function trackBookmarkAction(action: "save" | "remove" | "folder_create" | "folder_remove"): void {
+export function trackBookmarkAction(
+  action: "save" | "remove" | "folder_create" | "folder_remove" | "export",
+): void {
   trackEvent("bookmark_action", { action });
 }
 
