@@ -105,6 +105,9 @@ export class TabManager {
       onHighlightRemove: (url, text) => this.removeHighlightByText(url, text),
       onHighlightRecolor: (url, text, color) =>
         this.recolorHighlightByText(url, text, color),
+      onSavePage: () => {
+        void this.savePage(id);
+      },
     });
     this.tabs.set(id, tab);
     this.order.push(id);

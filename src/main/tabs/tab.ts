@@ -39,6 +39,7 @@ export class Tab {
     text: string,
     color: HighlightColor,
   ) => void;
+  private onSavePage?: () => void;
   private _highlightModeActive = false;
   private _readerOriginalUrl: string | null = null;
 
@@ -103,6 +104,7 @@ export class Tab {
         text: string,
         color: HighlightColor,
       ) => void;
+      onSavePage?: () => void;
     },
   ) {
     this.id = id;
@@ -113,6 +115,7 @@ export class Tab {
     this.onHighlightSelection = options?.onHighlightSelection;
     this.onHighlightRemove = options?.onHighlightRemove;
     this.onHighlightRecolor = options?.onHighlightRecolor;
+    this.onSavePage = options?.onSavePage;
 
     const webPreferences: Electron.WebPreferences = {
       preload: path.join(__dirname, "../preload/content-script.js"),
@@ -430,6 +433,22 @@ export class Tab {
         }),
       );
     }
+
+    menu.append(new MenuItem({ type: "separator" }));
+
+    menu.append(
+      new MenuItem({
+        label: "Save Page As...",
+        click: () => this.onSavePage?.(),
+      }),
+    );
+
+    menu.append(
+      new MenuItem({
+        label: "View Page Source",
+        click: () => void this.viewSource(),
+      }),
+    );
 
     menu.popup({ window: this.parentWindow });
   }
