@@ -81,6 +81,7 @@ import {
   deleteNamedSession,
 } from "../sessions/manager";
 import { registerVaultHandlers } from "./vault";
+import { registerHumanVaultHandlers } from "./human-vault";
 import { registerWindowControlHandlers } from "./window-controls";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { createPrivateWindow } from "../private/window";
@@ -1442,6 +1443,8 @@ export function registerIpcHandlers(
   });
 
   registerVaultHandlers();
+
+  registerHumanVaultHandlers();
 
   registerWindowControlHandlers(mainWindow);
 

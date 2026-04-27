@@ -706,6 +706,35 @@ export interface VaultAuditEntry {
   approved: boolean;
 }
 
+// --- Human Password Manager ---
+
+export interface HumanCredentialEntry {
+  id: string;
+  title: string;
+  url: string;
+  domain: string;
+  username: string;
+  password: string;
+  totpSecret?: string;
+  category?: "login" | "credit_card" | "identity" | "secure_note";
+  tags?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  useCount: number;
+}
+
+export interface HumanVaultAuditEntry {
+  timestamp: string;
+  credentialId: string;
+  credentialTitle: string;
+  domain: string;
+  action: "human_list" | "human_autofill" | "human_copy" | "human_view" | "human_create" | "human_update" | "human_delete";
+  approved: boolean;
+  source: "settings_ui" | "mcp_tool";
+}
+
 // --- Clear Browsing Data ---
 
 export type ClearDataTimeRange = "hour" | "day" | "week" | "month" | "all";

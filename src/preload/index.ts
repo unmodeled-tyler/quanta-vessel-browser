@@ -486,6 +486,20 @@ const api = {
     auditLog: (limit?: number): Promise<Array<{ timestamp: string; credentialLabel: string; domain: string; action: string; approved: boolean }>> =>
       ipcRenderer.invoke(Channels.VAULT_AUDIT_LOG, limit),
   },
+  humanVault: {
+    list: (domain?: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_LIST, domain),
+    get: (id: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_GET, id),
+    save: (entry: { title: string; url: string; username: string; password: string; notes?: string; category?: string; tags?: string[] }) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_SAVE, entry),
+    update: (id: string, updates: { title?: string; url?: string; username?: string; password?: string; notes?: string; category?: string; tags?: string[] }) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_UPDATE, id, updates),
+    remove: (id: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_REMOVE, id),
+    auditLog: (limit?: number) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_AUDIT_LOG, limit),
+  },
   automation: {
     getInstalled: (): Promise<AutomationKit[]> =>
       ipcRenderer.invoke(Channels.AUTOMATION_GET_INSTALLED),

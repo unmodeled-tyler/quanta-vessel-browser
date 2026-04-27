@@ -87,6 +87,9 @@ export const PREMIUM_TOOLS = new Set([
   "vault_login",
   "vault_status",
   "vault_totp",
+  "human_vault_list",
+  "human_vault_fill",
+  "human_vault_remove",
 ]);
 
 /** Features gated behind premium (checked by name in UI/IPC) */
@@ -95,6 +98,7 @@ export const PREMIUM_FEATURES = new Set([
   "devtools",
   "unlimited_iterations",
   "vault",
+  "human_vault",
   "automation_kits",
 ]);
 

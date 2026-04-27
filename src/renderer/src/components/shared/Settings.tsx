@@ -92,6 +92,60 @@ const Settings: Component = () => {
   const [vaultNewNotes, setVaultNewNotes] = createSignal("");
   const [vaultMessage, setVaultMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
 
+  // Human Password Manager
+  type HumanVaultEntry = { id: string; title: string; url: string; domain: string; username: string; category: string; notes?: string; tags: string[]; createdAt: string; lastUsedAt?: string; useCount: number };
+  const [humanEntries, setHumanEntries] = createSignal<HumanVaultEntry[]>([]);
+  const [humanAdding, setHumanAdding] = createSignal(false);
+  const [humanNewTitle, setHumanNewTitle] = createSignal("");
+  const [humanNewUrl, setHumanNewUrl] = createSignal("");
+  const [humanNewUsername, setHumanNewUsername] = createSignal("");
+  const [humanNewPassword, setHumanNewPassword] = createSignal("");
+  const [humanNewNotes, setHumanNewNotes] = createSignal("");
+  const [humanNewCategory, setHumanNewCategory] = createSignal("login");
+  const [humanMessage, setHumanMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
+
+  const loadHumanEntries = async () => {
+    try {
+      const entries = await window.vessel.humanVault.list();
+      setHumanEntries(entries);
+    } catch (err) {
+      logger.warn("Failed to load human vault entries:", err);
+    }
+  };
+
+  const handleHumanAdd = async () => {
+    if (!humanNewTitle().trim() || !humanNewUrl().trim() || !humanNewUsername().trim() || !humanNewPassword().trim()) {
+      setHumanMessage({ kind: "error", text: "Title, URL, username, and password are required." });
+      return;
+    }
+    try {
+      await window.vessel.humanVault.save({
+        title: humanNewTitle().trim(),
+        url: humanNewUrl().trim(),
+        username: humanNewUsername().trim(),
+        password: humanNewPassword(),
+        notes: humanNewNotes().trim() || undefined,
+        category: humanNewCategory(),
+      });
+      setHumanMessage({ kind: "success", text: "Password saved." });
+      setHumanAdding(false);
+      setHumanNewTitle(""); setHumanNewUrl(""); setHumanNewUsername("");
+      setHumanNewPassword(""); setHumanNewNotes(""); setHumanNewCategory("login");
+      loadHumanEntries();
+    } catch (err: any) {
+      setHumanMessage({ kind: "error", text: err?.message || "Failed to save." });
+    }
+  };
+
+  const handleHumanRemove = async (id: string) => {
+    try {
+      await window.vessel.humanVault.remove(id);
+      loadHumanEntries();
+    } catch (err) {
+      logger.warn("Failed to remove human vault entry:", err);
+    }
+  };
+
   // Autofill Profiles
   type AutofillListEntry = { id: string; label: string; firstName: string; lastName: string; email: string; phone: string; organization: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string };
   const [autofillProfiles, setAutofillProfiles] = createSignal<AutofillListEntry[]>([]);
@@ -389,6 +443,7 @@ const Settings: Component = () => {
     }
     // Load vault entries
     await loadVaultEntries();
+    await loadHumanEntries();
     // Load named sessions
     await loadSessionList();
   };
@@ -1457,6 +1512,148 @@ const Settings: Component = () => {
               </Show>
 
               <Show when={vaultMessage()}>
+                {(msg) => (
+                  <p
+                    class="settings-status"
+                    classList={{
+                      success: msg().kind === "success",
+                      error: msg().kind === "error",
+                    }}
+                  >
+                    {msg().text}
+                  </p>
+                )}
+              </Show>
+            </Show>
+          </div>
+
+          <div class="settings-section-divider" />
+
+          {/* --- Human Passwords --- */}
+          <div class="settings-field">
+            <label class="settings-label">
+              Passwords
+              <Show when={!premiumActive()}>
+                <span class="vault-premium-badge">Premium</span>
+              </Show>
+            </label>
+            <Show
+              when={premiumActive()}
+              fallback={
+                <p class="settings-hint">
+                  Your personal password manager. Save, organize, and autofill login credentials. Upgrade to Premium to unlock Passwords.
+                </p>
+              }
+            >
+              <p class="settings-hint" style="margin-bottom: 10px">
+                Save login credentials for any website. Passwords are encrypted locally and filled directly into login forms. The agent can list and fill them with your consent, but passwords are never sent to AI providers.
+              </p>
+
+              <Show when={humanEntries().length > 0}>
+                <div class="vault-entries">
+                  <For each={humanEntries()}>
+                    {(entry) => (
+                      <div class="vault-entry">
+                        <div class="vault-entry-info">
+                          <span class="vault-entry-label">{entry.title}</span>
+                          <span class="vault-entry-detail">
+                            {entry.username} &middot; {entry.domain}
+                            <Show when={entry.category && entry.category !== "login"}>
+                              {" "}&middot; {entry.category}
+                            </Show>
+                            <Show when={entry.useCount > 0}>
+                              {" "}&middot; Used {entry.useCount}x
+                            </Show>
+                          </span>
+                        </div>
+                        <button
+                          class="vault-entry-remove"
+                          onClick={() => handleHumanRemove(entry.id)}
+                          title="Remove password"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <Show when={!humanAdding()}>
+                <button
+                  class="vault-add-btn"
+                  onClick={() => { setHumanAdding(true); setHumanMessage(null); }}
+                >
+                  + Add Password
+                </button>
+              </Show>
+
+              <Show when={humanAdding()}>
+                <div class="vault-add-form">
+                  <input
+                    class="settings-input"
+                    placeholder="Title (e.g. GitHub Personal)"
+                    value={humanNewTitle()}
+                    onInput={(e) => setHumanNewTitle(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="URL (e.g. https://github.com)"
+                    value={humanNewUrl()}
+                    onInput={(e) => setHumanNewUrl(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="Username / email"
+                    value={humanNewUsername()}
+                    onInput={(e) => setHumanNewUsername(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    type="password"
+                    placeholder="Password"
+                    value={humanNewPassword()}
+                    onInput={(e) => setHumanNewPassword(e.currentTarget.value)}
+                  />
+                  <select
+                    class="settings-input"
+                    value={humanNewCategory()}
+                    onChange={(e) => setHumanNewCategory(e.currentTarget.value)}
+                  >
+                    <option value="login">Login</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="identity">Identity</option>
+                    <option value="secure_note">Secure Note</option>
+                  </select>
+                  <input
+                    class="settings-input"
+                    placeholder="Notes (optional)"
+                    value={humanNewNotes()}
+                    onInput={(e) => setHumanNewNotes(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <div class="vault-add-actions">
+                    <button class="premium-btn premium-btn-activate" onClick={handleHumanAdd}>
+                      Save Password
+                    </button>
+                    <button
+                      class="premium-btn premium-btn-reset"
+                      onClick={() => {
+                        setHumanAdding(false);
+                        setHumanNewTitle(""); setHumanNewUrl(""); setHumanNewUsername("");
+                        setHumanNewPassword(""); setHumanNewNotes(""); setHumanNewCategory("login");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </Show>
+
+              <Show when={humanMessage()}>
                 {(msg) => (
                   <p
                     class="settings-status"

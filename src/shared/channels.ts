@@ -175,6 +175,14 @@ export const Channels = {
   VAULT_REMOVE: "vault:remove",
   VAULT_AUDIT_LOG: "vault:audit-log",
 
+  // Human Password Manager
+  HUMAN_VAULT_LIST: "human-vault:list",
+  HUMAN_VAULT_GET: "human-vault:get",
+  HUMAN_VAULT_SAVE: "human-vault:save",
+  HUMAN_VAULT_UPDATE: "human-vault:update",
+  HUMAN_VAULT_REMOVE: "human-vault:remove",
+  HUMAN_VAULT_AUDIT_LOG: "human-vault:audit-log",
+
   // Automation kits
   AUTOMATION_GET_INSTALLED: "automation:get-installed",
   AUTOMATION_INSTALL_FROM_FILE: "automation:install-from-file",
