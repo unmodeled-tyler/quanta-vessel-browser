@@ -3,6 +3,8 @@ import {
   createEffect,
   createMemo,
   Show,
+  Switch,
+  Match,
   For,
   onCleanup,
   onMount,
@@ -50,6 +52,8 @@ const AddressBar: Component = () => {
   const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
+
+  const PADLOCK_PATH = "M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z";
 
   const securityState = createMemo(() => {
     const tabId = activeTabId();
@@ -392,25 +396,29 @@ const AddressBar: Component = () => {
                   : "Certificate error"
             }
           >
-            {securityState()?.status === "secure" ? (
+            <Switch fallback={
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
-              </svg>
-            ) : securityState()?.status === "insecure" ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
-                <line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-width="1.5" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
+                <path d={PADLOCK_PATH} />
                 <circle cx="7" cy="8" r="0.8" fill="white" />
               </svg>
-            )}
+            }>
+              <Match when={securityState()?.status === "secure"}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <path d={PADLOCK_PATH} />
+                </svg>
+              </Match>
+              <Match when={securityState()?.status === "insecure"}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <path d={PADLOCK_PATH} />
+                  <line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+              </Match>
+            </Switch>
           </button>
           <Show when={showSecurityPopup()}>
             <SecurityPopup
               state={securityState()!}
+              tabId={activeTabId()!}
               onClose={() => setShowSecurityPopup(false)}
             />
           </Show>

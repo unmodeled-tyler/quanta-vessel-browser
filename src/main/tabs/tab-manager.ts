@@ -409,6 +409,14 @@ export class TabManager {
     return this.tabs.get(id)?.setAdBlockingEnabled(enabled) ?? false;
   }
 
+  proceedAnyway(id: string): void {
+    this.tabs.get(id)?.proceedAnyway();
+  }
+
+  goBackToSafety(id: string): void {
+    this.tabs.get(id)?.goBackToSafety();
+  }
+
   snapshotSession(note?: string): SessionSnapshot {
     const states = this.getAllStates();
     const activeId = this.getActiveTabId();
@@ -679,8 +687,8 @@ export class TabManager {
     const states = this.getAllStates();
     this.onStateChange(states, this.activeTabId || "");
     const activeTab = this.getActiveTab();
-    if (activeTab && this.securityStateCallback) {
-      this.securityStateCallback(this.activeTabId!, activeTab.securityState);
+    if (activeTab && this.activeTabId && this.securityStateCallback) {
+      this.securityStateCallback(this.activeTabId, activeTab.securityState);
     }
   }
 }

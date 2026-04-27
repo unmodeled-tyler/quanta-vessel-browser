@@ -18,6 +18,30 @@ const MAX_CUSTOM_HISTORY = 50;
 const READER_MODE_DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
 const logger = createLogger("Tab");
 
+// Per-session certificate exception sets, so "proceed anyway" only applies
+// within the same session partition (e.g. private vs regular).
+const sessionCertExceptions = new WeakMap<Electron.Session, Set<string>>();
+const sessionsWithVerifyProc = new WeakSet<Electron.Session>();
+
+function setupCertificateVerifyProc(s: Electron.Session): Set<string> {
+  let exceptions = sessionCertExceptions.get(s);
+  if (!exceptions) {
+    exceptions = new Set();
+    sessionCertExceptions.set(s, exceptions);
+  }
+  if (!sessionsWithVerifyProc.has(s)) {
+    s.setCertificateVerifyProc((request, callback) => {
+      if (exceptions!.has(request.hostname)) {
+        callback(0); // trust
+      } else {
+        callback(-3); // default verification
+      }
+    });
+    sessionsWithVerifyProc.add(s);
+  }
+  return exceptions;
+}
+
 interface OpenUrlRequest {
   url: string;
   background: boolean;
@@ -43,6 +67,7 @@ export class Tab {
   private _highlightModeActive = false;
   private _readerOriginalUrl: string | null = null;
   private _securityState: SecurityState = { status: "none", url: "" };
+  private _certExceptions: Set<string>;
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -129,6 +154,7 @@ export class Tab {
       webPreferences.session = session.fromPartition(options.sessionPartition);
     }
     this.view = new WebContentsView({ webPreferences });
+    this._certExceptions = setupCertificateVerifyProc(this.view.webContents.session);
 
     const initialUrl = url || "about:blank";
 
@@ -302,8 +328,9 @@ export class Tab {
       updateSecurityState();
     });
 
-    wc.on("certificate-error", (_event, url, error) => {
-      this._securityState = { status: "error", url, errorMessage: error };
+    wc.on("certificate-error", (event, url, error) => {
+      event.preventDefault();
+      this._securityState = { status: "error", url, errorMessage: error, canProceed: true };
       this.onChange();
     });
 
@@ -482,6 +509,25 @@ export class Tab {
 
   get securityState(): SecurityState {
     return { ...this._securityState };
+  }
+
+  proceedAnyway(): void {
+    const url = this._securityState.url;
+    try {
+      const hostname = new URL(url).hostname;
+      this._certExceptions.add(hostname);
+    } catch {
+      // Invalid URL — can't extract hostname
+    }
+    this._securityState = { status: "none", url: "" };
+    this.onChange();
+    void this.view.webContents.loadURL(url);
+  }
+
+  goBackToSafety(): void {
+    this._securityState = { status: "none", url: "" };
+    this.view.webContents.loadURL("about:blank");
+    this.onChange();
   }
 
   navigate(

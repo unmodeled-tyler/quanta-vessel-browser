@@ -1173,6 +1173,9 @@ export function registerIpcHandlers(
       }
     })();
 
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
     const statusText =
       state.status === "secure"
         ? "This site uses a valid TLS certificate."
@@ -1184,7 +1187,7 @@ export function registerIpcHandlers(
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Certificate info for ${domain}</title>
+  <title>Certificate info for ${esc(domain)}</title>
   <style>
     body { background: #1a1a1e; color: #e0e0e0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.6; padding: 20px; margin: 0; }
     h1 { font-size: 14px; color: #ffffff; margin: 0 0 12px; }
@@ -1193,10 +1196,10 @@ export function registerIpcHandlers(
   </style>
 </head>
 <body>
-  <h1>Certificate info for ${domain}</h1>
-  <div class="row"><span class="label">URL:</span> ${url}</div>
-  <div class="row"><span class="label">Status:</span> ${state.status}</div>
-  <div class="row"><span class="label">Details:</span> ${statusText}</div>
+  <h1>Certificate info for ${esc(domain)}</h1>
+  <div class="row"><span class="label">URL:</span> ${esc(url)}</div>
+  <div class="row"><span class="label">Status:</span> ${esc(state.status)}</div>
+  <div class="row"><span class="label">Details:</span> ${esc(statusText)}</div>
 </body>
 </html>`;
 
@@ -1213,6 +1216,16 @@ export function registerIpcHandlers(
       },
     });
     void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
+  });
+
+  ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (_, tabId: string) => {
+    assertString(tabId, "tabId");
+    tabManager.proceedAnyway(tabId);
+  });
+
+  ipcMain.handle(Channels.SECURITY_GO_BACK_TO_SAFETY, (_, tabId: string) => {
+    assertString(tabId, "tabId");
+    tabManager.goBackToSafety(tabId);
   });
 
   // --- Premium subscription ---

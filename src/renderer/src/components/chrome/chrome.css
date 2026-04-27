@@ -1735,3 +1735,37 @@
 .security-popup-link:hover {
     color: #93c5fd;
 }
+
+.security-popup-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.security-popup-action-proceed {
+    font-size: 11px;
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.security-popup-action-proceed:hover {
+    background: rgba(251, 191, 36, 0.2);
+}
+
+.security-popup-action-back {
+    font-size: 11px;
+    color: #9ca3af;
+    background: rgba(156, 163, 175, 0.1);
+    border: 1px solid rgba(156, 163, 175, 0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.security-popup-action-back:hover {
+    background: rgba(156, 163, 175, 0.2);
+}

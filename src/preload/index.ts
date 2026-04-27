@@ -570,6 +570,10 @@ const api = {
     },
     showDetails: (state: SecurityState): Promise<void> =>
       ipcRenderer.invoke(Channels.SECURITY_SHOW_DETAILS, state),
+    proceedAnyway: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_PROCEED_ANYWAY, tabId),
+    goBackToSafety: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_GO_BACK_TO_SAFETY, tabId),
   },
 };
 

@@ -54,6 +54,7 @@ export interface SecurityState {
   status: SecurityStatus;
   url: string;
   errorMessage?: string;
+  canProceed?: boolean;
 }
 
 export interface SelectOption {
