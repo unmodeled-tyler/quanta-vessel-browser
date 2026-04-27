@@ -16,7 +16,7 @@ Open source chromium-based browser for persistent web agents. Linux is the most 
 Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
 
 - **Built for agent harnesses** such as Hermes Agent, OpenClaw, and other MCP clients
-- **Keeps browser state alive** with named sessions, editable bookmarks, annotated checkpoints, action undo, and structured page visibility
+- **Keeps browser state alive** with named sessions, pinned tabs, editable/exportable bookmarks, annotated checkpoints, action undo, and structured page visibility
 - **Keeps humans in the loop** with approvals, runtime controls, and a visible browser instead of a headless black box
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
@@ -93,8 +93,10 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, llama.cpp, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
 - **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
+- **Browser Basics For Long Runs** — pinned tabs stay compact at the front of the tab strip and are protected from accidental close; tab groups can be color-coded and collapsed; audible tabs show audio indicators with mute controls; open additional browser windows with `Ctrl+N`; print the active page with `Ctrl+P` or save it directly as PDF with `Ctrl+Shift+P`
 - **Action Undo / Rollback** — restore the browser to the session snapshot captured immediately before the last successful mutating agent action; available from the Supervisor tab and through the `undo_last_action` tool
 - **Agent-Meaningful Bookmarks** — bookmarks carry structured context the agent can read and act on: `intent` (what the page is for), `expectedContent` (what to expect on the page), `keyFields` (important form fields), `agentHints` (arbitrary directives), and a stored `pageSchema`; humans can create and edit this metadata directly in the Bookmarks tab, and all fields are searchable
+- **Portable Bookmark Export** — export browser-compatible Netscape HTML for import into Chrome, Firefox, Safari, Edge, Brave, and other browsers; optionally include Vessel notes/agent metadata, or export a full-fidelity Vessel JSON archive
 - **Page Schema Inference** — Vessel automatically infers a typed schema for every page: `pageType` (article, product, form, search, checkout, login, dashboard), `primaryEntity` (structured fields for products and articles), `formFields` (with names, types, labels, selectors), and `actionButtons` (with inferred intents: submit, addToCart, login, etc.); schema is attached to every content extraction result
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
 - **Named Session Persistence** — save cookies, localStorage, and current tab layout under a reusable name, then reload it after a restart
@@ -238,7 +240,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 3. Optional: set an Obsidian vault path, create autofill profiles, or adjust session preferences
 4. Start Hermes Agent or OpenClaw and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command (auth is resolved automatically), or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, undo the last mutating action, or restore the browser session while the harness runs
-6. Use the Bookmarks panel to organize saved pages into folders, edit agent-facing bookmark metadata, and expose those bookmarks back to the agent over MCP
+6. Use the Bookmarks panel to organize saved pages into folders, edit agent-facing bookmark metadata, export bookmarks for other browsers, and expose saved pages back to the agent over MCP
 
 Notes:
 
@@ -253,6 +255,7 @@ Notes:
 - Settings also include reusable Form Autofill profiles for one-click filling of common contact and address forms on the active page
 - The address bar can also show a `Changed` badge when Vessel detects that a previously visited page has meaningfully changed since the last saved snapshot
 - Premium users can open the sidebar Changes tab for the full What Changed timeline for the active page
+- The Bookmarks tab can export browser-compatible HTML, HTML with Vessel notes, or a full Vessel JSON archive with agent metadata intact
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
@@ -487,8 +490,17 @@ vessel-browser-launch --dry-run
 | `Ctrl+Shift+L` | Toggle AI Sidebar |
 | `Ctrl+Shift+F` | Toggle Focus Mode |
 | `F12` | Toggle Dev Tools Panel |
+| `Ctrl+N` | New Window |
 | `Ctrl+T` | New Tab |
 | `Ctrl+W` | Close Tab |
+| `Ctrl+Shift+T` | Reopen Closed Tab |
+| `Ctrl+Shift+N` | New Private Window |
+| `Ctrl+F` | Find in Page |
+| `Ctrl++` / `Ctrl+=` | Zoom In |
+| `Ctrl+-` | Zoom Out |
+| `Ctrl+0` | Reset Zoom |
+| `Ctrl+P` | Print Active Page |
+| `Ctrl+Shift+P` | Save Active Page as PDF |
 | `Ctrl+,` | Settings |
 
 ## Project Structure

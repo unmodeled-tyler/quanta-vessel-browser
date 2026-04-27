@@ -62,6 +62,8 @@ export const Channels = {
   BOOKMARK_SAVE: "bookmarks:save",
   BOOKMARK_UPDATE: "bookmarks:update-item",
   BOOKMARK_REMOVE: "bookmarks:remove",
+  BOOKMARKS_EXPORT_HTML: "bookmarks:export-html",
+  BOOKMARKS_EXPORT_JSON: "bookmarks:export-json",
   BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
@@ -95,6 +97,28 @@ export const Channels = {
   TAB_REOPEN_CLOSED: "tab:reopen-closed",
   TAB_DUPLICATE: "tab:duplicate",
   TAB_CONTEXT_MENU: "tab:context-menu",
+
+  // Pin tabs
+  TAB_PIN: "tab:pin",
+  TAB_UNPIN: "tab:unpin",
+
+  // Tab groups
+  TAB_GROUP_CREATE: "tab-group:create",
+  TAB_GROUP_ADD_TAB: "tab-group:add-tab",
+  TAB_GROUP_REMOVE_TAB: "tab-group:remove-tab",
+  TAB_GROUP_TOGGLE_COLLAPSED: "tab-group:toggle-collapsed",
+  TAB_GROUP_SET_COLOR: "tab-group:set-color",
+  TAB_GROUP_CONTEXT_MENU: "tab-group:context-menu",
+
+  // Audio / mute
+  TAB_TOGGLE_MUTE: "tab:toggle-mute",
+
+  // Print
+  TAB_PRINT: "tab:print",
+  TAB_PRINT_TO_PDF: "tab:print-to-pdf",
+
+  // Windows
+  OPEN_NEW_WINDOW: "window:open-new",
 
   // Private browsing
   OPEN_PRIVATE_WINDOW: "private:open-window",

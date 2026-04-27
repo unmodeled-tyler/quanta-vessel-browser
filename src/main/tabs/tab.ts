@@ -1,5 +1,6 @@
 import {
   BaseWindow,
+  BrowserWindow,
   clipboard,
   Menu,
   MenuItem,
@@ -38,6 +39,7 @@ export class Tab {
     text: string,
     color: HighlightColor,
   ) => void;
+  private onSavePage?: () => void;
   private _highlightModeActive = false;
   private _readerOriginalUrl: string | null = null;
 
@@ -102,6 +104,7 @@ export class Tab {
         text: string,
         color: HighlightColor,
       ) => void;
+      onSavePage?: () => void;
     },
   ) {
     this.id = id;
@@ -112,12 +115,14 @@ export class Tab {
     this.onHighlightSelection = options?.onHighlightSelection;
     this.onHighlightRemove = options?.onHighlightRemove;
     this.onHighlightRecolor = options?.onHighlightRecolor;
+    this.onSavePage = options?.onSavePage;
 
     const webPreferences: Electron.WebPreferences = {
       preload: path.join(__dirname, "../preload/content-script.js"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     };
     if (options?.sessionPartition) {
       webPreferences.session = session.fromPartition(options.sessionPartition);
@@ -136,6 +141,9 @@ export class Tab {
       canGoForward: false,
       isReaderMode: false,
       adBlockingEnabled: options?.adBlockingEnabled ?? true,
+      isPinned: false,
+      isAudible: false,
+      isMuted: false,
       role: options?.role,
     };
 
@@ -298,6 +306,21 @@ export class Tab {
       this.onChange();
     });
 
+    wc.on("media-started-playing", () => {
+      this._state.isAudible = true;
+      this._state.isMuted = wc.isAudioMuted();
+      this.onChange();
+    });
+
+    wc.on("media-paused", () => {
+      setTimeout(() => {
+        if (wc.isDestroyed()) return;
+        this._state.isAudible = wc.isCurrentlyAudible();
+        this._state.isMuted = wc.isAudioMuted();
+        this.onChange();
+      }, 250);
+    });
+
     // Right-click context menu with highlight mode toggle + highlight management
     wc.on("context-menu", (_event, params) => {
       // Check if right-click is on a highlighted element (async, then show menu)
@@ -412,6 +435,22 @@ export class Tab {
       );
     }
 
+    menu.append(new MenuItem({ type: "separator" }));
+
+    menu.append(
+      new MenuItem({
+        label: "Save Page As...",
+        click: () => this.onSavePage?.(),
+      }),
+    );
+
+    menu.append(
+      new MenuItem({
+        label: "View Page Source",
+        click: () => void this.viewSource(),
+      }),
+    );
+
     menu.popup({ window: this.parentWindow });
   }
 
@@ -512,11 +551,69 @@ export class Tab {
     this.view.webContents.setZoomLevel(0);
   }
 
+  async viewSource(): Promise<void> {
+    const url = this.view.webContents.getURL();
+    let html: string;
+    try {
+      html = await this.view.webContents.executeJavaScript(
+        "document.documentElement.outerHTML"
+      );
+    } catch (err) {
+      logger.warn("Failed to retrieve page source:", err);
+      return;
+    }
+    const escaped = html
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const win = new BrowserWindow({
+      width: 960,
+      height: 700,
+      title: `view-source:${url}`,
+      backgroundColor: "#1a1a1e",
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+      },
+    });
+    const style =
+      "background:#1a1a1e;color:#e0e0e0;font-family:monospace;font-size:12px;line-height:1.5;padding:16px;margin:0;white-space:pre-wrap;word-break:break-all;";
+    const dataUrl = `data:text/html;charset=utf-8,<!DOCTYPE html><html><head><title>view-source:${url}</title></head><body style="${style}"><pre>${escaped}</pre></body></html>`;
+    win.loadURL(dataUrl);
+  }
+
   setAdBlockingEnabled(enabled: boolean): boolean {
     if (this._state.adBlockingEnabled === enabled) return false;
     this._state.adBlockingEnabled = enabled;
     this.onChange();
     return true;
+  }
+
+  setPinned(pinned: boolean): void {
+    if (this._state.isPinned === pinned) return;
+    this._state.isPinned = pinned;
+    this.onChange();
+  }
+
+  setGroup(groupId: string | undefined): void {
+    if (this._state.groupId === groupId) return;
+    this._state.groupId = groupId;
+    this.onChange();
+  }
+
+  setMuted(muted: boolean): void {
+    const wc = this.view.webContents;
+    wc.setAudioMuted(muted);
+    this._state.isMuted = wc.isAudioMuted();
+    this._state.isAudible = wc.isCurrentlyAudible();
+    this.onChange();
+  }
+
+  toggleMuted(): boolean {
+    this.setMuted(!this._state.isMuted);
+    return this._state.isMuted;
   }
 
   get highlightModeActive(): boolean {

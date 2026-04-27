@@ -1,4 +1,5 @@
-import { app, ipcMain, Menu, MenuItem } from "electron";
+import { app, dialog, ipcMain, Menu, MenuItem } from "electron";
+import { promises as fs } from "fs";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import * as historyManager from "../history/manager";
@@ -40,8 +41,10 @@ import type {
   ApprovalMode,
   AgentRuntimeState,
   SessionSnapshot,
+  TabGroupColor,
   VesselSettings,
 } from "../../shared/types";
+import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
@@ -79,6 +82,7 @@ import { registerVaultHandlers } from "./vault";
 import { registerWindowControlHandlers } from "./window-controls";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { createPrivateWindow } from "../private/window";
+import { createSecondaryWindow } from "../secondary/window";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -95,6 +99,10 @@ export function registerIpcHandlers(
   // Private browsing
   ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
     createPrivateWindow();
+  });
+
+  ipcMain.handle(Channels.OPEN_NEW_WINDOW, () => {
+    createSecondaryWindow();
   });
 
   ipcMain.handle(Channels.IS_PRIVATE_MODE, () => false);
@@ -359,9 +367,91 @@ export function registerIpcHandlers(
     return newId;
   });
 
+  ipcMain.handle(Channels.TAB_PIN, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.pinTab(id);
+  });
+
+  ipcMain.handle(Channels.TAB_UNPIN, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.unpinTab(id);
+  });
+
+  ipcMain.handle(Channels.TAB_GROUP_CREATE, (_, id: string) => {
+    assertString(id, "id");
+    return tabManager.createGroupFromTab(id);
+  });
+
+  ipcMain.handle(Channels.TAB_GROUP_ADD_TAB, (_, id: string, groupId: string) => {
+    assertString(id, "id");
+    assertString(groupId, "groupId");
+    tabManager.assignTabToGroup(id, groupId);
+  });
+
+  ipcMain.handle(Channels.TAB_GROUP_REMOVE_TAB, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.removeTabFromGroup(id);
+  });
+
+  ipcMain.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (_, groupId: string) => {
+    assertString(groupId, "groupId");
+    return tabManager.toggleGroupCollapsed(groupId);
+  });
+
+  ipcMain.handle(
+    Channels.TAB_GROUP_SET_COLOR,
+    (_, groupId: string, color: TabGroupColor) => {
+      assertString(groupId, "groupId");
+      assertString(color, "color");
+      tabManager.setGroupColor(groupId, color);
+    },
+  );
+
+  ipcMain.handle(Channels.TAB_TOGGLE_MUTE, (_, id: string) => {
+    assertString(id, "id");
+    return tabManager.toggleMuted(id);
+  });
+
+  ipcMain.handle(Channels.TAB_PRINT, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.printTab(id);
+  });
+
+  ipcMain.handle(Channels.TAB_PRINT_TO_PDF, (_, id: string) => {
+    assertString(id, "id");
+    return tabManager.saveTabAsPdf(id);
+  });
+
   ipcMain.on(Channels.TAB_CONTEXT_MENU, (_event, id: string) => {
     assertString(id, "id");
+    const tab = tabManager.getTab(id);
+    const isPinned = tab?.state.isPinned ?? false;
+    const groupId = tab?.state.groupId;
+    const isMuted = tab?.state.isMuted ?? false;
+    const groups = tabManager
+      .getAllStates()
+      .filter((state) => state.groupId && state.groupId !== groupId)
+      .reduce(
+        (map, state) =>
+          map.set(state.groupId!, {
+            id: state.groupId!,
+            name: state.groupName || "Group",
+          }),
+        new Map<string, { id: string; name: string }>(),
+      );
     const menu = new Menu();
+    menu.append(
+      new MenuItem({
+        label: isPinned ? "Unpin Tab" : "Pin Tab",
+        click: () => {
+          if (isPinned) {
+            tabManager.unpinTab(id);
+          } else {
+            tabManager.pinTab(id);
+          }
+        },
+      }),
+    );
     menu.append(
       new MenuItem({
         label: "Duplicate Tab",
@@ -373,11 +463,106 @@ export function registerIpcHandlers(
     );
     menu.append(
       new MenuItem({
-        label: "Close Tab",
+        label: "Add to New Group",
         click: () => {
-          tabManager.closeTab(id);
-          layoutViews(windowState);
+          tabManager.createGroupFromTab(id);
         },
+      }),
+    );
+    if (groups.size > 0) {
+      menu.append(
+        new MenuItem({
+          label: "Add to Group",
+          submenu: [...groups.values()].map(
+            (group) =>
+              new MenuItem({
+                label: group.name,
+                click: () => tabManager.assignTabToGroup(id, group.id),
+              }),
+          ),
+        }),
+      );
+    }
+    if (groupId) {
+      menu.append(
+        new MenuItem({
+          label: "Remove from Group",
+          click: () => {
+            tabManager.removeTabFromGroup(id);
+          },
+        }),
+      );
+    }
+    menu.append(
+      new MenuItem({
+        label: isMuted ? "Unmute Tab" : "Mute Tab",
+        click: () => {
+          tabManager.toggleMuted(id);
+        },
+      }),
+    );
+    menu.append(new MenuItem({ type: "separator" }));
+    menu.append(
+      new MenuItem({
+        label: "Print Page",
+        click: () => {
+          tabManager.printTab(id);
+        },
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        label: "Save Page as PDF",
+        click: () => {
+          void tabManager.saveTabAsPdf(id).catch((error) => {
+            logger.warn("Failed to save page as PDF:", error);
+          });
+        },
+      }),
+    );
+    if (!isPinned) {
+      menu.append(new MenuItem({ type: "separator" }));
+      menu.append(
+        new MenuItem({
+          label: "Close Tab",
+          click: () => {
+            tabManager.closeTab(id);
+            layoutViews(windowState);
+          },
+        }),
+      );
+    }
+    menu.popup({ window: mainWindow });
+  });
+
+  ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (_event, groupId: string) => {
+    assertString(groupId, "groupId");
+    const firstTab = tabManager
+      .getAllStates()
+      .find((tab) => tab.groupId === groupId);
+    if (!firstTab) return;
+
+    const menu = new Menu();
+    menu.append(
+      new MenuItem({
+        label: firstTab.groupCollapsed ? "Expand Group" : "Collapse Group",
+        click: () => {
+          tabManager.toggleGroupCollapsed(groupId);
+        },
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        label: "Group Color",
+        submenu: TAB_GROUP_COLORS.map(
+          (color) =>
+            new MenuItem({
+              label: TAB_GROUP_COLOR_LABELS[color],
+              type: "radio",
+              checked: firstTab.groupColor === color,
+              click: () => tabManager.setGroupColor(groupId, color),
+            }),
+        ),
       }),
     );
     menu.popup({ window: mainWindow });
@@ -719,6 +904,45 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
     trackBookmarkAction("remove");
     return bookmarkManager.removeBookmark(id);
+  });
+
+  ipcMain.handle(
+    Channels.BOOKMARKS_EXPORT_HTML,
+    async (_, options?: { includeNotes?: boolean }) => {
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        title: "Export Bookmarks",
+        defaultPath: "vessel-bookmarks.html",
+        filters: [{ name: "HTML Bookmarks", extensions: ["html"] }],
+      });
+      if (canceled || !filePath) return null;
+
+      const content = bookmarkManager.exportBookmarksHtml({
+        includeNotes: options?.includeNotes ?? false,
+      });
+      await fs.writeFile(filePath, content, "utf-8");
+      trackBookmarkAction("export");
+      return {
+        filePath,
+        count: bookmarkManager.getState().bookmarks.length,
+      };
+    },
+  );
+
+  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Export Vessel Bookmark Archive",
+      defaultPath: "vessel-bookmarks.json",
+      filters: [{ name: "Vessel Bookmark Archive", extensions: ["json"] }],
+    });
+    if (canceled || !filePath) return null;
+
+    const content = bookmarkManager.exportBookmarksJson();
+    await fs.writeFile(filePath, content, "utf-8");
+    trackBookmarkAction("export");
+    return {
+      filePath,
+      count: bookmarkManager.getState().bookmarks.length,
+    };
   });
 
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {

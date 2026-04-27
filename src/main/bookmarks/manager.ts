@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import type {
   Bookmark,
+  BookmarkHtmlExportOptions,
   BookmarkFolder,
   BookmarksState,
 } from "../../shared/types";
@@ -18,6 +19,8 @@ import { normalizeBookmarkMetadataUpdate } from "./metadata";
 
 export const UNSORTED_ID = "unsorted";
 export const ARCHIVE_FOLDER_NAME = "Archive";
+
+const NETSCAPE_BOOKMARKS_DOCTYPE = "<!DOCTYPE NETSCAPE-Bookmark-file-1>";
 
 export interface BookmarkFolderOverview {
   id: string;
@@ -56,6 +59,22 @@ function getBookmarksPath(): string {
   return path.join(app.getPath("userData"), "vessel-bookmarks.json");
 }
 
+function createPersistence() {
+  return createDebouncedJsonPersistence({
+    debounceMs: SAVE_DEBOUNCE_MS,
+    filePath: getBookmarksPath(),
+    getValue: () => state,
+    logLabel: "bookmarks",
+  });
+}
+
+let persistence: ReturnType<typeof createPersistence> | null = null;
+
+function getPersistence(): ReturnType<typeof createPersistence> {
+  persistence ??= createPersistence();
+  return persistence;
+}
+
 function load(): BookmarksState {
   if (state) return state;
   state = loadJsonFile({
@@ -72,15 +91,8 @@ function load(): BookmarksState {
   return state;
 }
 
-const persistence = createDebouncedJsonPersistence({
-  debounceMs: SAVE_DEBOUNCE_MS,
-  filePath: getBookmarksPath(),
-  getValue: () => state,
-  logLabel: "bookmarks",
-});
-
 function save(): void {
-  persistence.schedule();
+  getPersistence().schedule();
 }
 
 function assignDefinedBookmarkFields(
@@ -102,8 +114,109 @@ function emit(): void {
   }
 }
 
+function escapeBookmarkHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function toNetscapeTimestamp(value?: string): number {
+  if (!value) return Math.floor(Date.now() / 1000);
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? Math.floor(Date.now() / 1000) : Math.floor(time / 1000);
+}
+
+function getBookmarkDescription(bookmark: Bookmark): string {
+  const lines = [
+    bookmark.note ? `Note: ${bookmark.note}` : "",
+    bookmark.intent ? `Intent: ${bookmark.intent}` : "",
+    bookmark.expectedContent
+      ? `Expected content: ${bookmark.expectedContent}`
+      : "",
+    bookmark.keyFields?.length
+      ? `Key fields: ${bookmark.keyFields.join(", ")}`
+      : "",
+    bookmark.agentHints && Object.keys(bookmark.agentHints).length > 0
+      ? `Agent hints: ${Object.entries(bookmark.agentHints)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join("; ")}`
+      : "",
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
+function appendBookmarkHtml(
+  lines: string[],
+  bookmark: Bookmark,
+  options: Required<BookmarkHtmlExportOptions>,
+  indent: string,
+): void {
+  const addDate = toNetscapeTimestamp(bookmark.savedAt);
+  lines.push(
+    `${indent}<DT><A HREF="${escapeBookmarkHtml(bookmark.url)}" ADD_DATE="${addDate}">${escapeBookmarkHtml(bookmark.title || bookmark.url)}</A>`,
+  );
+
+  if (!options.includeNotes) return;
+  const description = getBookmarkDescription(bookmark);
+  if (description) {
+    lines.push(`${indent}<DD>${escapeBookmarkHtml(description)}`);
+  }
+}
+
 export function getState(): BookmarksState {
   return cloneState(load());
+}
+
+export function exportBookmarksHtml(
+  options: BookmarkHtmlExportOptions = {},
+): string {
+  const current = getState();
+  const resolvedOptions: Required<BookmarkHtmlExportOptions> = {
+    includeNotes: options.includeNotes ?? false,
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const folders = [
+    { id: UNSORTED_ID, name: "Vessel Bookmarks", createdAt: "", summary: "" },
+    ...current.folders,
+  ];
+
+  const lines = [
+    NETSCAPE_BOOKMARKS_DOCTYPE,
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    "<TITLE>Bookmarks</TITLE>",
+    "<H1>Bookmarks</H1>",
+    "<DL><p>",
+  ];
+
+  for (const folder of folders) {
+    const items = current.bookmarks.filter(
+      (bookmark) => bookmark.folderId === folder.id,
+    );
+    if (items.length === 0) continue;
+
+    const addDate = toNetscapeTimestamp(folder.createdAt) || now;
+    lines.push(
+      `    <DT><H3 ADD_DATE="${addDate}" LAST_MODIFIED="${now}">${escapeBookmarkHtml(folder.name)}</H3>`,
+    );
+    if (resolvedOptions.includeNotes && folder.summary) {
+      lines.push(`    <DD>${escapeBookmarkHtml(folder.summary)}`);
+    }
+    lines.push("    <DL><p>");
+    for (const bookmark of items) {
+      appendBookmarkHtml(lines, bookmark, resolvedOptions, "        ");
+    }
+    lines.push("    </DL><p>");
+  }
+
+  lines.push("</DL><p>");
+  return `${lines.join("\n")}\n`;
+}
+
+export function exportBookmarksJson(): string {
+  return `${JSON.stringify(getState(), null, 2)}\n`;
 }
 
 export function subscribe(
@@ -473,5 +586,5 @@ export function renameFolder(
 }
 
 export function flushPersist(): Promise<void> {
-  return persistence.flush();
+  return getPersistence().flush();
 }

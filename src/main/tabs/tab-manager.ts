@@ -1,7 +1,14 @@
-import { BaseWindow, type WebContents } from "electron";
+import { BaseWindow, dialog, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
-import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
+import { promises as fs } from "fs";
+import type {
+  HighlightColor,
+  SessionSnapshot,
+  TabGroupColor,
+  TabState,
+} from "../../shared/types";
+import { TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, highlightBatchOnPage } from "../highlights/inject";
@@ -15,10 +22,37 @@ import { destroySession } from "../devtools/manager";
 export type { HighlightCaptureResult };
 
 const logger = createLogger("TabManager");
+export interface TabGroup {
+  id: string;
+  name: string;
+  color: TabGroupColor;
+  collapsed: boolean;
+}
+
+function sanitizePdfFilename(title: string): string {
+  const clean = title
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const base = (clean || "Vessel Page").replace(/\.pdf$/i, "");
+  return `${base}.pdf`;
+}
+
+function sanitizePageFilename(title: string, ext: string): string {
+  const clean = title
+    .replace(/[<>:\"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const escapedExt = ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`\\.${escapedExt}$`, "i");
+  const base = (clean || "Vessel Page").replace(regex, "");
+  return `${base}.${ext}`;
+}
 
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
   private order: string[] = [];
+  private tabGroups: Map<string, TabGroup> = new Map();
   private activeTabId: string | null = null;
   private window: BaseWindow;
   private onStateChange: (tabs: TabState[], activeId: string) => void;
@@ -71,6 +105,9 @@ export class TabManager {
       onHighlightRemove: (url, text) => this.removeHighlightByText(url, text),
       onHighlightRecolor: (url, text, color) =>
         this.recolorHighlightByText(url, text, color),
+      onSavePage: () => {
+        void this.savePage(id);
+      },
     });
     this.tabs.set(id, tab);
     this.order.push(id);
@@ -102,6 +139,8 @@ export class TabManager {
   closeTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
+    if (tab.state.isPinned) return; // Pinned tabs cannot be closed
+    const groupId = tab.state.groupId;
 
     // Remember closed tab for reopening
     this.closedTabs.push({
@@ -124,6 +163,7 @@ export class TabManager {
     tab.destroy();
     this.tabs.delete(id);
     this.order = this.order.filter((tid) => tid !== id);
+    this.removeGroupIfEmpty(groupId);
 
     if (this.activeTabId === id) {
       if (this.order.length > 0) {
@@ -182,6 +222,145 @@ export class TabManager {
     return this.createTab(tab.state.url, { adBlockingEnabled: tab.state.adBlockingEnabled });
   }
 
+  pinTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.setPinned(true);
+    // Move pinned tab to the front of the order
+    this.order = this.order.filter((tid) => tid !== id);
+    const firstNonPinned = this.order.findIndex((tid) => !this.tabs.get(tid)?.state.isPinned);
+    if (firstNonPinned === -1) {
+      this.order.push(id);
+    } else {
+      this.order.splice(firstNonPinned, 0, id);
+    }
+    this.broadcastState();
+  }
+
+  unpinTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.setPinned(false);
+    // Move after all pinned tabs
+    this.order = this.order.filter((tid) => tid !== id);
+    const firstNonPinned = this.order.findIndex((tid) => !this.tabs.get(tid)?.state.isPinned);
+    if (firstNonPinned === -1) {
+      this.order.push(id);
+    } else {
+      this.order.splice(firstNonPinned, 0, id);
+    }
+    this.broadcastState();
+  }
+
+  createGroupFromTab(
+    id: string,
+    options?: { name?: string; color?: TabGroupColor },
+  ): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    const previousGroupId = tab.state.groupId;
+    const groupId = randomUUID();
+    const color =
+      options?.color && TAB_GROUP_COLORS.includes(options.color)
+        ? options.color
+        : TAB_GROUP_COLORS[this.tabGroups.size % TAB_GROUP_COLORS.length];
+    this.tabGroups.set(groupId, {
+      id: groupId,
+      name:
+        options?.name?.trim() || `Group ${this.tabGroups.size + 1}`,
+      color,
+      collapsed: false,
+    });
+    this.assignTabToGroup(id, groupId);
+    this.removeGroupIfEmpty(previousGroupId);
+    return groupId;
+  }
+
+  assignTabToGroup(id: string, groupId: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab || !this.tabGroups.has(groupId)) return;
+    const previousGroupId = tab.state.groupId;
+    tab.setGroup(groupId);
+    this.removeGroupIfEmpty(previousGroupId);
+    this.broadcastState();
+  }
+
+  removeTabFromGroup(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    const groupId = tab.state.groupId;
+    tab.setGroup(undefined);
+    this.removeGroupIfEmpty(groupId);
+    this.broadcastState();
+  }
+
+  toggleGroupCollapsed(groupId: string): boolean | null {
+    const group = this.tabGroups.get(groupId);
+    if (!group) return null;
+    group.collapsed = !group.collapsed;
+    this.broadcastState();
+    return group.collapsed;
+  }
+
+  setGroupColor(groupId: string, color: TabGroupColor): void {
+    const group = this.tabGroups.get(groupId);
+    if (!group || !TAB_GROUP_COLORS.includes(color)) return;
+    group.color = color;
+    this.broadcastState();
+  }
+
+  toggleMuted(id: string): boolean | null {
+    return this.tabs.get(id)?.toggleMuted() ?? null;
+  }
+
+  printTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.view.webContents.print();
+  }
+
+  async saveTabAsPdf(id: string): Promise<string | null> {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save Page as PDF",
+      defaultPath: sanitizePdfFilename(tab.state.title || "Vessel Page"),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (canceled || !filePath) return null;
+
+    const data = await tab.view.webContents.printToPDF({
+      printBackground: true,
+    });
+    await fs.writeFile(filePath, data);
+    return filePath;
+  }
+
+  async savePage(
+    id: string,
+    format: "MHTML" | "HTMLComplete" = "MHTML",
+  ): Promise<string | null> {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+
+    const ext = format === "MHTML" ? "mhtml" : "html";
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save Page As",
+      defaultPath: sanitizePageFilename(
+        tab.state.title || "Vessel Page",
+        ext,
+      ),
+      filters: [
+        { name: format === "MHTML" ? "MHTML" : "HTML", extensions: [ext] },
+      ],
+    });
+    if (canceled || !filePath) return null;
+
+    await tab.view.webContents.savePage(filePath, format);
+    return filePath;
+  }
+
   getActiveTab(): Tab | undefined {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
   }
@@ -195,7 +374,11 @@ export class TabManager {
   }
 
   getAllStates(): TabState[] {
-    return this.order.map((id) => this.tabs.get(id)!.state);
+    return this.order.map((id) => this.withGroupState(this.tabs.get(id)!.state));
+  }
+
+  getGroups(): TabGroup[] {
+    return Array.from(this.tabGroups.values());
   }
 
   findTabByWebContentsId(webContentsId: number): Tab | undefined {
@@ -234,6 +417,9 @@ export class TabManager {
         url: state.url || "about:blank",
         title: state.title,
         adBlockingEnabled: state.adBlockingEnabled,
+        isPinned: state.isPinned,
+        groupName: state.groupName,
+        groupColor: state.groupColor,
       })),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
       activeTabId: activeId || undefined,
@@ -253,12 +439,34 @@ export class TabManager {
     );
 
     this.destroyAllTabs();
+    const restoredGroups = new Map<string, string>();
     const ids = tabs.map((tab, index) =>
       this.createTab(tab.url || "about:blank", {
         background: index !== activeIndex,
         adBlockingEnabled: tab.adBlockingEnabled ?? true,
       }),
     );
+
+    tabs.forEach((tab, index) => {
+      if (tab.isPinned && ids[index]) {
+        this.pinTab(ids[index]);
+      }
+      if (tab.groupName && ids[index]) {
+        const key = `${tab.groupName}|${tab.groupColor ?? "blue"}`;
+        let groupId = restoredGroups.get(key);
+        if (!groupId) {
+          groupId = randomUUID();
+          restoredGroups.set(key, groupId);
+          this.tabGroups.set(groupId, {
+            id: groupId,
+            name: tab.groupName,
+            color: tab.groupColor ?? "blue",
+            collapsed: false,
+          });
+        }
+        this.assignTabToGroup(ids[index], groupId);
+      }
+    });
 
     const activeId = ids[activeIndex];
     if (activeId) {
@@ -281,6 +489,7 @@ export class TabManager {
 
     this.tabs.clear();
     this.order = [];
+    this.tabGroups.clear();
     this.activeTabId = null;
     this.broadcastState();
   }
@@ -415,6 +624,26 @@ export class TabManager {
       success: true,
       message: `Color changed to ${color}`,
     });
+  }
+
+  private withGroupState(state: TabState): TabState {
+    if (!state.groupId) return state;
+    const group = this.tabGroups.get(state.groupId);
+    if (!group) return { ...state, groupId: undefined };
+    return {
+      ...state,
+      groupName: group.name,
+      groupColor: group.color,
+      groupCollapsed: group.collapsed,
+    };
+  }
+
+  private removeGroupIfEmpty(groupId?: string): void {
+    if (!groupId) return;
+    for (const tab of this.tabs.values()) {
+      if (tab.state.groupId === groupId) return;
+    }
+    this.tabGroups.delete(groupId);
   }
 
   private async removeHighlightMarksForText(

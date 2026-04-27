@@ -1,16 +1,19 @@
 interface KeyBindingHandlers {
-  openCommandBar: () => void;
-  toggleSidebar: () => void;
-  toggleFocusMode: () => void;
+  openCommandBar?: () => void;
+  toggleSidebar?: () => void;
+  toggleFocusMode?: () => void;
   newTab: () => void;
   closeTab: () => void;
-  openSettings: () => void;
-  captureHighlight: () => void;
+  openSettings?: () => void;
+  captureHighlight?: () => void;
   zoomIn?: () => void;
   zoomOut?: () => void;
   zoomReset?: () => void;
   reopenClosedTab?: () => void;
+  openNewWindow?: () => void;
   openPrivateWindow?: () => void;
+  print?: () => void;
+  printToPdf?: () => void;
   toggleDevTools?: () => void;
   toggleKeyboardHelp?: () => void;
 }
@@ -23,21 +26,21 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     // Ctrl+L — open command bar (AI)
     if (ctrl && key === 'l' && !e.shiftKey) {
       e.preventDefault();
-      handlers.openCommandBar();
+      handlers.openCommandBar?.();
       return;
     }
 
     // Ctrl+Shift+L — toggle sidebar
     if (ctrl && key === 'l' && e.shiftKey) {
       e.preventDefault();
-      handlers.toggleSidebar();
+      handlers.toggleSidebar?.();
       return;
     }
 
     // Ctrl+Shift+F — focus mode
     if (ctrl && key === 'f' && e.shiftKey) {
       e.preventDefault();
-      handlers.toggleFocusMode();
+      handlers.toggleFocusMode?.();
       return;
     }
 
@@ -55,6 +58,13 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
       return;
     }
 
+    // Ctrl+N — new window
+    if (ctrl && key === 'n' && !e.shiftKey) {
+      e.preventDefault();
+      handlers.openNewWindow?.();
+      return;
+    }
+
     // Ctrl+T — new tab
     if (ctrl && key === 't' && !e.shiftKey) {
       e.preventDefault();
@@ -69,17 +79,31 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
       return;
     }
 
+    // Ctrl+Shift+P — save as PDF
+    if (ctrl && key === 'p' && e.shiftKey) {
+      e.preventDefault();
+      handlers.printToPdf?.();
+      return;
+    }
+
+    // Ctrl+P — print
+    if (ctrl && key === 'p' && !e.shiftKey) {
+      e.preventDefault();
+      handlers.print?.();
+      return;
+    }
+
     // Ctrl+, — settings
     if (ctrl && e.key === ',') {
       e.preventDefault();
-      handlers.openSettings();
+      handlers.openSettings?.();
       return;
     }
 
     // Ctrl+H — capture highlight from selection
     if (ctrl && key === 'h' && !e.shiftKey) {
       e.preventDefault();
-      handlers.captureHighlight();
+      handlers.captureHighlight?.();
       return;
     }
 

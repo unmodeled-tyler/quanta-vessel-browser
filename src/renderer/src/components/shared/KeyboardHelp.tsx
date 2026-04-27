@@ -12,6 +12,7 @@ const SHORTCUTS = [
   { keys: "Ctrl+Shift+L", action: "Toggle AI Sidebar", privateMode: false },
   { keys: "Ctrl+Shift+F", action: "Toggle Focus Mode", privateMode: false },
   { keys: "F12", action: "Toggle Dev Tools Panel", privateMode: false },
+  { keys: "Ctrl+N", action: "New Window" },
   { keys: "Ctrl+T", action: "New Tab" },
   { keys: "Ctrl+W", action: "Close Tab" },
   { keys: "Ctrl+Shift+T", action: "Reopen Closed Tab" },
@@ -20,10 +21,22 @@ const SHORTCUTS = [
   { keys: "Ctrl+-", action: "Zoom Out" },
   { keys: "Ctrl+0", action: "Reset Zoom" },
   { keys: "Ctrl+Shift+N", action: "New Private Window" },
+  { keys: "Ctrl+P", action: "Print Page" },
+  { keys: "Ctrl+Shift+P", action: "Save Page as PDF" },
   { keys: "Ctrl+,", action: "Settings", privateMode: false },
   { keys: "Ctrl+H", action: "Capture Highlight", privateMode: false },
   { keys: "?", action: "This help overlay" },
 ];
+
+function shortcutParts(keys: string): string[][] {
+  return keys.split(" / ").map((combo) =>
+    combo
+      .replace(/\+\+/g, "+Plus")
+      .split("+")
+      .filter(Boolean)
+      .map((key) => (key === "Plus" ? "+" : key)),
+  );
+}
 
 const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
   const { visible, closing } = useAnimatedPresence(() => props.open, 200);
@@ -46,10 +59,19 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
             {shortcuts().map((s) => (
               <>
                 <div class="keyboard-help-keys">
-                  {s.keys.split("+").map((k, i) => (
+                  {shortcutParts(s.keys).map((combo, comboIndex) => (
                     <>
-                      {i > 0 && <span class="keyboard-help-plus">+</span>}
-                      <kbd>{k}</kbd>
+                      {comboIndex > 0 && (
+                        <span class="keyboard-help-plus">/</span>
+                      )}
+                      {combo.map((key, keyIndex) => (
+                        <>
+                          {keyIndex > 0 && (
+                            <span class="keyboard-help-plus">+</span>
+                          )}
+                          <kbd>{key}</kbd>
+                        </>
+                      ))}
                     </>
                   ))}
                 </div>

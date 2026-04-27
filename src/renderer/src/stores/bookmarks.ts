@@ -1,5 +1,9 @@
 import { createSignal } from "solid-js";
-import type { BookmarksState } from "../../../shared/types";
+import type {
+  BookmarkExportResult,
+  BookmarkHtmlExportOptions,
+  BookmarksState,
+} from "../../../shared/types";
 import { createLogger } from "../../../shared/logger";
 
 const logger = createLogger("BookmarksStore");
@@ -68,6 +72,12 @@ export function useBookmarks() {
       },
     ) => window.vessel.bookmarks.updateBookmark(id, updates),
     removeBookmark: (id: string) => window.vessel.bookmarks.removeBookmark(id),
+    exportHtml: (
+      options?: BookmarkHtmlExportOptions,
+    ): Promise<BookmarkExportResult | null> =>
+      window.vessel.bookmarks.exportHtml(options),
+    exportJson: (): Promise<BookmarkExportResult | null> =>
+      window.vessel.bookmarks.exportJson(),
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
     createFolderWithSummary: (name: string, summary?: string) =>
       window.vessel.bookmarks.createFolderWithSummary(name, summary),
