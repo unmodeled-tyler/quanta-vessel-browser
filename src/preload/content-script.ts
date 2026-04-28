@@ -7,125 +7,15 @@ import {
   generateStableSelector,
   escapeSelectorValue,
 } from "../shared/dom/selectors";
-
-// Mirror of InteractiveElement in src/shared/types.ts — keep in sync
-interface SelectOption {
-  label: string;
-  value: string;
-}
-
-interface InteractiveElement {
-  type: "button" | "link" | "input" | "select" | "textarea";
-  text?: string;
-  label?: string;
-  labelSource?: "text" | "value" | "aria-label" | "label" | "placeholder";
-  href?: string;
-  inputType?: string;
-  placeholder?: string;
-  required?: boolean;
-  context?: string;
-  parentOverlay?: string;
-  selector?: string;
-  index?: number;
-  role?: string;
-  description?: string;
-  value?: string;
-  options?: SelectOption[];
-  visible?: boolean;
-  inViewport?: boolean;
-  fullyInViewport?: boolean;
-  obscured?: boolean;
-  blockedByOverlay?: boolean;
-  disabled?: boolean;
-  name?: string;
-  autocomplete?: string;
-  ariaExpanded?: boolean;
-  ariaPressed?: boolean;
-  ariaSelected?: boolean;
-  checked?: boolean;
-  looksCorrect?: boolean;
-  maxLength?: number;
-  min?: string;
-  max?: string;
-  pattern?: string;
-}
-
-interface HeadingStructure {
-  level: number;
-  text: string;
-}
-
-interface OverlayAction {
-  label?: string;
-  selector?: string;
-  kind?: "dismiss" | "accept" | "submit" | "radio" | "action";
-  disabled?: boolean;
-}
-
-interface OverlayRadioOption {
-  label: string;
-  selector?: string;
-  checked?: boolean;
-  labelSource?: string;
-  looksCorrect?: boolean;
-}
-
-interface PageOverlay {
-  type: "dialog" | "modal" | "overlay";
-  kind?:
-    | "cookie_consent"
-    | "selection_modal"
-    | "alert"
-    | "cart_confirmation"
-    | "drawer"
-    | "overlay";
-  role?: string;
-  label?: string;
-  selector?: string;
-  text?: string;
-  message?: string;
-  blocksInteraction?: boolean;
-  dismissSelector?: string;
-  acceptSelector?: string;
-  submitSelector?: string;
-  actions?: OverlayAction[];
-  radioOptions?: OverlayRadioOption[];
-}
-
-interface PageContent {
-  title: string;
-  content: string;
-  htmlContent: string;
-  byline: string;
-  excerpt: string;
-  url: string;
-  headings: HeadingStructure[];
-  navigation: InteractiveElement[];
-  interactiveElements: InteractiveElement[];
-  forms: Array<{
-    id?: string;
-    action?: string;
-    method?: string;
-    fields: InteractiveElement[];
-  }>;
-  viewport: {
-    width: number;
-    height: number;
-    scrollX: number;
-    scrollY: number;
-  };
-  overlays: PageOverlay[];
-  dormantOverlays: PageOverlay[];
-  landmarks: Array<{
-    role: string;
-    label?: string;
-    text?: string;
-  }>;
-  jsonLd?: Record<string, unknown>[];
-  microdata?: Record<string, unknown>[];
-  rdfa?: Record<string, unknown>[];
-  metaTags?: Record<string, string>;
-}
+import type {
+  SelectOption,
+  InteractiveElement,
+  HeadingStructure,
+  OverlayAction,
+  OverlayRadioOption,
+  PageOverlay,
+  PageContent,
+} from "../shared/types";
 
 interface OverlayCandidate extends PageOverlay {
   element: HTMLElement;
