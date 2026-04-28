@@ -12,12 +12,15 @@ import type {
   BookmarkExportResult,
   BookmarkHtmlExportOptions,
   BookmarksState,
+  ClearDataOptions,
   HistoryState,
+  ImportResult,
   PremiumState,
   ProviderConfig,
   ProviderModelsResult,
   RuntimeHealthState,
   ScheduledJob,
+  SecurityState,
   SessionSnapshot,
   TabGroupColor,
   TabState,
@@ -338,6 +341,10 @@ const api = {
       ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_HTML, options),
     exportJson: (): Promise<BookmarkExportResult | null> =>
       ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_JSON),
+    importHtml: (): Promise<ImportResult | null> =>
+      ipcRenderer.invoke(Channels.BOOKMARKS_IMPORT_HTML),
+    importJson: (): Promise<ImportResult | null> =>
+      ipcRenderer.invoke(Channels.BOOKMARKS_IMPORT_JSON),
     createFolder: (name: string): Promise<BookmarkFolder> =>
       ipcRenderer.invoke(Channels.FOLDER_CREATE, name),
     createFolderWithSummary: (
@@ -403,6 +410,12 @@ const api = {
     search: (query: string) =>
       ipcRenderer.invoke(Channels.HISTORY_SEARCH, query),
     clear: () => ipcRenderer.invoke(Channels.HISTORY_CLEAR),
+    exportHtml: (): Promise<{ filePath: string; count: number } | null> =>
+      ipcRenderer.invoke(Channels.HISTORY_EXPORT_HTML),
+    exportJson: (): Promise<{ filePath: string; count: number } | null> =>
+      ipcRenderer.invoke(Channels.HISTORY_EXPORT_JSON),
+    importFile: (): Promise<ImportResult | null> =>
+      ipcRenderer.invoke(Channels.HISTORY_IMPORT),
     onUpdate: (cb: (state: HistoryState) => void): (() => void) => {
       const handler = (_: unknown, state: HistoryState) => cb(state);
       ipcRenderer.on(Channels.HISTORY_UPDATE, handler);
@@ -472,6 +485,20 @@ const api = {
       ipcRenderer.invoke(Channels.VAULT_REMOVE, id),
     auditLog: (limit?: number): Promise<Array<{ timestamp: string; credentialLabel: string; domain: string; action: string; approved: boolean }>> =>
       ipcRenderer.invoke(Channels.VAULT_AUDIT_LOG, limit),
+  },
+  humanVault: {
+    list: (domain?: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_LIST, domain),
+    get: (id: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_GET, id),
+    save: (entry: { title: string; url: string; username: string; password: string; notes?: string; category?: string; tags?: string[] }) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_SAVE, entry),
+    update: (id: string, updates: { title?: string; url?: string; username?: string; password?: string; notes?: string; category?: string; tags?: string[] }) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_UPDATE, id, updates),
+    remove: (id: string) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_REMOVE, id),
+    auditLog: (limit?: number) =>
+      ipcRenderer.invoke(Channels.HUMAN_VAULT_AUDIT_LOG, limit),
   },
   automation: {
     getInstalled: (): Promise<AutomationKit[]> =>
@@ -556,6 +583,37 @@ const api = {
       ipcRenderer.invoke(Channels.PAGE_DIFF_GET),
     getHistory: (): Promise<PageDiffHistoryItem[] | { error: string }> =>
       ipcRenderer.invoke(Channels.PAGE_DIFF_HISTORY),
+  },
+  security: {
+    onStateUpdate: (
+      cb: (tabId: string, state: SecurityState) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, data: { tabId: string; state: SecurityState }) =>
+        cb(data.tabId, data.state);
+      ipcRenderer.on(Channels.SECURITY_STATE_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SECURITY_STATE_UPDATE, handler);
+    },
+    showDetails: (state: SecurityState): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_SHOW_DETAILS, state),
+    proceedAnyway: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_PROCEED_ANYWAY, tabId),
+    goBackToSafety: (tabId: string): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_GO_BACK_TO_SAFETY, tabId),
+  },
+  browsingData: {
+    clear: (options: ClearDataOptions): Promise<void> =>
+      ipcRenderer.invoke(Channels.CLEAR_BROWSING_DATA, options),
+    onOpenDialog: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(Channels.CLEAR_BROWSING_DATA_OPEN, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.CLEAR_BROWSING_DATA_OPEN, handler);
+    },
+  },
+  pip: {
+    toggle: (): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.TAB_TOGGLE_PIP),
   },
 };
 

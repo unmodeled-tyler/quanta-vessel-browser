@@ -64,6 +64,8 @@ export const Channels = {
   BOOKMARK_REMOVE: "bookmarks:remove",
   BOOKMARKS_EXPORT_HTML: "bookmarks:export-html",
   BOOKMARKS_EXPORT_JSON: "bookmarks:export-json",
+  BOOKMARKS_IMPORT_HTML: "bookmarks:import-html",
+  BOOKMARKS_IMPORT_JSON: "bookmarks:import-json",
   BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
@@ -92,6 +94,12 @@ export const Channels = {
   TAB_ZOOM_IN: "tab:zoom-in",
   TAB_ZOOM_OUT: "tab:zoom-out",
   TAB_ZOOM_RESET: "tab:zoom-reset",
+
+  // Security indicator
+  SECURITY_STATE_UPDATE: "security:state-update",
+  SECURITY_SHOW_DETAILS: "security:show-details",
+  SECURITY_PROCEED_ANYWAY: "security:proceed-anyway",
+  SECURITY_GO_BACK_TO_SAFETY: "security:go-back-to-safety",
 
   // Closed tabs / duplication
   TAB_REOPEN_CLOSED: "tab:reopen-closed",
@@ -135,6 +143,9 @@ export const Channels = {
   HISTORY_SEARCH: "history:search",
   HISTORY_CLEAR: "history:clear",
   HISTORY_UPDATE: "history:update",
+  HISTORY_EXPORT_HTML: "history:export-html",
+  HISTORY_EXPORT_JSON: "history:export-json",
+  HISTORY_IMPORT: "history:import",
 
   // Downloads
   DOWNLOAD_STARTED: "download:started",
@@ -163,6 +174,14 @@ export const Channels = {
   VAULT_UPDATE: "vault:update",
   VAULT_REMOVE: "vault:remove",
   VAULT_AUDIT_LOG: "vault:audit-log",
+
+  // Human Password Manager
+  HUMAN_VAULT_LIST: "human-vault:list",
+  HUMAN_VAULT_GET: "human-vault:get",
+  HUMAN_VAULT_SAVE: "human-vault:save",
+  HUMAN_VAULT_UPDATE: "human-vault:update",
+  HUMAN_VAULT_REMOVE: "human-vault:remove",
+  HUMAN_VAULT_AUDIT_LOG: "human-vault:audit-log",
 
   // Automation kits
   AUTOMATION_GET_INSTALLED: "automation:get-installed",
@@ -194,4 +213,11 @@ export const Channels = {
   PAGE_DIFF_GET: "page:diff-get",
   PAGE_DIFF_HISTORY: "page:diff-history",
   PAGE_DIFF_DIRTY: "page:diff-dirty",
+
+  // Clear browsing data
+  CLEAR_BROWSING_DATA: "browsing-data:clear",
+  CLEAR_BROWSING_DATA_OPEN: "browsing-data:open",
+
+  // Picture-in-Picture
+  TAB_TOGGLE_PIP: "tab:toggle-pip",
 } as const;

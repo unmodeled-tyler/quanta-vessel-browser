@@ -48,6 +48,15 @@ export interface TabState {
   role?: TabRole;
 }
 
+export type SecurityStatus = "secure" | "insecure" | "error" | "none";
+
+export interface SecurityState {
+  status: SecurityStatus;
+  url: string;
+  errorMessage?: string;
+  canProceed?: boolean;
+}
+
 export interface SelectOption {
   label: string;
   value: string;
@@ -448,11 +457,6 @@ export interface ProviderMeta {
   apiKeyHint: string;
 }
 
-export interface ProviderUpdateResult {
-  ok: boolean;
-  error?: string;
-}
-
 export interface ProviderModelsResult {
   ok: boolean;
   models: string[];
@@ -695,4 +699,53 @@ export interface VaultAuditEntry {
   action: "login_fill" | "totp_generate" | "status_check";
   sessionId?: string;
   approved: boolean;
+}
+
+// --- Human Password Manager ---
+
+export interface HumanCredentialEntry {
+  id: string;
+  title: string;
+  url: string;
+  domain: string;
+  username: string;
+  password: string;
+  totpSecret?: string;
+  category?: "login" | "credit_card" | "identity" | "secure_note";
+  tags?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt?: string;
+  useCount: number;
+}
+
+export interface HumanVaultAuditEntry {
+  timestamp: string;
+  credentialId: string;
+  credentialTitle: string;
+  domain: string;
+  action: "human_list" | "human_autofill" | "human_copy" | "human_view" | "human_create" | "human_update" | "human_delete";
+  approved: boolean;
+  source: "settings_ui" | "mcp_tool";
+}
+
+// --- Clear Browsing Data ---
+
+export type ClearDataTimeRange = "hour" | "day" | "week" | "month" | "all";
+
+export interface ClearDataOptions {
+  cache: boolean;
+  cookies: boolean;
+  history: boolean;
+  localStorage: boolean;
+  timeRange: ClearDataTimeRange;
+}
+
+// --- Import result ---
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: number;
 }

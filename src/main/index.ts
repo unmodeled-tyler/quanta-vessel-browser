@@ -2,7 +2,7 @@ import { app, dialog, globalShortcut, session } from "electron";
 import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
-import { registerIpcHandlers } from "./ipc/handlers";
+import { registerIpcHandlers, togglePictureInPicture } from "./ipc/handlers";
 import { createSecondaryWindow } from "./secondary/window";
 import { Channels } from "../shared/channels";
 import {
@@ -209,6 +209,16 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers(windowState, runtime);
 
+  // Wire security state updates to renderer views
+  tabManager.onSecurityStateChange((tabId, state) => {
+    if (!chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
+    }
+    if (!sidebarView.webContents.isDestroyed()) {
+      sidebarView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
+    }
+  });
+
   // Register Ctrl+H highlight capture shortcut
   registerHighlightShortcut(windowState.mainWindow, tabManager);
 
@@ -242,6 +252,14 @@ async function bootstrap(): Promise<void> {
       if (activeTabId) {
         void tabManager.savePage(activeTabId);
       }
+    },
+    clearBrowsingData: () => {
+      if (!chromeView.webContents.isDestroyed()) {
+        chromeView.webContents.send(Channels.CLEAR_BROWSING_DATA_OPEN);
+      }
+    },
+    togglePictureInPicture: () => {
+      void togglePictureInPicture(tabManager);
     },
   });
 

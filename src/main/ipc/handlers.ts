@@ -1,8 +1,6 @@
-import { app, dialog, ipcMain, Menu, MenuItem } from "electron";
-import { promises as fs } from "fs";
+import { app, ipcMain, session } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
-import * as historyManager from "../history/manager";
 import { generateReaderHTML } from "../content/reader-mode";
 import {
   getRendererSettings,
@@ -16,21 +14,9 @@ import {
   onRuntimeHealthChange,
 } from "../health/runtime-health";
 import {
-  getPremiumState,
-  getCheckoutUrl,
-  getPortalUrl,
-  resetPremium,
-  requestActivationCode,
-  verifyActivationCode,
-  verifySubscription,
-  isPremiumActiveState,
-} from "../premium/manager";
-import {
   trackProviderConfigured,
   trackSettingChanged,
   trackApprovalModeChanged,
-  trackBookmarkAction,
-  trackPremiumFunnel,
 } from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
@@ -43,12 +29,11 @@ import type {
   SessionSnapshot,
   TabGroupColor,
   VesselSettings,
+  type ClearDataOptions,
 } from "../../shared/types";
-import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { errorResult, getErrorMessage } from "../../shared/result";
+import { getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
-import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
 import {
   highlightOnPage,
@@ -68,27 +53,60 @@ import { registerScheduleHandlers, getScheduledKitIds } from "../automation/sche
 import {
   assertNumber,
   assertString,
+  getActiveTabInfo,
   type SendToRendererViews,
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
 import { registerPageDiffHandlers } from "./page-diff";
-import {
-  listNamedSessions,
-  saveNamedSession,
-  loadNamedSession,
-  deleteNamedSession,
-} from "../sessions/manager";
 import { registerVaultHandlers } from "./vault";
+import { registerHumanVaultHandlers } from "./human-vault";
 import { registerWindowControlHandlers } from "./window-controls";
-import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { createPrivateWindow } from "../private/window";
 import { createSecondaryWindow } from "../secondary/window";
+import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
+import { createFindInPageBridge } from "../tabs/find-bridge";
+import { registerBookmarkHandlers } from "./bookmarks";
+import { registerHistoryHandlers } from "./history";
+import { registerPremiumHandlers } from "./premium";
+import { registerSessionHandlers } from "./sessions";
+import { registerSecurityHandlers } from "./security";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
 
 const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
 type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
+
+export async function togglePictureInPicture(
+  tabManager: WindowState["tabManager"],
+): Promise<boolean> {
+  const info = getActiveTabInfo(tabManager);
+  if (!info) return false;
+  const { wc } = info;
+  try {
+    return await wc.executeJavaScript(`
+      (async function() {
+        const video = document.querySelector('video');
+        if (!video) return false;
+        if (!document.pictureInPictureEnabled || typeof video.requestPictureInPicture !== 'function') {
+          return false;
+        }
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+          return false;
+        }
+        try {
+          await video.requestPictureInPicture();
+          return true;
+        } catch {
+          return false;
+        }
+      })()
+    `);
+  } catch {
+    return false;
+  }
+}
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -111,10 +129,6 @@ export function registerIpcHandlers(
   let sidebarResizeActive = false;
   let runtimeUpdateTimer: NodeJS.Timeout | null = null;
   let pendingRuntimeState: AgentRuntimeState | null = null;
-  const premiumApiOrigin =
-    process.env.VESSEL_PREMIUM_API
-      ? new URL(process.env.VESSEL_PREMIUM_API).origin
-      : "https://vesselpremium.quantaintellect.com";
 
   const clearSidebarResizeRecoveryTimer = () => {
     if (!sidebarResizeRecoveryTimer) return;
@@ -176,98 +190,11 @@ export function registerIpcHandlers(
     devtoolsPanelView.webContents.send(channel, ...args);
   };
 
-  const watchPremiumCheckoutTab = (tabId: string) => {
-    const tab = tabManager.getTab(tabId);
-    const wc = tab?.view.webContents;
-    if (!wc) return;
-
-    let completed = false;
-
-    const cleanup = () => {
-      wc.removeListener("did-navigate", onNavigate);
-      wc.removeListener("did-navigate-in-page", onNavigateInPage);
-      wc.removeListener("destroyed", cleanup);
-    };
-
-    const handleUrl = async (rawUrl: string) => {
-      if (completed) return;
-
-      let parsed: URL;
-      try {
-        parsed = new URL(rawUrl);
-      } catch (err) {
-        logger.warn("Failed to parse premium checkout URL while watching checkout tab:", err);
-        return;
-      }
-
-      if (parsed.origin !== premiumApiOrigin) return;
-
-      if (parsed.pathname === "/canceled") {
-        completed = true;
-        trackPremiumFunnel("checkout_canceled");
-        cleanup();
-        return;
-      }
-
-      if (parsed.pathname !== "/success") return;
-
-      completed = true;
-      trackPremiumFunnel("checkout_success_seen");
-
-      const sessionId = parsed.searchParams.get("session_id")?.trim();
-      if (!sessionId) {
-        trackPremiumFunnel("auto_activation_failed", {
-          reason: "missing_session_id",
-        });
-        cleanup();
-        return;
-      }
-
-      trackPremiumFunnel("auto_activation_attempted");
-      const state = await verifySubscription(sessionId);
-      if (isPremiumActiveState(state)) {
-        sendToRendererViews(Channels.PREMIUM_UPDATE, state);
-        trackPremiumFunnel("auto_activation_succeeded", {
-          status: state.status,
-        });
-      } else {
-        trackPremiumFunnel("auto_activation_failed", {
-          status: state.status,
-        });
-      }
-      cleanup();
-    };
-
-    const onNavigate = (_event: unknown, url: string) => {
-      void handleUrl(url);
-    };
-
-    const onNavigateInPage = (
-      _event: unknown,
-      url: string,
-      isMainFrame: boolean,
-    ) => {
-      if (!isMainFrame) return;
-      void handleUrl(url);
-    };
-
-    wc.on("did-navigate", onNavigate);
-    wc.on("did-navigate-in-page", onNavigateInPage);
-    wc.on("destroyed", cleanup);
-
-    const currentUrl = wc.getURL();
-    if (currentUrl) {
-      void handleUrl(currentUrl);
-    }
-  };
-
   const getActiveHighlightCountSafe = async (): Promise<number> => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return 0;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return 0;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return 0;
     try {
-      return (await getHighlightCount(wc)) ?? 0;
+      return (await getHighlightCount(info.wc)) ?? 0;
     } catch (err) {
       logger.warn("Failed to get active highlight count:", err);
       return 0;
@@ -424,148 +351,12 @@ export function registerIpcHandlers(
 
   ipcMain.on(Channels.TAB_CONTEXT_MENU, (_event, id: string) => {
     assertString(id, "id");
-    const tab = tabManager.getTab(id);
-    const isPinned = tab?.state.isPinned ?? false;
-    const groupId = tab?.state.groupId;
-    const isMuted = tab?.state.isMuted ?? false;
-    const groups = tabManager
-      .getAllStates()
-      .filter((state) => state.groupId && state.groupId !== groupId)
-      .reduce(
-        (map, state) =>
-          map.set(state.groupId!, {
-            id: state.groupId!,
-            name: state.groupName || "Group",
-          }),
-        new Map<string, { id: string; name: string }>(),
-      );
-    const menu = new Menu();
-    menu.append(
-      new MenuItem({
-        label: isPinned ? "Unpin Tab" : "Pin Tab",
-        click: () => {
-          if (isPinned) {
-            tabManager.unpinTab(id);
-          } else {
-            tabManager.pinTab(id);
-          }
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Duplicate Tab",
-        click: () => {
-          const newId = tabManager.duplicateTab(id);
-          if (newId) layoutViews(windowState);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Add to New Group",
-        click: () => {
-          tabManager.createGroupFromTab(id);
-        },
-      }),
-    );
-    if (groups.size > 0) {
-      menu.append(
-        new MenuItem({
-          label: "Add to Group",
-          submenu: [...groups.values()].map(
-            (group) =>
-              new MenuItem({
-                label: group.name,
-                click: () => tabManager.assignTabToGroup(id, group.id),
-              }),
-          ),
-        }),
-      );
-    }
-    if (groupId) {
-      menu.append(
-        new MenuItem({
-          label: "Remove from Group",
-          click: () => {
-            tabManager.removeTabFromGroup(id);
-          },
-        }),
-      );
-    }
-    menu.append(
-      new MenuItem({
-        label: isMuted ? "Unmute Tab" : "Mute Tab",
-        click: () => {
-          tabManager.toggleMuted(id);
-        },
-      }),
-    );
-    menu.append(new MenuItem({ type: "separator" }));
-    menu.append(
-      new MenuItem({
-        label: "Print Page",
-        click: () => {
-          tabManager.printTab(id);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Save Page as PDF",
-        click: () => {
-          void tabManager.saveTabAsPdf(id).catch((error) => {
-            logger.warn("Failed to save page as PDF:", error);
-          });
-        },
-      }),
-    );
-    if (!isPinned) {
-      menu.append(new MenuItem({ type: "separator" }));
-      menu.append(
-        new MenuItem({
-          label: "Close Tab",
-          click: () => {
-            tabManager.closeTab(id);
-            layoutViews(windowState);
-          },
-        }),
-      );
-    }
-    menu.popup({ window: mainWindow });
+    showTabContextMenu(tabManager, id, mainWindow, () => layoutViews(windowState));
   });
 
   ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (_event, groupId: string) => {
     assertString(groupId, "groupId");
-    const firstTab = tabManager
-      .getAllStates()
-      .find((tab) => tab.groupId === groupId);
-    if (!firstTab) return;
-
-    const menu = new Menu();
-    menu.append(
-      new MenuItem({
-        label: firstTab.groupCollapsed ? "Expand Group" : "Collapse Group",
-        click: () => {
-          tabManager.toggleGroupCollapsed(groupId);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Group Color",
-        submenu: TAB_GROUP_COLORS.map(
-          (color) =>
-            new MenuItem({
-              label: TAB_GROUP_COLOR_LABELS[color],
-              type: "radio",
-              checked: firstTab.groupColor === color,
-              click: () => tabManager.setGroupColor(groupId, color),
-            }),
-        ),
-      }),
-    );
-    menu.popup({ window: mainWindow });
+    showGroupContextMenu(tabManager, groupId, mainWindow);
   });
 
   ipcMain.handle(Channels.TAB_STATE_GET, () => ({
@@ -835,127 +626,7 @@ export function registerIpcHandlers(
     (_, snapshot?: SessionSnapshot | null) => runtime.restoreSession(snapshot),
   );
 
-  // --- Bookmark handlers ---
-
-  ipcMain.handle(Channels.BOOKMARKS_GET, () => {
-    return bookmarkManager.getState();
-  });
-
-  ipcMain.handle(
-    Channels.FOLDER_CREATE,
-    (_, name: string, summary?: string) => {
-      trackBookmarkAction("folder_create");
-      return bookmarkManager.createFolderWithSummary(name, summary);
-    },
-  );
-
-  ipcMain.handle(
-    Channels.BOOKMARK_SAVE,
-    (
-      _,
-      url: string,
-      title: string,
-      folderId?: string,
-      note?: string,
-      intent?: string,
-      expectedContent?: string,
-      keyFields?: string[],
-      agentHints?: Record<string, string>,
-    ) => {
-      trackBookmarkAction("save");
-      const result = bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
-        onDuplicate: "update",
-        extra: {
-          ...normalizeBookmarkMetadata({
-            intent,
-            expectedContent,
-            keyFields,
-            agentHints,
-          }),
-        },
-      });
-      if (!result.bookmark) {
-        throw new Error("Bookmark save failed");
-      }
-      return result.bookmark;
-    },
-  );
-
-  ipcMain.handle(
-    Channels.BOOKMARK_UPDATE,
-    (
-      _,
-      id: string,
-      updates: {
-        title?: string;
-        note?: string;
-        folderId?: string;
-        intent?: string;
-        expectedContent?: string;
-        keyFields?: string[];
-        agentHints?: Record<string, string>;
-      },
-    ) => {
-      trackBookmarkAction("save");
-      return bookmarkManager.updateBookmark(id, updates);
-    },
-  );
-
-  ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
-    trackBookmarkAction("remove");
-    return bookmarkManager.removeBookmark(id);
-  });
-
-  ipcMain.handle(
-    Channels.BOOKMARKS_EXPORT_HTML,
-    async (_, options?: { includeNotes?: boolean }) => {
-      const { canceled, filePath } = await dialog.showSaveDialog({
-        title: "Export Bookmarks",
-        defaultPath: "vessel-bookmarks.html",
-        filters: [{ name: "HTML Bookmarks", extensions: ["html"] }],
-      });
-      if (canceled || !filePath) return null;
-
-      const content = bookmarkManager.exportBookmarksHtml({
-        includeNotes: options?.includeNotes ?? false,
-      });
-      await fs.writeFile(filePath, content, "utf-8");
-      trackBookmarkAction("export");
-      return {
-        filePath,
-        count: bookmarkManager.getState().bookmarks.length,
-      };
-    },
-  );
-
-  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async () => {
-    const { canceled, filePath } = await dialog.showSaveDialog({
-      title: "Export Vessel Bookmark Archive",
-      defaultPath: "vessel-bookmarks.json",
-      filters: [{ name: "Vessel Bookmark Archive", extensions: ["json"] }],
-    });
-    if (canceled || !filePath) return null;
-
-    const content = bookmarkManager.exportBookmarksJson();
-    await fs.writeFile(filePath, content, "utf-8");
-    trackBookmarkAction("export");
-    return {
-      filePath,
-      count: bookmarkManager.getState().bookmarks.length,
-    };
-  });
-
-  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {
-    trackBookmarkAction("folder_remove");
-    return bookmarkManager.removeFolder(id, deleteContents ?? false);
-  });
-
-  ipcMain.handle(
-    Channels.FOLDER_RENAME,
-    (_, id: string, newName: string, summary?: string) => {
-      return bookmarkManager.renameFolder(id, newName, summary);
-    },
-  );
+  registerBookmarkHandlers();
 
   // --- Highlight capture (user Ctrl+H) ---
 
@@ -1019,12 +690,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
-      return scrollToHighlight(wc, index);
+      return scrollToHighlight(info.wc, index);
     } catch (err) {
       logger.warn("Failed to scroll to highlight:", err);
       return false;
@@ -1032,12 +701,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (_, index: number) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
-      const removed = await removeHighlightAtIndex(wc, index);
+      const removed = await removeHighlightAtIndex(info.wc, index);
       if (removed) {
         await emitHighlightCount();
       }
@@ -1049,10 +716,8 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async () => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
       const cleared = await clearAllHighlightElements(wc);
       if (cleared) {
@@ -1067,82 +732,21 @@ export function registerIpcHandlers(
 
   // --- Find in page ---
 
-  let findWiredWcId: number | null = null;
-  let findResultListener:
-    | ((event: Electron.Event, result: Electron.Result) => void)
-    | null = null;
-
-  function wireFindEvents(wc: Electron.WebContents): void {
-    if (findWiredWcId === wc.id) return;
-    if (findWiredWcId !== null && findResultListener) {
-      const prev = tabManager.findTabByWebContentsId(findWiredWcId);
-      const prevWc = prev?.view.webContents;
-      if (prevWc && !prevWc.isDestroyed()) {
-        prevWc.removeListener("found-in-page", findResultListener);
-      }
-    }
-    findWiredWcId = wc.id;
-    if (wc.isDestroyed()) return;
-
-    const listener = (_event: Electron.Event, result: Electron.Result) => {
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
-      }
-    };
-    findResultListener = listener;
-    wc.on("found-in-page", listener);
-    // Capture wcId to avoid accessing destroyed wc.id in the handler
-    const capturedWcId = wc.id;
-    wc.once("destroyed", () => {
-      if (findWiredWcId === capturedWcId) {
-        findWiredWcId = null;
-        findResultListener = null;
-      }
-    });
-  }
+  const findBridge = createFindInPageBridge(tabManager, chromeView);
 
   ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return null;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
-    wireFindEvents(wc);
-    return wc.findInPage(text, {
-      forward: options?.forward ?? true,
-      findNext: options?.findNext ?? false,
-    });
+    return findBridge.start(text, options);
   });
 
   ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (_, forward?: boolean) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return null;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
-    wireFindEvents(wc);
-    return wc.findInPage("", { forward: forward ?? true, findNext: true });
+    return findBridge.next(forward);
   });
 
   ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (_, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
-    wc.stopFindInPage(action ?? "clearSelection");
+    findBridge.stop(action);
   });
 
-  // --- Browsing history ---
-
-  ipcMain.handle(Channels.HISTORY_GET, () => {
-    return historyManager.getState();
-  });
-
-  ipcMain.handle(Channels.HISTORY_SEARCH, (_, query: string) => {
-    return historyManager.search(query);
-  });
-
-  ipcMain.handle(Channels.HISTORY_CLEAR, () => {
-    historyManager.clearAll();
-  });
+  registerHistoryHandlers();
 
   // --- DevTools panel ---
 
@@ -1159,118 +763,21 @@ export function registerIpcHandlers(
     return clamped;
   });
 
+  // --- Security indicator ---
+
+  registerSecurityHandlers(tabManager);
+
   // --- Premium subscription ---
 
-  ipcMain.handle(Channels.PREMIUM_GET_STATE, () => {
-    return getPremiumState();
-  });
-
-  ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (_, email: string) => {
-    assertString(email, "email");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return errorResult("Invalid email format");
-    }
-    trackPremiumFunnel("activation_attempted");
-    const result = await requestActivationCode(email);
-    if (!result.ok) {
-      trackPremiumFunnel("activation_failed");
-    }
-    return result;
-  });
-
-  ipcMain.handle(
-    Channels.PREMIUM_ACTIVATION_VERIFY,
-    async (_, email: string, code: string, challengeToken: string) => {
-      assertString(email, "email");
-      assertString(code, "code");
-      assertString(challengeToken, "challengeToken");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-        return errorResult("Invalid email format", {
-          state: getPremiumState(),
-        });
-      }
-      trackPremiumFunnel("activation_attempted");
-      const result = await verifyActivationCode(email, code, challengeToken);
-      if (result.ok) {
-        trackPremiumFunnel("activation_succeeded", {
-          status: result.state.status,
-        });
-        sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
-      } else {
-        trackPremiumFunnel("activation_failed", { status: result.state.status });
-      }
-      return result;
-    },
-  );
-
-  ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
-    trackPremiumFunnel("checkout_clicked");
-    const result = await getCheckoutUrl(email);
-    if (result.ok && result.url) {
-      const tabId = tabManager.createTab(result.url);
-      watchPremiumCheckoutTab(tabId);
-    }
-    return result;
-  });
-
-  ipcMain.handle(Channels.PREMIUM_RESET, () => {
-    trackPremiumFunnel("reset");
-    const state = resetPremium();
-    sendToRendererViews(Channels.PREMIUM_UPDATE, state);
-    return state;
-  });
-
-  const PREMIUM_TRACKABLE_STEPS = [
-    "chat_banner_viewed",
-    "chat_banner_clicked",
-    "settings_banner_viewed",
-    "settings_banner_clicked",
-    "welcome_banner_clicked",
-    "premium_gate_seen",
-    "premium_gate_clicked",
-    "iteration_limit_seen",
-    "iteration_limit_clicked",
-  ] as const;
-  type PremiumTrackableStep = typeof PREMIUM_TRACKABLE_STEPS[number];
-
-  ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (_, step: string) => {
-    assertString(step, "step");
-    if (PREMIUM_TRACKABLE_STEPS.includes(step as PremiumTrackableStep)) {
-      trackPremiumFunnel(step as PremiumTrackableStep);
-    }
-  });
-
-  ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
-    trackPremiumFunnel("portal_opened");
-    const result = await getPortalUrl();
-    if (result.ok && result.url) {
-      tabManager.createTab(result.url);
-    }
-    return result;
-  });
+  registerPremiumHandlers(tabManager, sendToRendererViews);
 
   // --- Named sessions ---
 
-  ipcMain.handle(Channels.SESSION_LIST, () => {
-    return listNamedSessions();
-  });
-
-  ipcMain.handle(Channels.SESSION_SAVE, async (_, name: string) => {
-    assertString(name, "name");
-    return await saveNamedSession(tabManager, name);
-  });
-
-  ipcMain.handle(Channels.SESSION_LOAD, async (_, name: string) => {
-    assertString(name, "name");
-    return await loadNamedSession(tabManager, name);
-  });
-
-  ipcMain.handle(Channels.SESSION_DELETE, (_, name: string) => {
-    assertString(name, "name");
-    return deleteNamedSession(name);
-  });
+  registerSessionHandlers(tabManager);
 
   registerVaultHandlers();
+
+  registerHumanVaultHandlers();
 
   registerWindowControlHandlers(mainWindow);
 
@@ -1295,4 +802,34 @@ export function registerIpcHandlers(
 
   registerAutofillHandlers(windowState);
   registerPageDiffHandlers(windowState, sendToRendererViews);
+
+  // --- Clear browsing data ---
+
+  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (_, options: ClearDataOptions) => {
+    const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
+
+    // Note: cache and cookies/storage clearing ignore timeRange — Electron's
+    // APIs don't support time-range filtering for these. Only history respects it.
+    if (cache) {
+      await session.defaultSession.clearCache();
+    }
+
+    const storages: Array<"cookies" | "localstorage"> = [];
+    if (cookies) storages.push("cookies");
+    if (clearLs) storages.push("localstorage");
+
+    if (storages.length > 0) {
+      await session.defaultSession.clearStorageData({ storages });
+    }
+
+    if (history) {
+      historyManager.clearByTimeRange(timeRange);
+    }
+  });
+
+  // --- Picture-in-Picture ---
+
+  ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
+    return togglePictureInPicture(tabManager);
+  });
 }
