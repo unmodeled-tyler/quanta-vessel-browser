@@ -34,7 +34,6 @@ import type {
 import { createLogger } from "../../shared/logger";
 import { getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
-import * as highlightsManager from "../highlights/manager";
 import {
   highlightOnPage,
   getHighlightCount,
