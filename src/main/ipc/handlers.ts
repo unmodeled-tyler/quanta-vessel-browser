@@ -429,6 +429,7 @@ export function registerIpcHandlers(
           tabManager,
           runtime,
           history,
+          researchOrchestrator,
         );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";

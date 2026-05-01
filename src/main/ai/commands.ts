@@ -18,6 +18,8 @@ import { executeAction, type ActionContext, clearCartState } from "./page-action
 import type { TabManager } from "../tabs/tab-manager";
 import type { WebContents } from "electron";
 import type { AgentRuntime } from "../agent/runtime";
+import { buildOrchestratorSystemPrompt } from "../agent/research/orchestrator-prompt";
+import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 
 export async function handleAIQuery(
   query: string,
@@ -28,7 +30,28 @@ export async function handleAIQuery(
   tabManager?: TabManager,
   runtime?: AgentRuntime,
   history?: AIMessage[],
+  researchOrchestrator?: ResearchOrchestrator,
 ): Promise<void> {
+  // Research Desk: during briefing/planning, use the orchestrator's system prompt
+  if (researchOrchestrator) {
+    const researchState = researchOrchestrator.getState();
+    if (researchState.phase === "briefing" || researchState.phase === "planning") {
+      const phaseInstruction =
+        researchState.phase === "planning"
+          ? "\n\nNow produce the Research Objectives based on the brief conversation above."
+          : "\n\nContinue the briefing interview. Ask one question at a time.";
+
+      await provider.streamQuery(
+        buildOrchestratorSystemPrompt() + phaseInstruction,
+        query,
+        onChunk,
+        onEnd,
+        history,
+      );
+      return;
+    }
+  }
+
   const lowerQuery = query.toLowerCase().trim();
 
   const isSummarize =
