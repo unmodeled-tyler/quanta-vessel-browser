@@ -16,11 +16,16 @@ export function registerResearchHandlers(
   ipcMain.handle(
     Channels.RESEARCH_START_BRIEF,
     async (_event, query: string) => {
-      if (isToolGated("research_start")) {
-        return { accepted: false, reason: "premium" as const };
+      try {
+        if (isToolGated("research_start")) {
+          return { accepted: false, reason: "premium" as const };
+        }
+        await getOrchestrator().startBrief(query);
+        return { accepted: true };
+      } catch (err) {
+        logger.error("RESEARCH_START_BRIEF failed", err);
+        return { accepted: false, reason: "error" as const };
       }
-      await getOrchestrator().startBrief(query);
-      return { accepted: true };
     },
   );
 
@@ -37,18 +42,23 @@ export function registerResearchHandlers(
         includeTraces?: boolean;
       },
     ) => {
-      if (isToolGated("research_approve_objectives")) {
-        return { accepted: false, reason: "premium" as const };
+      try {
+        if (isToolGated("research_approve_objectives")) {
+          return { accepted: false, reason: "premium" as const };
+        }
+        getOrchestrator().approveObjectives(
+          options.supervisionMode,
+          options.includeTraces,
+        );
+        // Fire off sub-agent execution in background
+        getOrchestrator().executeSubAgents().catch((err) => {
+          logger.error("Background sub-agent execution failed", err);
+        });
+        return { accepted: true };
+      } catch (err) {
+        logger.error("RESEARCH_APPROVE_OBJECTIVES failed", err);
+        return { accepted: false, reason: "error" as const };
       }
-      getOrchestrator().approveObjectives(
-        options.supervisionMode,
-        options.includeTraces,
-      );
-      // Fire off sub-agent execution in background
-      getOrchestrator().executeSubAgents().catch((err) => {
-        logger.error("Background sub-agent execution failed", err);
-      });
-      return { accepted: true };
     },
   );
 
@@ -71,14 +81,19 @@ export function registerResearchHandlers(
   });
 
   ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, () => {
-    if (isToolGated("research_export_report")) {
-      return { accepted: false, reason: "premium" as const };
+    try {
+      if (isToolGated("research_export_report")) {
+        return { accepted: false, reason: "premium" as const };
+      }
+      const state = getOrchestrator().getState();
+      return {
+        accepted: true,
+        report: state.report,
+        format: "markdown" as const,
+      };
+    } catch (err) {
+      logger.error("RESEARCH_EXPORT_REPORT failed", err);
+      return { accepted: false, reason: "error" as const };
     }
-    const state = getOrchestrator().getState();
-    return {
-      accepted: true,
-      report: state.report,
-      format: "markdown" as const,
-    };
   });
 }
