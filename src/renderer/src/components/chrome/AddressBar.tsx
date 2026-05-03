@@ -54,6 +54,7 @@ const AddressBar: Component<{
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
+  const [isEditingAddress, setIsEditingAddress] = createSignal(false);
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
 
@@ -180,7 +181,8 @@ const AddressBar: Component<{
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
-    if (tab && !inputRef?.matches(":focus")) {
+    const inputHasFocus = inputRef && document.activeElement === inputRef;
+    if (tab && !isEditingAddress() && !inputHasFocus) {
       setInputValue(tab.url === "about:blank" ? "" : tab.url);
       setShowSuggestions(false);
       setSelectedIndex(-1);
@@ -274,6 +276,7 @@ const AddressBar: Component<{
     setInputValue(url);
     setShowSuggestions(false);
     setSelectedIndex(-1);
+    setIsEditingAddress(false);
     navigate(url);
     inputRef?.blur();
   };
@@ -287,6 +290,7 @@ const AddressBar: Component<{
     } else {
       const val = inputValue().trim();
       if (val) {
+        setIsEditingAddress(false);
         navigate(val);
         inputRef?.blur();
         setShowSuggestions(false);
@@ -444,11 +448,13 @@ const AddressBar: Component<{
             type="text"
             value={inputValue()}
             onInput={(e) => {
+              setIsEditingAddress(true);
               setInputValue(e.currentTarget.value);
               setShowSuggestions(true);
               setSelectedIndex(-1);
             }}
             onFocus={(e) => {
+              setIsEditingAddress(true);
               e.currentTarget.select();
               const query = inputValue().trim();
               if (query.length >= 2) setShowSuggestions(true);
@@ -457,6 +463,7 @@ const AddressBar: Component<{
             onBlur={() => {
               // Delay to allow click on suggestion
               setTimeout(() => {
+                setIsEditingAddress(false);
                 setShowSuggestions(false);
                 setSelectedIndex(-1);
               }, 150);

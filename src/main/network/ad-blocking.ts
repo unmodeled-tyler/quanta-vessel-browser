@@ -50,8 +50,15 @@ const THIRD_PARTY_PATH_PATTERNS = [
   /\/pixel/i,
 ];
 
+const EMPTY_BLOCKED_FRAME_URL = "data:text/html;charset=utf-8,";
+
 let installed = false;
 const defaultSessionTabManagers = new Set<TabManager>();
+
+type AdBlockDecision = {
+  cancel?: boolean;
+  redirectURL?: string;
+};
 
 function normalizeHostname(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, "");
@@ -112,6 +119,18 @@ function shouldBlockRequest(
   return THIRD_PARTY_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
 }
 
+function getAdBlockDecision(
+  details: OnBeforeRequestListenerDetails,
+): AdBlockDecision {
+  if (!shouldBlockRequest(details)) return {};
+
+  if (details.resourceType === "subFrame") {
+    return { redirectURL: EMPTY_BLOCKED_FRAME_URL };
+  }
+
+  return { cancel: true };
+}
+
 export function installAdBlocking(tabManager: TabManager): void {
   defaultSessionTabManagers.add(tabManager);
   if (installed) return;
@@ -133,7 +152,7 @@ export function installAdBlocking(tabManager: TabManager): void {
       return;
     }
 
-    callback({ cancel: shouldBlockRequest(details) });
+    callback(getAdBlockDecision(details));
   });
 }
 
@@ -162,6 +181,6 @@ export function installAdBlockingForSession(
       return;
     }
 
-    callback({ cancel: shouldBlockRequest(details) });
+    callback(getAdBlockDecision(details));
   });
 }
