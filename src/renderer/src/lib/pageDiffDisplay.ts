@@ -19,9 +19,9 @@ export function cleanDiffSummaryText(value: string): string {
     .replace(/`([^`]+)`/g, "$1")
     .replace(/(\*\*|__)(.*?)\1/g, "$2")
     .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/^\s*>\s?/gm, "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[-*+]\s+/gm, "")
-    .replace(/^\s*>\s?/gm, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -36,7 +36,7 @@ export function parseDiffSummaryParts(summary: string): DisplayDiffSummaryPart[]
   const parts = summary
     .split(/\s*\|\s*/)
     .map((part) => {
-      const match = part.match(/^([a-z]+):\s*(.+)$/i);
+      const match = part.match(/^([a-z][a-z\s-]*):\s*(.+)$/i);
       if (!match) {
         return { text: cleanDiffSummaryText(part) };
       }

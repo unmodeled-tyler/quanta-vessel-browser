@@ -21,6 +21,7 @@ import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
+import { formatElapsedTime, formatRelativeTime } from "../../lib/timeDisplay";
 import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
@@ -133,34 +134,6 @@ const AddressBar: Component<{
       diffCollapseTimer = null;
     }
     await window.vessel.ui.openSidebarTab("diff");
-  };
-
-  const formatRelativeTime = (isoDate: string): string => {
-    const timestamp = new Date(isoDate).getTime();
-    if (Number.isNaN(timestamp)) return "recently";
-
-    const diff = Math.max(0, Date.now() - timestamp);
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(timestamp).toLocaleDateString();
-  };
-
-  const formatElapsed = (startIso: string, endIso: string): string => {
-    const elapsedMs = Math.max(
-      0,
-      new Date(endIso).getTime() - new Date(startIso).getTime(),
-    );
-    const secs = Math.round(elapsedMs / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.round(secs / 60);
-    if (mins < 60) return `${mins}m`;
-    const hours = Math.round(mins / 60);
-    return `${hours}h`;
   };
 
   const getChangeKindLabel = (kind: PageDiff["changes"][number]["kind"]) =>
@@ -287,18 +260,51 @@ const AddressBar: Component<{
     });
   });
 
-  const selectSuggestion = (url: string) => {
-    if (addressBlurTimer) {
-      clearTimeout(addressBlurTimer);
-      addressBlurTimer = null;
-    }
-    setInputValue(url);
+  const clearAddressBlurTimer = () => {
+    if (!addressBlurTimer) return;
+    clearTimeout(addressBlurTimer);
+    addressBlurTimer = null;
+  };
+
+  const closeAddressSuggestions = () => {
     setShowSuggestions(false);
     setSelectedIndex(-1);
+  };
+
+  const commitAddressNavigation = (url: string) => {
+    clearAddressBlurTimer();
     setHasEditedAddress(false);
     skipNextAddressBlurSync = true;
     navigate(url);
     inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const cancelAddressEditing = () => {
+    clearAddressBlurTimer();
+    setHasEditedAddress(false);
+    syncInputValueFromActiveTab();
+    inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const scheduleAddressBlurReset = () => {
+    clearAddressBlurTimer();
+    addressBlurTimer = setTimeout(() => {
+      setHasEditedAddress(false);
+      if (skipNextAddressBlurSync) {
+        skipNextAddressBlurSync = false;
+      } else {
+        syncInputValueFromActiveTab();
+      }
+      closeAddressSuggestions();
+      addressBlurTimer = null;
+    }, 150);
+  };
+
+  const selectSuggestion = (url: string) => {
+    setInputValue(url);
+    commitAddressNavigation(url);
   };
 
   const handleSubmit = (e: Event) => {
@@ -309,17 +315,7 @@ const AddressBar: Component<{
       selectSuggestion(items[idx].url);
     } else {
       const val = inputValue().trim();
-      if (val) {
-        if (addressBlurTimer) {
-          clearTimeout(addressBlurTimer);
-          addressBlurTimer = null;
-        }
-        setHasEditedAddress(false);
-        skipNextAddressBlurSync = true;
-        navigate(val);
-        inputRef?.blur();
-        setShowSuggestions(false);
-      }
+      if (val) commitAddressNavigation(val);
     }
   };
 
@@ -341,12 +337,11 @@ const AddressBar: Component<{
       }
     } else if (e.key === "Escape") {
       if (showSuggestions()) {
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
-      } else {
-        setHasEditedAddress(false);
         syncInputValueFromActiveTab();
-        inputRef?.blur();
+        setHasEditedAddress(false);
+        closeAddressSuggestions();
+      } else {
+        cancelAddressEditing();
       }
     }
   };
@@ -481,10 +476,7 @@ const AddressBar: Component<{
               setSelectedIndex(-1);
             }}
             onFocus={(e) => {
-              if (addressBlurTimer) {
-                clearTimeout(addressBlurTimer);
-                addressBlurTimer = null;
-              }
+              clearAddressBlurTimer();
               e.currentTarget.select();
               const query = inputValue().trim();
               if (query.length >= 2) setShowSuggestions(true);
@@ -492,17 +484,7 @@ const AddressBar: Component<{
             onKeyDown={handleInputKeyDown}
             onBlur={() => {
               // Delay to allow click on suggestion
-              addressBlurTimer = setTimeout(() => {
-                setHasEditedAddress(false);
-                if (skipNextAddressBlurSync) {
-                  skipNextAddressBlurSync = false;
-                } else {
-                  syncInputValueFromActiveTab();
-                }
-                setShowSuggestions(false);
-                setSelectedIndex(-1);
-                addressBlurTimer = null;
-              }, 150);
+              scheduleAddressBlurReset();
             }}
             placeholder="Search or enter URL"
             spellcheck={false}
@@ -612,7 +594,7 @@ const AddressBar: Component<{
               >
                 <span class="page-diff-burst-meta">
                   Updated {pageDiff()!.burstCount} times over{" "}
-                  {formatElapsed(
+                  {formatElapsedTime(
                     pageDiff()!.firstDetectedAt!,
                     pageDiff()!.lastDetectedAt!,
                   )}

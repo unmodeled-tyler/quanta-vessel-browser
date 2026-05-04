@@ -51,7 +51,7 @@ const THIRD_PARTY_PATH_PATTERNS = [
 ];
 
 const EMPTY_BLOCKED_FRAME_URL =
-  "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%3E%3C%2Fbody%3E%3C%2Fhtml%3E";
+  "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%3E%3C!--%20blocked%20by%20Vessel%20ad%20blocker%20--%3E%3C%2Fbody%3E%3C%2Fhtml%3E";
 
 let installed = false;
 const defaultSessionTabManagers = new Set<TabManager>();
