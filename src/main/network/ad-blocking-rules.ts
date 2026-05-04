@@ -1,5 +1,3 @@
-import type { OnBeforeRequestListenerDetails } from "electron/main";
-
 const BLOCKED_RESOURCE_TYPES = new Set([
   "script",
   "image",
@@ -56,10 +54,12 @@ export type AdBlockDecision = {
   redirectURL?: string;
 };
 
-export type AdBlockRequestDetails = Pick<
-  OnBeforeRequestListenerDetails,
-  "initiator" | "referrer" | "resourceType" | "url"
->;
+export type AdBlockRequestDetails = {
+  initiator?: string;
+  referrer?: string;
+  resourceType: string;
+  url: string;
+};
 
 export function normalizeHostname(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, "");
@@ -107,7 +107,7 @@ export function shouldBlockRequest(details: AdBlockRequestDetails): boolean {
   }
 
   const firstPartyHost =
-    parseHostname(details.referrer) || parseHostname(details.initiator || "");
+    parseHostname(details.referrer || "") || parseHostname(details.initiator || "");
   if (!isThirdParty(parsed, firstPartyHost)) return false;
 
   const candidate = `${hostname}${parsed.pathname}${parsed.search}`;

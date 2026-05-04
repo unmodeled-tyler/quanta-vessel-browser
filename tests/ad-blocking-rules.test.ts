@@ -53,6 +53,32 @@ test("shouldBlockRequest allows first-party ad-like paths", () => {
   );
 });
 
+test("shouldBlockRequest treats first-party subdomains as same-site", () => {
+  assert.equal(
+    shouldBlockRequest(
+      request({
+        initiator: "https://publisher.example",
+        referrer: "https://publisher.example/article",
+        url: "https://static.publisher.example/ads/site-promo.js",
+      }),
+    ),
+    false,
+  );
+});
+
+test("shouldBlockRequest does not treat lookalike domains as first-party", () => {
+  assert.equal(
+    shouldBlockRequest(
+      request({
+        initiator: "https://publisher.example",
+        referrer: "https://publisher.example/article",
+        url: "https://evilpublisher.example/ads/banner.js",
+      }),
+    ),
+    true,
+  );
+});
+
 test("shouldBlockRequest falls back to initiator when referrer is missing", () => {
   assert.equal(
     shouldBlockRequest(
@@ -63,6 +89,32 @@ test("shouldBlockRequest falls back to initiator when referrer is missing", () =
       }),
     ),
     true,
+  );
+});
+
+test("shouldBlockRequest blocks ad-like paths without first-party context", () => {
+  assert.equal(
+    shouldBlockRequest(
+      request({
+        initiator: undefined,
+        referrer: undefined,
+        url: "https://cdn.example/ads/banner.js",
+      }),
+    ),
+    true,
+  );
+});
+
+test("shouldBlockRequest allows safe paths without first-party context", () => {
+  assert.equal(
+    shouldBlockRequest(
+      request({
+        initiator: undefined,
+        referrer: undefined,
+        url: "https://cdn.example/app.js",
+      }),
+    ),
+    false,
   );
 });
 

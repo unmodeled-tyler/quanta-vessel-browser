@@ -53,7 +53,8 @@ docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 
 # Tests (local overrides)
-tests/*
+# Keep committed tests tracked, but hide local/untracked test experiments by default.
+tests/*.test.ts
 !tests/ad-blocking-rules.test.ts
 !tests/page-diff-display.test.ts
 !tests/time-display.test.ts
@@ -74,4 +75,4 @@ scripts/cloudflare-worker/vessel-premium-api.js
 scripts/cloudflare-worker/vessel-premium-api.js
 package-lock.json
 tests/time-display.test.ts
-.gitignore
+tests/ad-blocking-rules.test.ts
