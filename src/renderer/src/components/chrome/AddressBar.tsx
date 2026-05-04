@@ -21,6 +21,7 @@ import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
+import { formatElapsedTime, formatRelativeTime } from "../../lib/timeDisplay";
 import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
@@ -54,8 +55,15 @@ const AddressBar: Component<{
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
+  const [hasEditedAddress, setHasEditedAddress] = createSignal(false);
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
+  let addressBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  let skipNextAddressBlurSync = false;
+
+  onCleanup(() => {
+    if (addressBlurTimer) clearTimeout(addressBlurTimer);
+  });
 
   const PADLOCK_PATH = "M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z";
 
@@ -128,31 +136,6 @@ const AddressBar: Component<{
     await window.vessel.ui.openSidebarTab("diff");
   };
 
-  const formatRelativeTime = (isoDate: string): string => {
-    const diff = Date.now() - new Date(isoDate).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(isoDate).toLocaleDateString();
-  };
-
-  const formatElapsed = (startIso: string, endIso: string): string => {
-    const elapsedMs = Math.max(
-      0,
-      new Date(endIso).getTime() - new Date(startIso).getTime(),
-    );
-    const secs = Math.round(elapsedMs / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.round(secs / 60);
-    if (mins < 60) return `${mins}m`;
-    const hours = Math.round(mins / 60);
-    return `${hours}h`;
-  };
-
   const getChangeKindLabel = (kind: PageDiff["changes"][number]["kind"]) =>
     kind === "added"
       ? "Added"
@@ -177,11 +160,18 @@ const AddressBar: Component<{
     });
   });
 
+  const syncInputValueFromActiveTab = () => {
+    const tab = activeTab();
+    if (!tab) return;
+    setInputValue(tab.url === "about:blank" ? "" : tab.url);
+  };
+
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
-    if (tab && !inputRef?.matches(":focus")) {
-      setInputValue(tab.url === "about:blank" ? "" : tab.url);
+    const inputHasFocus = inputRef && document.activeElement === inputRef;
+    if (tab && !hasEditedAddress() && !inputHasFocus) {
+      syncInputValueFromActiveTab();
       setShowSuggestions(false);
       setSelectedIndex(-1);
     }
@@ -270,12 +260,51 @@ const AddressBar: Component<{
     });
   });
 
-  const selectSuggestion = (url: string) => {
-    setInputValue(url);
+  const clearAddressBlurTimer = () => {
+    if (!addressBlurTimer) return;
+    clearTimeout(addressBlurTimer);
+    addressBlurTimer = null;
+  };
+
+  const closeAddressSuggestions = () => {
     setShowSuggestions(false);
     setSelectedIndex(-1);
+  };
+
+  const commitAddressNavigation = (url: string) => {
+    clearAddressBlurTimer();
+    setHasEditedAddress(false);
+    skipNextAddressBlurSync = true;
     navigate(url);
     inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const cancelAddressEditing = () => {
+    clearAddressBlurTimer();
+    setHasEditedAddress(false);
+    syncInputValueFromActiveTab();
+    inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const scheduleAddressBlurReset = () => {
+    clearAddressBlurTimer();
+    addressBlurTimer = setTimeout(() => {
+      setHasEditedAddress(false);
+      if (skipNextAddressBlurSync) {
+        skipNextAddressBlurSync = false;
+      } else {
+        syncInputValueFromActiveTab();
+      }
+      closeAddressSuggestions();
+      addressBlurTimer = null;
+    }, 150);
+  };
+
+  const selectSuggestion = (url: string) => {
+    setInputValue(url);
+    commitAddressNavigation(url);
   };
 
   const handleSubmit = (e: Event) => {
@@ -286,11 +315,7 @@ const AddressBar: Component<{
       selectSuggestion(items[idx].url);
     } else {
       const val = inputValue().trim();
-      if (val) {
-        navigate(val);
-        inputRef?.blur();
-        setShowSuggestions(false);
-      }
+      if (val) commitAddressNavigation(val);
     }
   };
 
@@ -312,10 +337,11 @@ const AddressBar: Component<{
       }
     } else if (e.key === "Escape") {
       if (showSuggestions()) {
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
+        syncInputValueFromActiveTab();
+        setHasEditedAddress(false);
+        closeAddressSuggestions();
       } else {
-        inputRef?.blur();
+        cancelAddressEditing();
       }
     }
   };
@@ -444,11 +470,13 @@ const AddressBar: Component<{
             type="text"
             value={inputValue()}
             onInput={(e) => {
+              setHasEditedAddress(true);
               setInputValue(e.currentTarget.value);
               setShowSuggestions(true);
               setSelectedIndex(-1);
             }}
             onFocus={(e) => {
+              clearAddressBlurTimer();
               e.currentTarget.select();
               const query = inputValue().trim();
               if (query.length >= 2) setShowSuggestions(true);
@@ -456,10 +484,7 @@ const AddressBar: Component<{
             onKeyDown={handleInputKeyDown}
             onBlur={() => {
               // Delay to allow click on suggestion
-              setTimeout(() => {
-                setShowSuggestions(false);
-                setSelectedIndex(-1);
-              }, 150);
+              scheduleAddressBlurReset();
             }}
             placeholder="Search or enter URL"
             spellcheck={false}
@@ -569,7 +594,7 @@ const AddressBar: Component<{
               >
                 <span class="page-diff-burst-meta">
                   Updated {pageDiff()!.burstCount} times over{" "}
-                  {formatElapsed(
+                  {formatElapsedTime(
                     pageDiff()!.firstDetectedAt!,
                     pageDiff()!.lastDetectedAt!,
                   )}

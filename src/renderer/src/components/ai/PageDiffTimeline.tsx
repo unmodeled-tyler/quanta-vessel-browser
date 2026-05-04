@@ -9,27 +9,8 @@ import {
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import type { PageDiffHistoryItem } from "../../../../shared/page-diff-types";
 import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
+import { formatRelativeTime, formatShortDateTime } from "../../lib/timeDisplay";
 import { useTabs } from "../../stores/tabs";
-
-const formatChangeTime = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-
-const formatRelativeTime = (isoDate: string): string => {
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(isoDate).toLocaleDateString();
-};
 
 const PageDiffTimeline: Component = () => {
   const { activeTab } = useTabs();
@@ -111,7 +92,7 @@ const PageDiffTimeline: Component = () => {
                   <span class="page-diff-history-label">
                     {i() === 0 ? "Latest change" : formatRelativeTime(burst.detectedAt)}
                   </span>
-                  <span>{formatChangeTime(burst.detectedAt)}</span>
+                  <span>{formatShortDateTime(burst.detectedAt)}</span>
                 </div>
                 <div class="page-diff-history-card">
                   <div class="page-diff-history-summary-list">
