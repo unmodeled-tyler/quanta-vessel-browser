@@ -1,9 +1,31 @@
-import { Show, Switch, Match, type Component } from "solid-js";
+import { createSignal, Show, Switch, Match, type Component } from "solid-js";
 import { useResearch } from "../../stores/research";
 
 export const ResearchDesk: Component = () => {
   const research = useResearch();
   const state = research.state;
+  const [draftQuery, setDraftQuery] = createSignal("");
+  const [startError, setStartError] = createSignal<string | null>(null);
+
+  async function handleStartResearch(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    const query = draftQuery().trim();
+
+    if (!query) {
+      setStartError("Add a research question first.");
+      return;
+    }
+
+    setStartError(null);
+    const result = await research.startBrief(query);
+    if (!result.accepted) {
+      setStartError(
+        result.reason === "busy"
+          ? "Research Desk is already working on a brief."
+          : "Could not start research. Please try again.",
+      );
+    }
+  }
 
   return (
     <div class="research-desk">
@@ -42,17 +64,29 @@ export const ResearchDesk: Component = () => {
                 </div>
               </Show>
 
-              <button
-                class="research-start-btn"
-                onClick={async () => {
-                  await research.startBrief(
-                    prompt("What would you like to research?") ?? "",
-                  );
-                }}
-              >
-                <span class="research-start-btn-main">Start Research</span>
-                <span class="research-start-btn-sub">Build a scoped research brief</span>
-              </button>
+              <form class="research-start-form" onSubmit={handleStartResearch}>
+                <label class="research-query-label" for="research-query-input">
+                  What are we researching?
+                </label>
+                <textarea
+                  id="research-query-input"
+                  class="research-query-input"
+                  value={draftQuery()}
+                  rows={3}
+                  placeholder="e.g. Compare local-first browser automation frameworks for agent workflows"
+                  onInput={(event) => {
+                    setDraftQuery(event.currentTarget.value);
+                    if (startError()) setStartError(null);
+                  }}
+                />
+                <Show when={startError()}>
+                  {(message) => <p class="research-start-error">{message()}</p>}
+                </Show>
+                <button class="research-start-btn" type="submit">
+                  <span class="research-start-btn-main">Start Research</span>
+                  <span class="research-start-btn-sub">Build a scoped research brief</span>
+                </button>
+              </form>
             </div>
           </div>
         </Match>
