@@ -55,8 +55,10 @@ export function useResearch() {
       return result;
     },
 
-    confirmBrief() {
-      return window.vessel.research.confirmBrief();
+    async confirmBrief() {
+      const result = await window.vessel.research.confirmBrief();
+      setResearchState(await window.vessel.research.getState());
+      return result;
     },
 
     approveObjectives(options?: {

@@ -1,12 +1,25 @@
-import { createSignal, Show, Switch, Match, type Component } from "solid-js";
+import { createMemo, createSignal, For, Show, Switch, Match, type Component } from "solid-js";
 import { useResearch } from "../../stores/research";
+import { useAI } from "../../stores/ai";
 
 export const ResearchDesk: Component = () => {
   const research = useResearch();
+  const ai = useAI();
   const state = research.state;
   const [draftQuery, setDraftQuery] = createSignal("");
+  const [briefReply, setBriefReply] = createSignal("");
   const [startError, setStartError] = createSignal<string | null>(null);
   const [isStarting, setIsStarting] = createSignal(false);
+  const [researchMessageStart, setResearchMessageStart] = createSignal(0);
+  const researchMessages = createMemo(() =>
+    ai.messages()
+      .slice(researchMessageStart())
+      .filter(
+        (message) =>
+          !message.content.startsWith("Research topic:") &&
+          !message.content.startsWith("The Research Desk brief is confirmed."),
+      ),
+  );
 
   async function handleStartResearch(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -24,13 +37,38 @@ export const ResearchDesk: Component = () => {
       if (!result.accepted) {
         setStartError(
           result.reason === "busy"
-            ? "Research Desk already has a brief in progress — switching views now."
+            ? "Research Desk already has a brief in progress."
             : "Could not start research. Please try again.",
         );
+        return;
       }
+
+      setResearchMessageStart(ai.messages().length);
+      await ai.query(
+        `Research topic: ${query}\n\nStart the Research Desk briefing inside this Research tab. Ask one focused question to clarify scope before planning.`,
+      );
     } finally {
       setIsStarting(false);
     }
+  }
+
+  async function handleBriefReply(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    const reply = briefReply().trim();
+    if (!reply || ai.isStreaming()) return;
+    setBriefReply("");
+    await ai.query(reply);
+  }
+
+  async function handleConfirmBrief(): Promise<void> {
+    const result = await research.confirmBrief();
+    if (!result.accepted && result.reason === "premium") {
+      void window.vessel.premium.checkout();
+      return;
+    }
+    await ai.query(
+      "The Research Desk brief is confirmed. Produce the Research Objectives JSON now.",
+    );
   }
 
   return (
@@ -108,31 +146,84 @@ export const ResearchDesk: Component = () => {
         </Match>
 
         <Match when={state().phase === "briefing"}>
-          <div class="research-phase">
-            <h3>Briefing</h3>
-            <p>Answer the questions in the Chat tab to refine your research question.</p>
-            <div class="phase-controls">
-              <button
-                onClick={async () => {
-                  const result = await research.confirmBrief();
-                  if (!result.accepted && result.reason === "premium") {
-                    void window.vessel.premium.checkout();
-                  }
-                }}
-              >
-                Confirm Brief
-              </button>
-              <button class="secondary" onClick={() => research.cancel()}>
-                Cancel
-              </button>
+          <div class="research-phase research-briefing-panel">
+            <div>
+              <h3>Briefing</h3>
+              <p>
+                Keep the whole setup here. Answer the captain's questions, then
+                confirm when the scope feels right.
+              </p>
             </div>
+
+            <div class="research-brief-summary">
+              <span>Original topic</span>
+              <p>{state().originalQuery}</p>
+            </div>
+
+            <div class="research-chat-window" aria-live="polite">
+              <For each={researchMessages()}>
+                {(message) => (
+                  <div class={`research-chat-message ${message.role}`}>
+                    <span>{message.role === "user" ? "You" : "Research Captain"}</span>
+                    <p>{message.content}</p>
+                  </div>
+                )}
+              </For>
+              <Show when={ai.isStreaming() || ai.streamingText()}>
+                <div class="research-chat-message assistant streaming">
+                  <span>Research Captain</span>
+                  <p>{ai.streamingText() || "Thinking…"}</p>
+                </div>
+              </Show>
+            </div>
+
+            <form class="research-brief-reply" onSubmit={handleBriefReply}>
+              <textarea
+                value={briefReply()}
+                rows={3}
+                placeholder="Reply with constraints, preferred sources, audience, or what a good answer should include…"
+                onInput={(event) => setBriefReply(event.currentTarget.value)}
+              />
+              <div class="phase-controls">
+                <button type="submit" disabled={ai.isStreaming() || !briefReply().trim()}>
+                  Send Reply
+                </button>
+                <button
+                  type="button"
+                  class="research-confirm-btn"
+                  disabled={ai.isStreaming()}
+                  onClick={handleConfirmBrief}
+                >
+                  Confirm Brief
+                </button>
+                <button type="button" class="secondary" onClick={() => research.cancel()}>
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </Match>
 
         <Match when={state().phase === "planning"}>
-          <div class="research-phase">
+          <div class="research-phase research-briefing-panel">
             <h3>Planning Research</h3>
             <p>Creating Research Objectives based on your brief...</p>
+            <div class="research-chat-window" aria-live="polite">
+              <For each={researchMessages()}>
+                {(message) => (
+                  <div class={`research-chat-message ${message.role}`}>
+                    <span>{message.role === "user" ? "You" : "Research Captain"}</span>
+                    <p>{message.content}</p>
+                  </div>
+                )}
+              </For>
+              <Show when={ai.isStreaming() || ai.streamingText()}>
+                <div class="research-chat-message assistant streaming">
+                  <span>Research Captain</span>
+                  <p>{ai.streamingText() || "Drafting objectives…"}</p>
+                </div>
+              </Show>
+            </div>
           </div>
         </Match>
 
