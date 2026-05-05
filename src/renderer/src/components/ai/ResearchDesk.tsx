@@ -10,24 +10,50 @@ export const ResearchDesk: Component = () => {
       <Switch>
         <Match when={state().phase === "idle"}>
           <div class="research-idle">
-            <h3>Research Desk</h3>
-            <p>Deep research with parallel sub-agents. I'll interview you to refine your question, then spawn agents to investigate multiple angles simultaneously. Every claim in the final report is source-anchored.</p>
-            <Show when={!research.isPremium()}>
-              <div class="research-premium-notice">
-                <span class="premium-badge">Premium</span>
-                {" "}Brief is free; full research and export require Vessel Premium.
+            <div class="research-hero-card">
+              <div class="research-kicker">Research Desk</div>
+              <h3>Turn a question into a sourced brief.</h3>
+              <p class="research-hero-copy">
+                Vessel interviews you to sharpen the scope, then sends parallel
+                agents to investigate each angle. The final report comes back
+                with citations, contradictions, gaps, and an export-ready source
+                index.
+              </p>
+
+              <div class="research-feature-grid" aria-label="Research Desk workflow">
+                <div class="research-feature-pill">
+                  <span>01</span>
+                  Briefing questions
+                </div>
+                <div class="research-feature-pill">
+                  <span>02</span>
+                  Parallel sub-agents
+                </div>
+                <div class="research-feature-pill">
+                  <span>03</span>
+                  Source-anchored report
+                </div>
               </div>
-            </Show>
-            <button
-              class="research-start-btn"
-              onClick={async () => {
-                await research.startBrief(
-                  prompt("What would you like to research?") ?? "",
-                );
-              }}
-            >
-              Start Research
-            </button>
+
+              <Show when={!research.isPremium()}>
+                <div class="research-premium-notice">
+                  <span class="premium-badge">Premium</span>
+                  <span>Briefing is free. Full research and export require Vessel Premium.</span>
+                </div>
+              </Show>
+
+              <button
+                class="research-start-btn"
+                onClick={async () => {
+                  await research.startBrief(
+                    prompt("What would you like to research?") ?? "",
+                  );
+                }}
+              >
+                <span class="research-start-btn-main">Start Research</span>
+                <span class="research-start-btn-sub">Build a scoped research brief</span>
+              </button>
+            </div>
           </div>
         </Match>
 
@@ -100,6 +126,7 @@ export const ResearchDesk: Component = () => {
 
                   <div class="phase-controls">
                     <button
+                      class="research-confirm-btn"
                       onClick={() =>
                         research.approveObjectives({
                           supervisionMode: state().supervisionMode,
@@ -107,7 +134,7 @@ export const ResearchDesk: Component = () => {
                         })
                       }
                     >
-                      Start Research
+                      Launch Research Agents
                     </button>
                     <button class="secondary" onClick={() => research.cancel()}>
                       Cancel
